@@ -325,6 +325,23 @@ describe('MarkdownParser', () => {
       expect(cards[2].directionality).toBe(Directionality.Unidirectional);
     });
 
+    it('should parse multi-line question', () => {
+      const content = [
+        'Transforma: "A mechanic repaired my car." (usa HAD)',
+        'I ________ ________ ________ ________.',
+        '?',
+        'I had my car repaired (by a mechanic).',
+        '*Causative: alguien lo hizo por ti.* <!--SR:!2026-03-12,1,222-->',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('Transforma: "A mechanic repaired my car." (usa HAD)\nI ________ ________ ________ ________.');
+      expect(cards[0].sideB).toContain('I had my car repaired');
+      expect(cards[0].sideB).toContain('Causative');
+    });
+
     it('should not treat ? inside a sentence as separator', () => {
       const content = '- What is DDD?::Domain-Driven Design';
       const cards = parser.parse(content, 'test.md');

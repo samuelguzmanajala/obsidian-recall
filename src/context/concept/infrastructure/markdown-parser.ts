@@ -69,10 +69,10 @@ export class MarkdownParser {
         continue;
       }
 
-      // Try multiline card: look ahead for a `?` separator line
-      const nextNonEmpty = this.findNextNonEmpty(lines, i + 1);
-      if (nextNonEmpty !== -1 && lines[nextNonEmpty].trim() === '?') {
-        const result = this.parseMultilineCard(lines, i, nextNonEmpty);
+      // Try multiline card: scan ahead for a `?` separator line
+      const separatorIdx = this.findSeparatorLine(lines, i + 1);
+      if (separatorIdx !== -1) {
+        const result = this.parseMultilineCard(lines, i, separatorIdx);
         if (result) {
           cards.push(result.card);
           i = result.nextIndex;
@@ -129,18 +129,6 @@ export class MarkdownParser {
         break;
       }
 
-      // Next `?` separator with content before it = start of next card (don't consume)
-      // But only if the previous line was non-empty (to avoid false positives)
-      if (answerEnd > separatorIndex + 1) {
-        const lookAhead = this.findNextNonEmpty(lines, answerEnd + 1);
-        if (trimmed === '?' || (lookAhead !== -1 && lines[lookAhead].trim() === '?')) {
-          // Check if this line is actually a question for the next card
-          if (lookAhead !== -1 && lines[lookAhead].trim() === '?' && trimmed !== '?') {
-            break;
-          }
-        }
-      }
-
       // Extract SR comment if present
       const srMatch = trimmed.match(SR_COMMENT_REGEX);
       if (srMatch) {
@@ -172,10 +160,18 @@ export class MarkdownParser {
     };
   }
 
-  private findNextNonEmpty(lines: string[], from: number): number {
-    // For multiline, the ? must be immediately the next line (no gaps)
-    if (from < lines.length) {
-      return from;
+  /**
+   * Scan forward from `from` looking for a line that is just `?`.
+   * Stops at empty lines, headings, or code blocks.
+   * Returns the index of the `?` line, or -1 if not found.
+   */
+  private findSeparatorLine(lines: string[], from: number): number {
+    for (let j = from; j < lines.length; j++) {
+      const trimmed = lines[j].trim();
+      if (trimmed === '?') return j;
+      if (trimmed === '') return -1;        // empty line = stop
+      if (trimmed.startsWith('#')) return -1; // heading = stop
+      if (trimmed.startsWith('```')) return -1; // code block = stop
     }
     return -1;
   }

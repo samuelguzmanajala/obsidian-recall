@@ -7,8 +7,8 @@ export class DeckBrowserView extends ItemView {
   private container: Container;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private lastHash = '';
-  /** Track collapsed state by deck id — survives re-renders */
-  private collapsedDecks = new Set<string>();
+  /** Track expanded state by deck id — collapsed by default */
+  private expandedDecks = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, container: Container) {
     super(leaf);
@@ -103,7 +103,7 @@ export class DeckBrowserView extends ItemView {
 
   private renderDeckNode(parent: HTMLElement, node: DeckTreeNode, depth: number): void {
     const hasChildren = node.children.length > 0;
-    const isCollapsed = this.collapsedDecks.has(node.id);
+    const isCollapsed = !this.expandedDecks.has(node.id);
 
     const wrapper = parent.createDiv({ cls: 'recall-deck-wrapper' });
 
@@ -122,10 +122,10 @@ export class DeckBrowserView extends ItemView {
       setIcon(toggle, isCollapsed ? 'chevron-right' : 'chevron-down');
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this.collapsedDecks.has(node.id)) {
-          this.collapsedDecks.delete(node.id);
+        if (this.expandedDecks.has(node.id)) {
+          this.expandedDecks.delete(node.id);
         } else {
-          this.collapsedDecks.add(node.id);
+          this.expandedDecks.add(node.id);
         }
         this.render();
       });

@@ -62,6 +62,20 @@ export class VaultSync {
   }
 
   /**
+   * Returns only the tags that match the allowed filter.
+   * e.g. note has [dev, kafka, German] and allowed is [dev, German]
+   * → returns [dev, German] (kafka excluded)
+   */
+  private filterToAllowedTags(noteTags: string[]): string[] {
+    if (this.allowedTags.length === 0) return noteTags;
+    return noteTags.filter(noteTag =>
+      this.allowedTags.some(allowed =>
+        noteTag === allowed || noteTag.startsWith(allowed + '/'),
+      ),
+    );
+  }
+
+  /**
    * Checks if a note's tags match the allowed filter.
    * A note tag "German/vocabulary" matches allowed tag "German".
    * Empty allowedTags = everything passes.
@@ -136,9 +150,10 @@ export class VaultSync {
 
     const previousKeys = new Set(previousIndex?.cardKeys.keys() ?? []);
 
-    // Ensure deck hierarchy exists for all tags
-    // Files without tags go to "Untagged" deck
-    const effectiveTags = tags.length > 0 ? tags : [VaultSync.UNTAGGED_DECK_TAG];
+    // Filter tags to only those matching the allowed filter
+    // Files without matching tags go to "Untagged" deck
+    const filteredTags = this.filterToAllowedTags(tags);
+    const effectiveTags = filteredTags.length > 0 ? filteredTags : [VaultSync.UNTAGGED_DECK_TAG];
     const leafDeckIds = await this.ensureDeckHierarchy(effectiveTags);
     newIndex.deckIds = leafDeckIds;
 

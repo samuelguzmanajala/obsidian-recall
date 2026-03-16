@@ -12,58 +12,58 @@
 
 ```
 obsidian-recall/
-├── context/                              # Bounded context — portable, no Obsidian dependency
-│   └── src/
+├── src/
+│   ├── context/                          # Bounded context — portable, no Obsidian dependency
+│   │   ├── concept/
+│   │   │   ├── domain/                   # Aggregate root, Side VO, repository port
+│   │   │   ├── application/              # Use cases: create, update, remove
+│   │   │   └── infrastructure/           # Markdown parser (ACL adapter)
+│   │   ├── study/
+│   │   │   ├── domain/                   # StudyItem aggregate, MemoryState VO, Rating VO
+│   │   │   ├── application/              # Use case: review
+│   │   │   └── infrastructure/           # FSRS scheduler adapter
+│   │   ├── deck/
+│   │   │   ├── domain/                   # Deck aggregate (hierarchical), repository port
+│   │   │   ├── application/              # Use cases: create, nest, remove
+│   │   │   └── infrastructure/           # Tag-based deck resolver
+│   │   ├── session/
+│   │   │   ├── domain/                   # Session aggregate, Review VO
+│   │   │   ├── application/              # Use cases: start, add review, end
+│   │   │   └── infrastructure/
+│   │   └── shared/
+│   │       └── domain/                   # Shared VOs if needed
+│   ├── app/                              # Obsidian-specific wiring
+│   │   ├── backend/
+│   │   │   ├── plugin.ts                 # Obsidian plugin lifecycle
+│   │   │   ├── container.ts              # Dependency injection / wiring
+│   │   │   └── vault-sync.ts             # Vault change listener → domain commands
+│   │   └── frontend/
+│   │       ├── review-modal.ts           # Review UI
+│   │       ├── deck-browser.ts           # Deck navigation
+│   │       ├── stats-view.ts             # Statistics panel
+│   │       └── settings-tab.ts           # Plugin settings
+│   └── main.ts                           # Entry point
+├── tests/                                # Mirror structure of src/
+│   └── context/
 │       ├── concept/
-│       │   ├── domain/                   # Aggregate root, Side VO, repository port
-│       │   ├── application/              # Use cases: create, update, remove
-│       │   └── infrastructure/           # Markdown parser (ACL adapter)
-│       ├── study/
-│       │   ├── domain/                   # StudyItem aggregate, MemoryState VO, Rating VO
-│       │   ├── application/              # Use case: review
-│       │   └── infrastructure/           # FSRS scheduler adapter
-│       ├── deck/
-│       │   ├── domain/                   # Deck aggregate (hierarchical), repository port
-│       │   ├── application/              # Use cases: create, nest, remove
-│       │   └── infrastructure/           # Tag-based deck resolver
-│       ├── session/
-│       │   ├── domain/                   # Session aggregate, Review VO
-│       │   ├── application/              # Use cases: start, add review, end
-│       │   └── infrastructure/
-│       └── shared/
-│           └── domain/                   # Shared VOs if needed
-├── app/                                  # Obsidian-specific wiring
-│   ├── backend/
-│   │   └── src/
-│   │       ├── plugin.ts                 # Obsidian plugin lifecycle
-│   │       ├── container.ts              # Dependency injection / wiring
-│   │       └── vault-sync.ts             # Vault change listener → domain commands
-│   └── frontend/
-│       └── src/
-│           ├── review-modal.ts           # Review UI
-│           ├── deck-browser.ts           # Deck navigation
-│           ├── stats-view.ts             # Statistics panel
-│           └── settings-tab.ts           # Plugin settings
-├── main.ts                               # Entry point
-├── docs/                                 # Project documentation
-│   ├── ubiquitous-language.md
-│   ├── domain-model.md
-│   └── architecture.md (this file)
-└── tests/                                # Mirror structure of context/
+│       │   └── domain/
+│       └── study/
+│           └── domain/
+└── docs/
 ```
 
 ## Separation of Concerns
 
-### context/
+### src/context/
 The bounded context. Pure domain logic + application services + infrastructure adapters per aggregate. **Does not depend on Obsidian.** Portable — if the project becomes a standalone app, this module moves as-is.
 
-### app/backend/
+### src/app/backend/
 Obsidian-specific orchestration. Wires the context to the Obsidian plugin lifecycle:
 - Listens to vault changes and triggers domain commands
 - Manages dependency injection
 - Handles plugin load/unload
 
-### app/frontend/
+### src/app/frontend/
 UI layer. Consumes read models from the context. Does not call aggregates directly — goes through application services or read projections.
 
 ## Data Flow

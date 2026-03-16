@@ -74,11 +74,16 @@
   flex-direction: column;
 }
 
+.recall-deck-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
 .recall-deck-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px;
+  padding: 6px 8px;
   border-radius: 6px;
   cursor: default;
   transition: background 120ms ease;
@@ -97,12 +102,53 @@
   font-size: 0.95em;
 }
 
-.recall-deck-name {
+.recall-deck-left {
+  display: flex;
+  align-items: center;
   flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.recall-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.recall-collapse-toggle:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.recall-collapse-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.recall-collapse-spacer {
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.recall-deck-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: 8px;
+}
+
+.recall-deck-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 
 .recall-deck-counts {
@@ -114,7 +160,6 @@
 }
 
 .recall-study-link {
-  margin-left: 8px;
   font-size: 0.8em;
   font-weight: 600;
   color: var(--interactive-accent);

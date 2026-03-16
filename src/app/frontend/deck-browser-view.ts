@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import { Container } from '@app/backend/container';
 import { DeckTreeNode } from '@context/deck/application/get-deck-tree';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
@@ -7,6 +7,8 @@ export class DeckBrowserView extends ItemView {
   private container: Container;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private lastHash = '';
+  /** Track collapsed state by deck id — survives re-renders */
+  private collapsedDecks = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, container: Container) {
     super(leaf);
@@ -27,7 +29,6 @@ export class DeckBrowserView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
-    // Auto-refresh every 5s — lightweight: only re-renders if data changed
     this.refreshInterval = setInterval(() => this.refreshIfChanged(), 5000);
   }
 
@@ -58,7 +59,6 @@ export class DeckBrowserView extends ItemView {
     const tree = await this.container.getDeckTree.execute();
     const stats = await this.container.getStudyStats.execute();
 
-    // Update hash for change detection
     this.lastHash = `${stats.dueNow}:${stats.newItems}:${stats.totalItems}:${stats.reviewsToday}`;
 
     // Header
@@ -74,7 +74,7 @@ export class DeckBrowserView extends ItemView {
     // Study all button
     if (stats.dueNow > 0) {
       const studyAllBtn = el.createEl('button', {
-        text: `Study all →`,
+        text: 'Study all →',
         cls: 'recall-study-all',
       });
       studyAllBtn.addEventListener('click', () => this.openReview());
@@ -102,17 +102,44 @@ export class DeckBrowserView extends ItemView {
   }
 
   private renderDeckNode(parent: HTMLElement, node: DeckTreeNode, depth: number): void {
-    const row = parent.createDiv({ cls: `recall-deck-row ${depth === 0 ? 'recall-deck-parent' : 'recall-deck-child'}` });
+    const hasChildren = node.children.length > 0;
+    const isCollapsed = this.collapsedDecks.has(node.id);
+
+    const wrapper = parent.createDiv({ cls: 'recall-deck-wrapper' });
+
+    const row = wrapper.createDiv({
+      cls: `recall-deck-row ${depth === 0 ? 'recall-deck-parent' : 'recall-deck-child'}`,
+    });
     if (depth > 0) {
       row.style.paddingLeft = `${depth * 20 + 8}px`;
     }
 
-    row.createSpan({
-      text: node.name,
-      cls: 'recall-deck-name',
-    });
+    // Left side: collapse toggle + name
+    const left = row.createDiv({ cls: 'recall-deck-left' });
 
-    const counts = row.createDiv({ cls: 'recall-deck-counts' });
+    if (hasChildren) {
+      const toggle = left.createSpan({ cls: 'recall-collapse-toggle' });
+      setIcon(toggle, isCollapsed ? 'chevron-right' : 'chevron-down');
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.collapsedDecks.has(node.id)) {
+          this.collapsedDecks.delete(node.id);
+        } else {
+          this.collapsedDecks.add(node.id);
+        }
+        this.render();
+      });
+    } else {
+      // Spacer to align names
+      left.createSpan({ cls: 'recall-collapse-spacer' });
+    }
+
+    left.createSpan({ text: node.name, cls: 'recall-deck-name' });
+
+    // Right side: counts + study button
+    const right = row.createDiv({ cls: 'recall-deck-right' });
+
+    const counts = right.createDiv({ cls: 'recall-deck-counts' });
     if (node.dueItems > 0) {
       counts.createSpan({ text: String(node.dueItems), cls: 'recall-count-due' });
     }
@@ -121,17 +148,20 @@ export class DeckBrowserView extends ItemView {
     }
     counts.createSpan({ text: String(node.totalItems), cls: 'recall-count-total' });
 
-    if (depth === 0 && node.dueItems > 0) {
-      const btn = row.createSpan({ text: 'Study →', cls: 'recall-study-link' });
+    // Study button on every level with due items
+    if (node.dueItems > 0) {
+      const btn = right.createSpan({ text: 'Study →', cls: 'recall-study-link' });
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this.openReview(node.id);
       });
     }
 
-    // Render children
-    for (const child of node.children) {
-      this.renderDeckNode(parent, child, depth + 1);
+    // Render children if not collapsed
+    if (hasChildren && !isCollapsed) {
+      for (const child of node.children) {
+        this.renderDeckNode(wrapper, child, depth + 1);
+      }
     }
   }
 

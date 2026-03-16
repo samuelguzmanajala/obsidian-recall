@@ -235,6 +235,26 @@
   flex-shrink: 0;
 }
 
+/* Card toolbar */
+.recall-card-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.recall-open-note {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.recall-open-note:hover {
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
 /* Card area */
 .recall-card-area {
   background: var(--background-secondary);

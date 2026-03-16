@@ -26,6 +26,7 @@ export default class RecallPlugin extends Plugin {
     });
     this.container.settings = this.settings;
     this.vaultSync = new VaultSync(this.container);
+    this.container.vaultSync = this.vaultSync;
 
     // Register views
     this.registerView(VIEW_TYPE_DECK_BROWSER, (leaf: WorkspaceLeaf) =>

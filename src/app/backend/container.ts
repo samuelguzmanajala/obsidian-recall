@@ -33,6 +33,7 @@ import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study
 import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { RecallSettings } from './settings';
+import type { VaultSync } from './vault-sync';
 
 export interface StorageFiles {
   concepts: JsonFilePort;
@@ -54,6 +55,9 @@ export class Container {
 
   // Settings (mutable — updated by plugin on save)
   settings: RecallSettings | null = null;
+
+  // VaultSync reference (set by plugin after construction)
+  vaultSync: VaultSync | null = null;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;

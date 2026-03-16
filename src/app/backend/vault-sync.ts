@@ -76,7 +76,18 @@ export class VaultSync {
   }
 
   /**
-   * Loads persisted sync state from storage.
+   * Find which file a concept belongs to. Returns null if not found.
+   */
+  findFileByConceptId(conceptId: string): string | null {
+    for (const [filePath, index] of this.fileIndices) {
+      for (const cid of index.cardKeys.values()) {
+        if (cid === conceptId) return filePath;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Must be called before the first syncFile to avoid duplicates on restart.
    */
   async initialize(): Promise<void> {

@@ -1,5 +1,6 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from 'obsidian';
 import { Container } from '@app/backend/container';
+import { ConceptId } from '@context/concept/domain/concept-id';
 import { DueStudyItemView } from '@context/study/application/study-item-view';
 import { Rating } from '@context/study/domain/rating';
 import { Direction } from '@context/study/domain/direction';
@@ -50,6 +51,36 @@ export class ReviewView extends ItemView {
   async onOpen(): Promise<void> {
     await this.loadItems();
     this.render();
+
+    // Re-render current card when switching back to this tab (after editing note)
+    this.registerEvent(
+      this.app.workspace.on('active-leaf-change', (leaf) => {
+        if (leaf === this.leaf) {
+          this.refreshCurrentCard();
+        }
+      }),
+    );
+  }
+
+  /**
+   * Refresh the current card's content from the repository
+   * (in case the user edited the source note).
+   */
+  private async refreshCurrentCard(): Promise<void> {
+    if (this.items.length === 0 || this.currentIndex >= this.items.length) return;
+
+    const item = this.items[this.currentIndex];
+    const concept = await this.container.conceptRepository.findById(
+      new ConceptId(item.conceptId),
+    );
+    if (!concept) return;
+
+    // Update the view data if content changed
+    if (concept.sideA.content !== item.sideA || concept.sideB.content !== item.sideB) {
+      item.sideA = concept.sideA.content;
+      item.sideB = concept.sideB.content;
+      this.render();
+    }
   }
 
   private async loadItems(): Promise<void> {
@@ -122,6 +153,11 @@ export class ReviewView extends ItemView {
       text: `${this.totalCount - this.items.length + this.currentIndex + 1}/${this.totalCount}`,
       cls: 'recall-progress-text',
     });
+
+    // Card toolbar
+    const toolbar = el.createDiv({ cls: 'recall-card-toolbar' });
+    const openNoteBtn = toolbar.createSpan({ text: '📝 Open note', cls: 'recall-open-note' });
+    openNoteBtn.addEventListener('click', () => this.openSourceNote(item.conceptId));
 
     // Card area
     const cardArea = el.createDiv({ cls: 'recall-card-area' });
@@ -220,6 +256,17 @@ export class ReviewView extends ItemView {
       cls: 'recall-back-link',
     });
     backBtn.addEventListener('click', () => this.goBack());
+  }
+
+  private async openSourceNote(conceptId: string): Promise<void> {
+    const filePath = this.container.vaultSync?.findFileByConceptId(conceptId);
+    if (!filePath) return;
+
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (!file) return;
+
+    const leaf = this.app.workspace.getLeaf('tab');
+    await leaf.openFile(file as any);
   }
 
   private goBack(): void {

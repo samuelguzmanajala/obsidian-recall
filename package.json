@@ -4,8 +4,8 @@
   "description": "Modern spaced repetition plugin for Obsidian, powered by FSRS",
   "main": "main.js",
   "scripts": {
-    "dev": "esbuild src/main.ts --bundle --outfile=main.js --external:obsidian --format=cjs --watch",
-    "build": "esbuild src/main.ts --bundle --outfile=main.js --external:obsidian --format=cjs --minify",
+    "dev": "esbuild main.ts --bundle --outfile=main.js --external:obsidian --format=cjs --watch",
+    "build": "esbuild main.ts --bundle --outfile=main.js --external:obsidian --format=cjs --minify",
     "test": "vitest",
     "test:run": "vitest run"
   },

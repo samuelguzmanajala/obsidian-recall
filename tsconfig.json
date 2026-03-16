@@ -3,6 +3,7 @@
     "baseUrl": ".",
     "paths": {
       "@context/*": ["src/context/*"],
+      "@app/*": ["src/app/*"],
       "@backend/*": ["src/app/backend/*"],
       "@frontend/*": ["src/app/frontend/*"]
     },

@@ -5,14 +5,18 @@ import { VaultSync } from './vault-sync';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from '@app/frontend/constants';
+import { RecallSettings, DEFAULT_SETTINGS, RecallSettingTab } from './settings';
 
 export default class RecallPlugin extends Plugin {
   container!: Container;
   vaultSync!: VaultSync;
+  settings!: RecallSettings;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly DEBOUNCE_MS = 500;
 
   async onload(): Promise<void> {
+    await this.loadSettings();
+
     this.container = new Container({
       concepts: createObsidianFilePort(this.app, 'concepts.json'),
       studyItems: createObsidianFilePort(this.app, 'study-items.json'),
@@ -49,6 +53,12 @@ export default class RecallPlugin extends Plugin {
       callback: () => this.openReview(),
     });
 
+    // Settings tab
+    this.addSettingTab(new RecallSettingTab(this.app, this));
+
+    // Pass settings to VaultSync for tag filtering
+    this.vaultSync.setAllowedTags(this.settings.flashcardTags);
+
     await this.vaultSync.initialize();
     await this.initialSync();
 
@@ -82,6 +92,23 @@ export default class RecallPlugin extends Plugin {
     );
 
     console.log('Recall plugin loaded');
+  }
+
+  async loadSettings(): Promise<void> {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.settings);
+    // Update VaultSync filter and re-sync
+    this.vaultSync.setAllowedTags(this.settings.flashcardTags);
+    await this.initialSync();
+    // Refresh deck browser if open
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
+    for (const leaf of leaves) {
+      const view = leaf.view as DeckBrowserView;
+      if (view.render) await view.render();
+    }
   }
 
   private async activateDeckBrowser(): Promise<void> {

@@ -29,7 +29,32 @@ export class VaultSync {
 
   private batchMode = false;
 
+  /** Tags the user configured in settings. Empty = allow all. */
+  private allowedTags: string[] = [];
+
   constructor(private readonly container: Container) {}
+
+  /**
+   * Set which tags are allowed. Only notes with at least one matching tag
+   * (or subtag) will be indexed. Empty array = index everything.
+   */
+  setAllowedTags(tags: string[]): void {
+    this.allowedTags = tags;
+  }
+
+  /**
+   * Checks if a note's tags match the allowed filter.
+   * A note tag "German/vocabulary" matches allowed tag "German".
+   * Empty allowedTags = everything passes.
+   */
+  private matchesTagFilter(noteTags: string[]): boolean {
+    if (this.allowedTags.length === 0) return true;
+    return noteTags.some(noteTag =>
+      this.allowedTags.some(allowed =>
+        noteTag === allowed || noteTag.startsWith(allowed + '/'),
+      ),
+    );
+  }
 
   /**
    * Loads persisted sync state from storage.
@@ -56,6 +81,15 @@ export class VaultSync {
   async syncFile(filePath: string, content: string): Promise<void> {
     const parsedCards = this.container.parser.parse(content, filePath);
     const tags = this.frontmatterParser.extractTags(content);
+
+    // If tag filter is active and note doesn't match, treat as removal
+    if (!this.matchesTagFilter(tags)) {
+      if (this.fileIndices.has(filePath)) {
+        await this.removeFile(filePath);
+      }
+      return;
+    }
+
     const previousIndex = this.fileIndices.get(filePath);
     const newIndex: FileIndex = { cardKeys: new Map(), studyItemIds: [], deckIds: [] };
 

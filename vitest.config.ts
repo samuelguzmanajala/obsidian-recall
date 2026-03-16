@@ -4,9 +4,9 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@context': path.resolve(__dirname, 'context/src'),
-      '@backend': path.resolve(__dirname, 'app/backend/src'),
-      '@frontend': path.resolve(__dirname, 'app/frontend/src'),
+      '@context': path.resolve(__dirname, 'src/context'),
+      '@backend': path.resolve(__dirname, 'src/app/backend'),
+      '@frontend': path.resolve(__dirname, 'src/app/frontend'),
     },
   },
   test: {

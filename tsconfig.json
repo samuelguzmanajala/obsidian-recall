@@ -2,9 +2,9 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@context/*": ["context/src/*"],
-      "@backend/*": ["app/backend/src/*"],
-      "@frontend/*": ["app/frontend/src/*"]
+      "@context/*": ["src/context/*"],
+      "@backend/*": ["src/app/backend/*"],
+      "@frontend/*": ["src/app/frontend/*"]
     },
     "target": "ES2022",
     "module": "ESNext",
@@ -22,6 +22,6 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true
   },
-  "include": ["context/**/*.ts", "app/**/*.ts", "main.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

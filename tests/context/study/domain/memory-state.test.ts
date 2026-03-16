@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { MemoryState } from '../memory-state';
+import { MemoryState } from '@context/study/domain/memory-state';
 
 describe('MemoryState', () => {
   it('should create an initial state', () => {

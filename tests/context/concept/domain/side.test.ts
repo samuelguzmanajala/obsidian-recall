@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Side } from '../side';
+import { Side } from '@context/concept/domain/side';
 
 describe('Side', () => {
   it('should create a side with markdown content', () => {

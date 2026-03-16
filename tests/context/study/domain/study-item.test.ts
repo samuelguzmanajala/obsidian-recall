@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { StudyItem } from '../study-item';
-import { StudyItemId } from '../study-item-id';
+import { StudyItem } from '@context/study/domain/study-item';
+import { StudyItemId } from '@context/study/domain/study-item-id';
 import { ConceptId } from '@context/concept/domain/concept-id';
-import { Direction } from '../direction';
-import { Rating } from '../rating';
-import { MemoryState } from '../memory-state';
-import { Scheduler } from '../scheduler';
+import { Direction } from '@context/study/domain/direction';
+import { Rating } from '@context/study/domain/rating';
+import { MemoryState } from '@context/study/domain/memory-state';
+import { Scheduler } from '@context/study/domain/scheduler';
 
 const fakeScheduler: Scheduler = {
   schedule(currentState: MemoryState, rating: Rating, now: Date): MemoryState {

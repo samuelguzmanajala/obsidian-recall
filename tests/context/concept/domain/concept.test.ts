@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { Concept } from '../concept';
-import { ConceptId } from '../concept-id';
-import { Side } from '../side';
-import { Directionality } from '../directionality';
+import { Concept } from '@context/concept/domain/concept';
+import { ConceptId } from '@context/concept/domain/concept-id';
+import { Side } from '@context/concept/domain/side';
+import { Directionality } from '@context/concept/domain/directionality';
 
 describe('Concept', () => {
   const id = new ConceptId('concept-1');

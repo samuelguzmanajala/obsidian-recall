@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Review } from '@context/session/domain/review';
+import { Review } from '@context/study/domain/review';
 import { StudyItemId } from '@context/study/domain/study-item-id';
 import { Rating } from '@context/study/domain/rating';
 

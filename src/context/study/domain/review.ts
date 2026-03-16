@@ -1,5 +1,5 @@
-import { StudyItemId } from '@context/study/domain/study-item-id';
-import { Rating } from '@context/study/domain/rating';
+import { StudyItemId } from './study-item-id';
+import { Rating } from './rating';
 
 export class Review {
   constructor(

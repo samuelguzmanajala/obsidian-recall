@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { ItemView, MarkdownRenderer, WorkspaceLeaf } from 'obsidian';
 import { Container } from '@app/backend/container';
 import { DueStudyItemView } from '@context/study/application/study-item-view';
 import { Rating } from '@context/study/domain/rating';
@@ -87,7 +87,7 @@ export class ReviewView extends ItemView {
     return null;
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-review');
@@ -133,7 +133,8 @@ export class ReviewView extends ItemView {
     // Question
     const questionSection = cardArea.createDiv({ cls: 'recall-card-section' });
     questionSection.createDiv({ text: 'Q', cls: 'recall-card-label' });
-    questionSection.createDiv({ text: question, cls: 'recall-card-text' });
+    const questionText = questionSection.createDiv({ cls: 'recall-card-text' });
+    await MarkdownRenderer.render(this.app, question, questionText, '', this);
 
     if (this.answerRevealed) {
       // Divider
@@ -142,7 +143,8 @@ export class ReviewView extends ItemView {
       // Answer
       const answerSection = cardArea.createDiv({ cls: 'recall-card-section' });
       answerSection.createDiv({ text: 'A', cls: 'recall-card-label recall-label-answer' });
-      answerSection.createDiv({ text: answer, cls: 'recall-card-text recall-text-answer' });
+      const answerText = answerSection.createDiv({ cls: 'recall-card-text recall-text-answer' });
+      await MarkdownRenderer.render(this.app, answer, answerText, '', this);
 
       // Rating buttons
       this.renderRatingButtons(el, item);

@@ -204,4 +204,133 @@ describe('MarkdownParser', () => {
       expect(cards).toHaveLength(3);
     });
   });
+
+  describe('multiline cards (?)', () => {
+    it('should parse a simple multiline card', () => {
+      const content = [
+        '¿Con qué pregunta identificas el NOMINATIV?',
+        '?',
+        '**¿Quién?** (Wer?) — el que hace la acción.',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('¿Con qué pregunta identificas el NOMINATIV?');
+      expect(cards[0].sideB).toBe('**¿Quién?** (Wer?) — el que hace la acción.');
+      expect(cards[0].directionality).toBe(Directionality.Unidirectional);
+    });
+
+    it('should parse multiline answer with multiple lines', () => {
+      const content = [
+        '¿Qué artículo cambia de Nominativ a Akkusativ?',
+        '?',
+        'Solo el **masculino**: **der → den**',
+        '(die y das NO cambian)',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideB).toBe('Solo el **masculino**: **der → den**\n(die y das NO cambian)');
+    });
+
+    it('should parse multiline card with SR comment', () => {
+      const content = [
+        '¿Con qué pregunta identificas el DATIV?',
+        '?',
+        '**¿A quién?** (Wem?) — a quién le das/dices algo.',
+        'Ich gebe dem Mann das Buch. → ¿A quién le doy? → Dem Mann <!--SR:!2026-04-16,36,241-->',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('¿Con qué pregunta identificas el DATIV?');
+      expect(cards[0].sideB).toContain('**¿A quién?**');
+      expect(cards[0].sideB).toContain('Dem Mann');
+      expect(cards[0].sideB).not.toContain('<!--SR:');
+      expect(cards[0].schedulingMetadata).toBeDefined();
+      expect(cards[0].schedulingMetadata!.aToB!.due).toBe('2026-04-16');
+    });
+
+    it('should parse consecutive multiline cards separated by empty lines', () => {
+      const content = [
+        '¿Pregunta 1?',
+        '?',
+        'Respuesta 1',
+        '',
+        '¿Pregunta 2?',
+        '?',
+        'Respuesta 2',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(2);
+      expect(cards[0].sideA).toBe('¿Pregunta 1?');
+      expect(cards[0].sideB).toBe('Respuesta 1');
+      expect(cards[1].sideA).toBe('¿Pregunta 2?');
+      expect(cards[1].sideB).toBe('Respuesta 2');
+    });
+
+    it('should stop answer at heading', () => {
+      const content = [
+        'Question',
+        '?',
+        'Answer line 1',
+        'Answer line 2',
+        '# Next Section',
+        'Not an answer',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideB).toBe('Answer line 1\nAnswer line 2');
+    });
+
+    it('should parse fill-in-the-blank multiline cards', () => {
+      const content = [
+        'Ich fahre **mit** `___` Auto. (das Auto → Dativ neutro)',
+        '?',
+        'Ich fahre **mit dem** Auto.',
+        '*mit + Dativ → das → dem* <!--SR:!2026-03-14,2,215-->',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toContain('`___`');
+      expect(cards[0].sideB).toContain('**mit dem**');
+    });
+
+    it('should mix inline and multiline cards', () => {
+      const content = [
+        '- Hund:::Dog',
+        '',
+        '¿Qué es DDD?',
+        '?',
+        'Domain-Driven Design',
+        '',
+        '- Cat::Gato',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(3);
+      expect(cards[0].directionality).toBe(Directionality.Bidirectional);
+      expect(cards[1].directionality).toBe(Directionality.Unidirectional);
+      expect(cards[1].sideA).toBe('¿Qué es DDD?');
+      expect(cards[2].directionality).toBe(Directionality.Unidirectional);
+    });
+
+    it('should not treat ? inside a sentence as separator', () => {
+      const content = '- What is DDD?::Domain-Driven Design';
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('What is DDD?');
+    });
+  });
 });

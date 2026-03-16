@@ -25,42 +25,162 @@ export class MarkdownParser {
     let inCodeBlock = false;
     let inFrontmatter = false;
 
-    for (let i = 0; i < lines.length; i++) {
+    let i = 0;
+    while (i < lines.length) {
       const line = lines[i];
       const trimmed = line.trim();
 
       // Track YAML frontmatter (only at the very start of the file)
       if (i === 0 && trimmed === '---') {
         inFrontmatter = true;
+        i++;
         continue;
       }
       if (inFrontmatter) {
         if (trimmed === '---') {
           inFrontmatter = false;
         }
+        i++;
         continue;
       }
 
       // Toggle code block state on fenced code markers
       if (line.trimStart().startsWith('```')) {
         inCodeBlock = !inCodeBlock;
+        i++;
         continue;
       }
 
-      if (inCodeBlock) continue;
-
-      if (!trimmed) continue;
-
-      const card = this.parseLine(trimmed, i + 1);
-      if (card) {
-        cards.push(card);
+      if (inCodeBlock) {
+        i++;
+        continue;
       }
+
+      if (!trimmed) {
+        i++;
+        continue;
+      }
+
+      // Try inline card first (:: or :::)
+      const inlineCard = this.parseInlineLine(trimmed, i + 1);
+      if (inlineCard) {
+        cards.push(inlineCard);
+        i++;
+        continue;
+      }
+
+      // Try multiline card: look ahead for a `?` separator line
+      const nextNonEmpty = this.findNextNonEmpty(lines, i + 1);
+      if (nextNonEmpty !== -1 && lines[nextNonEmpty].trim() === '?') {
+        const result = this.parseMultilineCard(lines, i, nextNonEmpty);
+        if (result) {
+          cards.push(result.card);
+          i = result.nextIndex;
+          continue;
+        }
+      }
+
+      i++;
     }
 
     return cards;
   }
 
-  private parseLine(line: string, lineNumber: number): ParsedCard | null {
+  /**
+   * Parse a multiline card starting from questionStart.
+   * Format:
+   *   Question line(s)
+   *   ?
+   *   Answer line(s)  <!--SR:!date,interval,ease-->
+   *
+   * Answer ends at: empty line, next heading (#), or end of file.
+   */
+  private parseMultilineCard(
+    lines: string[],
+    questionStart: number,
+    separatorIndex: number,
+  ): { card: ParsedCard; nextIndex: number } | null {
+    // Collect question lines (from questionStart to separatorIndex - 1)
+    const questionLines: string[] = [];
+    for (let i = questionStart; i < separatorIndex; i++) {
+      const line = lines[i].trim();
+      if (line) questionLines.push(line);
+    }
+
+    if (questionLines.length === 0) return null;
+
+    // Collect answer lines (from separatorIndex + 1 until empty line, heading, or EOF)
+    const answerLines: string[] = [];
+    let answerEnd = separatorIndex + 1;
+    let schedulingMetadata: ParsedSchedulingMetadata | undefined;
+
+    while (answerEnd < lines.length) {
+      const line = lines[answerEnd];
+      const trimmed = line.trim();
+
+      // Empty line = end of card
+      if (!trimmed) {
+        answerEnd++;
+        break;
+      }
+
+      // Next heading = end of card (don't consume it)
+      if (trimmed.startsWith('#')) {
+        break;
+      }
+
+      // Next `?` separator with content before it = start of next card (don't consume)
+      // But only if the previous line was non-empty (to avoid false positives)
+      if (answerEnd > separatorIndex + 1) {
+        const lookAhead = this.findNextNonEmpty(lines, answerEnd + 1);
+        if (trimmed === '?' || (lookAhead !== -1 && lines[lookAhead].trim() === '?')) {
+          // Check if this line is actually a question for the next card
+          if (lookAhead !== -1 && lines[lookAhead].trim() === '?' && trimmed !== '?') {
+            break;
+          }
+        }
+      }
+
+      // Extract SR comment if present
+      const srMatch = trimmed.match(SR_COMMENT_REGEX);
+      if (srMatch) {
+        schedulingMetadata = this.extractSchedulingMetadata(trimmed);
+        const cleanLine = trimmed.replace(SR_COMMENT_REGEX, '').trim();
+        if (cleanLine) answerLines.push(cleanLine);
+        answerEnd++;
+        break; // SR comment is always last
+      }
+
+      answerLines.push(trimmed);
+      answerEnd++;
+    }
+
+    if (answerLines.length === 0) return null;
+
+    const sideA = questionLines.join('\n');
+    const sideB = answerLines.join('\n');
+
+    return {
+      card: {
+        sideA,
+        sideB,
+        directionality: Directionality.Unidirectional,
+        lineNumber: questionStart + 1,
+        schedulingMetadata,
+      },
+      nextIndex: answerEnd,
+    };
+  }
+
+  private findNextNonEmpty(lines: string[], from: number): number {
+    // For multiline, the ? must be immediately the next line (no gaps)
+    if (from < lines.length) {
+      return from;
+    }
+    return -1;
+  }
+
+  private parseInlineLine(line: string, lineNumber: number): ParsedCard | null {
     // Remove list markers (- or *)
     let content = line.replace(/^[-*]\s+/, '');
 

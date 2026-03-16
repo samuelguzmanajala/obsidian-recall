@@ -27,6 +27,10 @@ import { RemoveDeck } from '@context/deck/application/remove-deck';
 import { AddStudyItemToDeck } from '@context/deck/application/add-study-item-to-deck';
 import { RemoveStudyItemFromDeck } from '@context/deck/application/remove-study-item-from-deck';
 
+// Queries
+import { GetDueStudyItems } from '@context/study/application/get-due-study-items';
+import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study-items-by-deck';
+
 export class Container {
   // Repositories
   readonly conceptRepository: JsonConceptRepository;
@@ -54,6 +58,10 @@ export class Container {
   readonly removeDeck: RemoveDeck;
   readonly addStudyItemToDeck: AddStudyItemToDeck;
   readonly removeStudyItemFromDeck: RemoveStudyItemFromDeck;
+
+  // Queries
+  readonly getDueStudyItems: GetDueStudyItems;
+  readonly getDueStudyItemsByDeck: GetDueStudyItemsByDeck;
 
   constructor(storage: JsonStoragePort) {
     // Infrastructure
@@ -84,5 +92,13 @@ export class Container {
     this.removeDeck = new RemoveDeck(this.deckRepository);
     this.addStudyItemToDeck = new AddStudyItemToDeck(this.deckRepository);
     this.removeStudyItemFromDeck = new RemoveStudyItemFromDeck(this.deckRepository);
+
+    // Queries
+    this.getDueStudyItems = new GetDueStudyItems(this.studyItemRepository, this.conceptRepository);
+    this.getDueStudyItemsByDeck = new GetDueStudyItemsByDeck(
+      this.studyItemRepository,
+      this.conceptRepository,
+      this.deckRepository,
+    );
   }
 }

@@ -26,7 +26,6 @@ describe('VaultSync', () => {
     const concepts = await container.conceptRepository.findAll();
     expect(concepts).toHaveLength(2);
 
-    // Bidirectional → 2 study items per concept = 4 total
     const data = await storage.load();
     expect(Object.keys(data.studyItems)).toHaveLength(4);
   });
@@ -63,7 +62,7 @@ describe('VaultSync', () => {
     expect(concepts[0].sideA.content).toBe('Aber');
 
     const data = await storage.load();
-    expect(Object.keys(data.studyItems)).toHaveLength(2); // 1 bidirectional = 2 study items
+    expect(Object.keys(data.studyItems)).toHaveLength(2);
   });
 
   it('should remove all concepts when file is deleted', async () => {
@@ -86,5 +85,63 @@ describe('VaultSync', () => {
 
     const concepts = await container.conceptRepository.findAll();
     expect(concepts).toHaveLength(0);
+  });
+
+  describe('tag-based decks', () => {
+    it('should create deck hierarchy from tags', async () => {
+      const content = `---
+tags:
+  - German
+  - German/grammar
+---
+- Aber:::Pero`;
+
+      await sync.syncFile('grammar.md', content);
+
+      const decks = await container.deckRepository.findAll();
+      expect(decks).toHaveLength(2);
+
+      const roots = await container.deckRepository.findRoots();
+      expect(roots).toHaveLength(1);
+      expect(roots[0].name).toBe('German');
+    });
+
+    it('should assign study items to leaf decks', async () => {
+      const content = `---
+tags:
+  - German/vocabulary
+---
+- Aber:::Pero`;
+
+      await sync.syncFile('vocab.md', content);
+
+      const decks = await container.deckRepository.findAll();
+      const vocabDeck = decks.find(d => d.name === 'vocabulary');
+      expect(vocabDeck).toBeDefined();
+      expect(vocabDeck!.studyItemIds).toHaveLength(2); // bidirectional = 2
+    });
+
+    it('should not duplicate decks across files with same tag', async () => {
+      const content1 = `---
+tags:
+  - German/vocabulary
+---
+- Aber:::Pero`;
+
+      const content2 = `---
+tags:
+  - German/vocabulary
+---
+- Arbeiten:::Trabajar`;
+
+      await sync.syncFile('vocab1.md', content1);
+      await sync.syncFile('vocab2.md', content2);
+
+      const decks = await container.deckRepository.findAll();
+      expect(decks).toHaveLength(2); // German + vocabulary
+
+      const vocabDeck = decks.find(d => d.name === 'vocabulary');
+      expect(vocabDeck!.studyItemIds).toHaveLength(4); // 2 cards × 2 directions
+    });
   });
 });

@@ -3,7 +3,8 @@ import { ParsedCard } from '@context/concept/infrastructure/markdown-parser';
 import { FrontmatterParser } from '@context/concept/infrastructure/frontmatter-parser';
 import { Directionality } from '@context/concept/domain/directionality';
 import { Direction } from '@context/study/domain/direction';
-import { DeckId } from '@context/deck/domain/deck-id';
+import { ConceptId } from '@context/concept/domain/concept-id';
+import { SerializedSyncState } from '@context/shared/infrastructure/json-storage';
 
 /**
  * Tracks which concepts came from which file, so we can
@@ -24,7 +25,33 @@ export class VaultSync {
   /** tag → deckId — ensures same tag always maps to same deck */
   private tagToDeckId = new Map<string, string>();
 
+  private static readonly UNTAGGED_DECK_TAG = '__untagged__';
+
+  private batchMode = false;
+
   constructor(private readonly container: Container) {}
+
+  /**
+   * Loads persisted sync state from storage.
+   * Must be called before the first syncFile to avoid duplicates on restart.
+   */
+  async initialize(): Promise<void> {
+    const state = await this.container.syncStateFile.read<SerializedSyncState>();
+    if (!state) return;
+
+    for (const [tag, deckId] of Object.entries(state.tagToDeckId)) {
+      this.tagToDeckId.set(tag, deckId);
+    }
+
+    for (const [filePath, serialized] of Object.entries(state.fileIndices)) {
+      const index: FileIndex = {
+        cardKeys: new Map(Object.entries(serialized.cardKeys)),
+        studyItemIds: serialized.studyItemIds,
+        deckIds: serialized.deckIds,
+      };
+      this.fileIndices.set(filePath, index);
+    }
+  }
 
   async syncFile(filePath: string, content: string): Promise<void> {
     const parsedCards = this.container.parser.parse(content, filePath);
@@ -35,8 +62,15 @@ export class VaultSync {
     const previousKeys = new Set(previousIndex?.cardKeys.keys() ?? []);
 
     // Ensure deck hierarchy exists for all tags
-    const leafDeckIds = await this.ensureDeckHierarchy(tags);
+    // Files without tags go to "Untagged" deck
+    const effectiveTags = tags.length > 0 ? tags : [VaultSync.UNTAGGED_DECK_TAG];
+    const leafDeckIds = await this.ensureDeckHierarchy(effectiveTags);
     newIndex.deckIds = leafDeckIds;
+
+    // Detect if deck assignments changed (tags were modified)
+    const decksChanged = previousIndex
+      ? !this.sameArrays(previousIndex.deckIds, leafDeckIds)
+      : false;
 
     for (const card of parsedCards) {
       const key = this.cardKey(card);
@@ -46,6 +80,42 @@ export class VaultSync {
         const conceptId = previousIndex.cardKeys.get(key)!;
         newIndex.cardKeys.set(key, conceptId);
         previousKeys.delete(key);
+
+        // If tags changed, reassign study items to new decks
+        if (decksChanged) {
+          const studyItems = await this.container.studyItemRepository.findByConceptId(
+            new ConceptId(conceptId),
+          );
+          const siIds = studyItems.map(si => si.id.value);
+
+          // Remove from old decks
+          for (const oldDeckId of previousIndex!.deckIds) {
+            for (const siId of siIds) {
+              await this.container.removeStudyItemFromDeck.execute({
+                deckId: oldDeckId,
+                studyItemId: siId,
+              });
+            }
+          }
+
+          // Add to new decks
+          for (const deckId of leafDeckIds) {
+            for (const siId of siIds) {
+              await this.container.addStudyItemToDeck.execute({
+                deckId,
+                studyItemId: siId,
+              });
+            }
+          }
+
+          newIndex.studyItemIds.push(...siIds);
+        } else {
+          // Decks didn't change — carry over studyItemIds
+          const studyItems = await this.container.studyItemRepository.findByConceptId(
+            new ConceptId(conceptId),
+          );
+          newIndex.studyItemIds.push(...studyItems.map(si => si.id.value));
+        }
       } else {
         // New card — create concept + study items + assign to decks
         const { conceptId, studyItemIds } = await this.createConceptWithStudyItems(card);
@@ -67,10 +137,20 @@ export class VaultSync {
     // Remove cards that no longer exist in the file
     for (const removedKey of previousKeys) {
       const conceptId = previousIndex!.cardKeys.get(removedKey)!;
-      await this.removeConceptWithStudyItems(conceptId);
+      await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds);
     }
 
     this.fileIndices.set(filePath, newIndex);
+    await this.persistState();
+  }
+
+  async renameFile(oldPath: string, newPath: string): Promise<void> {
+    const index = this.fileIndices.get(oldPath);
+    if (!index) return;
+
+    this.fileIndices.delete(oldPath);
+    this.fileIndices.set(newPath, index);
+    await this.persistState();
   }
 
   async removeFile(filePath: string): Promise<void> {
@@ -78,10 +158,11 @@ export class VaultSync {
     if (!index) return;
 
     for (const conceptId of index.cardKeys.values()) {
-      await this.removeConceptWithStudyItems(conceptId);
+      await this.removeConceptWithStudyItems(conceptId, index.deckIds);
     }
 
     this.fileIndices.delete(filePath);
+    await this.persistState();
   }
 
   /**
@@ -93,11 +174,15 @@ export class VaultSync {
     const leafDeckIds: string[] = [];
 
     for (const tag of tags) {
-      const parts = tag.split('/');
+      const parts = tag === VaultSync.UNTAGGED_DECK_TAG
+        ? ['Untagged']
+        : tag.split('/');
       let parentId: string | null = null;
 
       for (let i = 0; i < parts.length; i++) {
-        const fullTag = parts.slice(0, i + 1).join('/');
+        const fullTag = tag === VaultSync.UNTAGGED_DECK_TAG
+          ? VaultSync.UNTAGGED_DECK_TAG
+          : parts.slice(0, i + 1).join('/');
 
         if (!this.tagToDeckId.has(fullTag)) {
           const deckId = crypto.randomUUID();
@@ -106,6 +191,7 @@ export class VaultSync {
           await this.container.createDeck.execute({
             id: deckId,
             name: parts[i],
+            parentId: null,
           });
 
           if (parentId) {
@@ -160,13 +246,22 @@ export class VaultSync {
     return { conceptId, studyItemIds };
   }
 
-  private async removeConceptWithStudyItems(conceptId: string): Promise<void> {
-    const { ConceptId } = await import('@context/concept/domain/concept-id');
+  private async removeConceptWithStudyItems(
+    conceptId: string,
+    deckIds: string[],
+  ): Promise<void> {
     const studyItems = await this.container.studyItemRepository.findByConceptId(
       new ConceptId(conceptId),
     );
 
+    // Remove study items from all associated decks first
     for (const item of studyItems) {
+      for (const deckId of deckIds) {
+        await this.container.removeStudyItemFromDeck.execute({
+          deckId,
+          studyItemId: item.id.value,
+        });
+      }
       await this.container.removeStudyItem.execute({ id: item.id.value });
     }
 
@@ -176,10 +271,44 @@ export class VaultSync {
   /**
    * Stable key based on content. If content changes (typo fix),
    * we detect it as remove+add, losing history. This is acceptable
-   * for MVP — a future improvement could use line-based heuristics
-   * or fuzzy matching to detect edits vs new cards.
+   * for MVP — a future improvement could use fuzzy matching.
    */
   private cardKey(card: ParsedCard): string {
-    return `${card.sideA}|${card.sideB}|${card.directionality}`;
+    // Use JSON.stringify to avoid collisions when content contains the separator
+    return JSON.stringify([card.sideA, card.sideB, card.directionality]);
+  }
+
+  private sameArrays(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    const sorted1 = [...a].sort();
+    const sorted2 = [...b].sort();
+    return sorted1.every((val, idx) => val === sorted2[idx]);
+  }
+
+  async beginBatch(): Promise<void> {
+    this.batchMode = true;
+  }
+
+  async endBatch(): Promise<void> {
+    this.batchMode = false;
+    await this.persistState();
+  }
+
+  private async persistState(): Promise<void> {
+    if (this.batchMode) return;
+    const state: SerializedSyncState = {
+      fileIndices: {},
+      tagToDeckId: Object.fromEntries(this.tagToDeckId),
+    };
+
+    for (const [filePath, index] of this.fileIndices) {
+      state.fileIndices[filePath] = {
+        cardKeys: Object.fromEntries(index.cardKeys),
+        studyItemIds: index.studyItemIds,
+        deckIds: index.deckIds,
+      };
+    }
+
+    await this.container.syncStateFile.write(state);
   }
 }

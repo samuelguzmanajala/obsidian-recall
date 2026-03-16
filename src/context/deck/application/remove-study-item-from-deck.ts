@@ -12,9 +12,7 @@ export class RemoveStudyItemFromDeck {
 
   async execute(command: RemoveStudyItemFromDeckCommand): Promise<void> {
     const deck = await this.repository.findById(new DeckId(command.deckId));
-    if (!deck) {
-      throw new Error(`Deck not found: ${command.deckId}`);
-    }
+    if (!deck) return; // Deck already gone — nothing to clean up
     deck.removeStudyItem(new StudyItemId(command.studyItemId));
     await this.repository.save(deck);
   }

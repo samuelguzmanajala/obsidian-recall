@@ -1,0 +1,215 @@
+import { ItemView, WorkspaceLeaf } from 'obsidian';
+import { Container } from '@app/backend/container';
+import { DueStudyItemView } from '@context/study/application/study-item-view';
+import { Rating } from '@context/study/domain/rating';
+import { Direction } from '@context/study/domain/direction';
+import { MemoryState } from '@context/study/domain/memory-state';
+import { VIEW_TYPE_REVIEW, RATING_LABELS, RATING_COLORS } from './constants';
+import { formatInterval } from './format-interval';
+
+interface ReviewState extends Record<string, unknown> {
+  deckId: string | null;
+}
+
+export class ReviewView extends ItemView {
+  private container: Container;
+  private items: DueStudyItemView[] = [];
+  private currentIndex = 0;
+  private totalCount = 0;
+  private answerRevealed = false;
+  private deckId: string | null = null;
+  private deckName = '';
+
+  constructor(leaf: WorkspaceLeaf, container: Container) {
+    super(leaf);
+    this.container = container;
+  }
+
+  getViewType(): string {
+    return VIEW_TYPE_REVIEW;
+  }
+
+  getDisplayText(): string {
+    return 'Review';
+  }
+
+  getIcon(): string {
+    return 'sparkles';
+  }
+
+  async setState(state: ReviewState): Promise<void> {
+    this.deckId = state.deckId ?? null;
+    await this.loadItems();
+    this.render();
+  }
+
+  getState(): ReviewState {
+    return { deckId: this.deckId };
+  }
+
+  async onOpen(): Promise<void> {
+    await this.loadItems();
+    this.render();
+  }
+
+  private async loadItems(): Promise<void> {
+    if (this.deckId) {
+      this.items = await this.container.getDueStudyItemsByDeck.execute(this.deckId);
+      // Resolve deck name from tree
+      const tree = await this.container.getDeckTree.execute();
+      this.deckName = this.findDeckName(tree, this.deckId) ?? 'Deck';
+    } else {
+      this.items = await this.container.getDueStudyItems.execute();
+      this.deckName = 'All decks';
+    }
+    this.totalCount = this.items.length;
+    this.currentIndex = 0;
+    this.answerRevealed = false;
+  }
+
+  private findDeckName(nodes: { id: string; name: string; children: any[] }[], id: string): string | null {
+    for (const node of nodes) {
+      if (node.id === id) return node.name;
+      const found = this.findDeckName(node.children, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private render(): void {
+    const el = this.contentEl;
+    el.empty();
+    el.addClass('recall-review');
+
+    if (this.items.length === 0) {
+      this.renderComplete(el);
+      return;
+    }
+
+    const item = this.items[this.currentIndex];
+    if (!item) {
+      this.renderComplete(el);
+      return;
+    }
+
+    // Header
+    const header = el.createDiv({ cls: 'recall-review-header' });
+
+    const backBtn = header.createSpan({ text: '←', cls: 'recall-back-btn' });
+    backBtn.addEventListener('click', () => this.goBack());
+
+    header.createSpan({ text: this.deckName, cls: 'recall-review-deck' });
+
+    const progressWrap = header.createDiv({ cls: 'recall-progress-wrap' });
+    const bar = progressWrap.createDiv({ cls: 'recall-progress-bar' });
+    const progress = this.totalCount > 0
+      ? ((this.totalCount - this.items.length + this.currentIndex) / this.totalCount) * 100
+      : 0;
+    bar.style.width = `${progress}%`;
+
+    header.createSpan({
+      text: `${this.totalCount - this.items.length + this.currentIndex + 1}/${this.totalCount}`,
+      cls: 'recall-progress-text',
+    });
+
+    // Card area
+    const cardArea = el.createDiv({ cls: 'recall-card-area' });
+
+    // Determine what to show based on direction
+    const question = item.direction === Direction.AtoB ? item.sideA : item.sideB;
+    const answer = item.direction === Direction.AtoB ? item.sideB : item.sideA;
+
+    // Question
+    const questionSection = cardArea.createDiv({ cls: 'recall-card-section' });
+    questionSection.createDiv({ text: 'Q', cls: 'recall-card-label' });
+    questionSection.createDiv({ text: question, cls: 'recall-card-text' });
+
+    if (this.answerRevealed) {
+      // Divider
+      cardArea.createDiv({ cls: 'recall-card-divider' });
+
+      // Answer
+      const answerSection = cardArea.createDiv({ cls: 'recall-card-section' });
+      answerSection.createDiv({ text: 'A', cls: 'recall-card-label recall-label-answer' });
+      answerSection.createDiv({ text: answer, cls: 'recall-card-text recall-text-answer' });
+
+      // Rating buttons
+      this.renderRatingButtons(el, item);
+    } else {
+      // Reveal button
+      const revealBtn = el.createEl('button', {
+        text: 'Show answer',
+        cls: 'recall-reveal-btn',
+      });
+      revealBtn.addEventListener('click', () => {
+        this.answerRevealed = true;
+        this.render();
+      });
+    }
+  }
+
+  private renderRatingButtons(parent: HTMLElement, item: DueStudyItemView): void {
+    const buttons = parent.createDiv({ cls: 'recall-rating-buttons' });
+
+    const ratings = [Rating.Again, Rating.Hard, Rating.Good, Rating.Easy];
+
+    const currentState = new MemoryState(
+      item.stability,
+      item.difficulty,
+      item.due,
+      item.reps,
+      item.lapses,
+      item.lastReview,
+    );
+    const previews = this.container.scheduler.previewAll(currentState, new Date());
+
+    for (let i = 0; i < ratings.length; i++) {
+      const rating = ratings[i];
+      const preview = previews[i];
+
+      const btn = buttons.createDiv({
+        cls: `recall-rating-btn ${RATING_COLORS[rating]}`,
+      });
+
+      btn.createSpan({ text: RATING_LABELS[rating], cls: 'recall-rating-label' });
+      btn.createSpan({ text: formatInterval(preview.intervalDays), cls: 'recall-rating-interval' });
+
+      btn.addEventListener('click', () => this.submitRating(item, rating));
+    }
+  }
+
+  private async submitRating(item: DueStudyItemView, rating: Rating): Promise<void> {
+    await this.container.reviewStudyItem.execute({
+      studyItemId: item.studyItemId,
+      rating,
+    });
+
+    // Move to next card
+    this.items.splice(this.currentIndex, 1);
+    if (this.currentIndex >= this.items.length) {
+      this.currentIndex = 0;
+    }
+    this.answerRevealed = false;
+    this.render();
+  }
+
+  private renderComplete(el: HTMLElement): void {
+    const done = el.createDiv({ cls: 'recall-complete' });
+    done.createDiv({ text: '✓', cls: 'recall-complete-icon' });
+    done.createDiv({ text: 'All done!', cls: 'recall-complete-title' });
+    done.createDiv({
+      text: `${this.totalCount} cards reviewed`,
+      cls: 'recall-complete-subtitle',
+    });
+
+    const backBtn = done.createEl('button', {
+      text: '← Back to decks',
+      cls: 'recall-back-link',
+    });
+    backBtn.addEventListener('click', () => this.goBack());
+  }
+
+  private goBack(): void {
+    this.leaf.detach();
+  }
+}

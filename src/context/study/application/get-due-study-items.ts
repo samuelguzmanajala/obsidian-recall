@@ -1,18 +1,6 @@
 import { StudyItemRepository } from '../domain/study-item-repository';
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
-import { ConceptId } from '@context/concept/domain/concept-id';
-import { Direction } from '../domain/direction';
-
-export interface DueStudyItemView {
-  studyItemId: string;
-  conceptId: string;
-  sideA: string;
-  sideB: string;
-  direction: Direction;
-  due: Date;
-  reps: number;
-  lapses: number;
-}
+import { DueStudyItemView } from './study-item-view';
 
 export class GetDueStudyItems {
   constructor(
@@ -37,6 +25,9 @@ export class GetDueStudyItems {
         due: item.memoryState.due,
         reps: item.memoryState.reps,
         lapses: item.memoryState.lapses,
+        stability: item.memoryState.stability,
+        difficulty: item.memoryState.difficulty,
+        lastReview: item.memoryState.lastReview,
       });
     }
 

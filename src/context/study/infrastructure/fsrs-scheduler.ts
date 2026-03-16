@@ -1,9 +1,9 @@
-import { fsrs, createEmptyCard, generatorParameters, Rating as FsrsRating, Card as FsrsCard, FSRS } from 'ts-fsrs';
-import { Scheduler } from '../domain/scheduler';
+import { fsrs, createEmptyCard, generatorParameters, Rating as FsrsRating, type Card as FsrsCard, type FSRS, type Grade as FsrsGrade } from 'ts-fsrs';
+import { Scheduler, SchedulePreview } from '../domain/scheduler';
 import { MemoryState } from '../domain/memory-state';
 import { Rating } from '../domain/rating';
 
-const RATING_MAP: Record<Rating, FsrsRating> = {
+const RATING_MAP: Record<Rating, FsrsGrade> = {
   [Rating.Again]: FsrsRating.Again,
   [Rating.Hard]: FsrsRating.Hard,
   [Rating.Good]: FsrsRating.Good,
@@ -19,8 +19,8 @@ export class FsrsScheduler implements Scheduler {
 
   schedule(currentState: MemoryState, rating: Rating, now: Date): MemoryState {
     const fsrsCard = this.toFsrsCard(currentState, now);
-    const result = this.engine.repeat(fsrsCard, now);
-    const scheduled = result[RATING_MAP[rating]];
+    const fsrsGrade = RATING_MAP[rating];
+    const scheduled = this.engine.next(fsrsCard, now, fsrsGrade);
 
     return new MemoryState(
       scheduled.card.stability,
@@ -30,6 +30,16 @@ export class FsrsScheduler implements Scheduler {
       scheduled.card.lapses,
       now,
     );
+  }
+
+  previewAll(currentState: MemoryState, now: Date): SchedulePreview[] {
+    const ratings = [Rating.Again, Rating.Hard, Rating.Good, Rating.Easy];
+    return ratings.map(rating => {
+      const next = this.schedule(currentState, rating, now);
+      const intervalMs = next.due.getTime() - now.getTime();
+      const intervalDays = Math.max(0, Math.round(intervalMs / (1000 * 60 * 60 * 24)));
+      return { rating, nextDue: next.due, intervalDays };
+    });
   }
 
   private toFsrsCard(state: MemoryState, now: Date): FsrsCard {
@@ -47,7 +57,7 @@ export class FsrsScheduler implements Scheduler {
       scheduled_days: 0,
       reps: state.reps,
       lapses: state.lapses,
-      state: state.reps === 0 ? 0 : 2, // 0 = New, 2 = Review
+      state: state.lapses > 0 && state.reps < 3 ? 3 : 2,
       last_review: state.lastReview ?? undefined,
     } as FsrsCard;
   }

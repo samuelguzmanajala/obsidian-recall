@@ -24,5 +24,6 @@ export function createTestStorageFiles() {
     studyItems: new InMemoryJsonFile(),
     decks: new InMemoryJsonFile(),
     reviews: new InMemoryJsonFile(),
+    syncState: new InMemoryJsonFile(),
   };
 }

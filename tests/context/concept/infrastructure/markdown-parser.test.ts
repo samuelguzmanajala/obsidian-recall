@@ -132,5 +132,76 @@ describe('MarkdownParser', () => {
       expect(cards[0].schedulingMetadata!.aToB).toBeDefined();
       expect(cards[0].schedulingMetadata!.bToA).toBeNull();
     });
+
+    it('should ignore cards inside fenced code blocks', () => {
+      const content = [
+        '- Real:::Card',
+        '```',
+        '- Fake:::Card',
+        'Also:::Fake',
+        '```',
+        '- Another:::Real',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(2);
+      expect(cards[0].sideA).toBe('Real');
+      expect(cards[1].sideA).toBe('Another');
+    });
+
+    it('should handle code blocks with language specifier', () => {
+      const content = [
+        '```typescript',
+        'const sep = ":::";',
+        '```',
+        '- Valid:::Card',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('Valid');
+    });
+
+    it('should skip YAML frontmatter', () => {
+      const content = [
+        '---',
+        'description: "Use :: for definitions"',
+        'tags:',
+        '  - German',
+        '---',
+        '- Real:::Card',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('Real');
+    });
+
+    it('should handle frontmatter with \\r\\n line endings', () => {
+      const content = '---\r\ntitle: Test\r\n---\r\n- Word:::Translation';
+
+      const cards = parser.parse(content, 'test.md');
+
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('Word');
+    });
+
+    it('should not treat --- in middle of file as frontmatter', () => {
+      const content = [
+        '- Card1:::Side1',
+        '---',
+        'description::value',
+        '---',
+        '- Card2:::Side2',
+      ].join('\n');
+
+      const cards = parser.parse(content, 'test.md');
+
+      // Card1, description::value (unidirectional), Card2
+      expect(cards).toHaveLength(3);
+    });
   });
 });

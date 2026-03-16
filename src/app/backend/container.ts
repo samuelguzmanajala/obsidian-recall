@@ -38,6 +38,7 @@ export interface StorageFiles {
   studyItems: JsonFilePort;
   decks: JsonFilePort;
   reviews: JsonFilePort;
+  syncState: JsonFilePort;
 }
 
 export class Container {
@@ -46,6 +47,9 @@ export class Container {
   readonly studyItemRepository: JsonStudyItemRepository;
   readonly deckRepository: JsonDeckRepository;
   readonly reviewLog: JsonReviewLog;
+
+  // Storage
+  readonly syncStateFile: JsonFilePort;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;
@@ -78,6 +82,7 @@ export class Container {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
+    this.syncStateFile = files.syncState;
 
     // Repositories — each with its own file
     this.conceptRepository = new JsonConceptRepository(files.concepts);
@@ -94,8 +99,8 @@ export class Container {
     this.removeStudyItem = new RemoveStudyItem(this.studyItemRepository);
     this.reviewStudyItem = new ReviewStudyItem(
       this.studyItemRepository,
-      this.reviewLog,
       this.scheduler,
+      this.reviewLog,
     );
 
     this.createDeck = new CreateDeck(this.deckRepository);

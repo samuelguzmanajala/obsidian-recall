@@ -2,18 +2,7 @@ import { StudyItemRepository } from '../domain/study-item-repository';
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
 import { DeckRepository } from '@context/deck/domain/deck-repository';
 import { DeckId } from '@context/deck/domain/deck-id';
-import { Direction } from '../domain/direction';
-
-export interface DueStudyItemView {
-  studyItemId: string;
-  conceptId: string;
-  sideA: string;
-  sideB: string;
-  direction: Direction;
-  due: Date;
-  reps: number;
-  lapses: number;
-}
+import { DueStudyItemView } from './study-item-view';
 
 export class GetDueStudyItemsByDeck {
   constructor(
@@ -22,9 +11,6 @@ export class GetDueStudyItemsByDeck {
     private readonly deckRepository: DeckRepository,
   ) {}
 
-  /**
-   * Gets due study items for a deck and all its descendants.
-   */
   async execute(deckId: string, now: Date = new Date()): Promise<DueStudyItemView[]> {
     const allDueItems = await this.studyItemRepository.findDue(now);
     const allowedIds = await this.collectStudyItemIds(new DeckId(deckId));
@@ -45,15 +31,15 @@ export class GetDueStudyItemsByDeck {
         due: item.memoryState.due,
         reps: item.memoryState.reps,
         lapses: item.memoryState.lapses,
+        stability: item.memoryState.stability,
+        difficulty: item.memoryState.difficulty,
+        lastReview: item.memoryState.lastReview,
       });
     }
 
     return views;
   }
 
-  /**
-   * Collects study item IDs from a deck and all descendant decks recursively.
-   */
   private async collectStudyItemIds(deckId: DeckId): Promise<Set<string>> {
     const ids = new Set<string>();
 
@@ -64,7 +50,6 @@ export class GetDueStudyItemsByDeck {
       ids.add(si.value);
     }
 
-    // Recurse into child decks
     const children = await this.deckRepository.findByParentId(deckId);
     for (const child of children) {
       const childIds = await this.collectStudyItemIds(child.id);

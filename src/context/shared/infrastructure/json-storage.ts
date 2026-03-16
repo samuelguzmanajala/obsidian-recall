@@ -42,3 +42,17 @@ export interface SerializedReview {
   rating: string;
   timestamp: string;
 }
+
+export interface SerializedFileIndex {
+  /** Map of "sideA|sideB|directionality" → conceptId */
+  cardKeys: Record<string, string>;
+  /** studyItemIds created for this file */
+  studyItemIds: string[];
+  /** deckIds (leaf decks) assigned to this file's cards */
+  deckIds: string[];
+}
+
+export interface SerializedSyncState {
+  fileIndices: Record<string, SerializedFileIndex>;
+  tagToDeckId: Record<string, string>;
+}

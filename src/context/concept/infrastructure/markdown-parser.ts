@@ -19,15 +19,39 @@ const SR_COMMENT_REGEX = /<!--SR:(.*?)-->/;
 const SR_SCHEDULE_REGEX = /!(\d{4}-\d{2}-\d{2}),(\d+),(\d+)/g;
 
 export class MarkdownParser {
-  parse(content: string, filePath: string): ParsedCard[] {
-    const lines = content.split('\n');
+  parse(content: string, _filePath: string): ParsedCard[] {
+    const lines = content.split(/\r?\n/);
     const cards: ParsedCard[] = [];
+    let inCodeBlock = false;
+    let inFrontmatter = false;
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+      const line = lines[i];
+      const trimmed = line.trim();
 
-      const card = this.parseLine(line, i + 1);
+      // Track YAML frontmatter (only at the very start of the file)
+      if (i === 0 && trimmed === '---') {
+        inFrontmatter = true;
+        continue;
+      }
+      if (inFrontmatter) {
+        if (trimmed === '---') {
+          inFrontmatter = false;
+        }
+        continue;
+      }
+
+      // Toggle code block state on fenced code markers
+      if (line.trimStart().startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        continue;
+      }
+
+      if (inCodeBlock) continue;
+
+      if (!trimmed) continue;
+
+      const card = this.parseLine(trimmed, i + 1);
       if (card) {
         cards.push(card);
       }

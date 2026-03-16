@@ -7,7 +7,13 @@ export interface DeckTreeNode {
   name: string;
   totalItems: number;
   dueItems: number;
+  newItems: number;
   children: DeckTreeNode[];
+}
+
+interface BuildResult {
+  node: DeckTreeNode;
+  subtreeIds: Set<string>;
 }
 
 export class GetDeckTree {
@@ -18,12 +24,24 @@ export class GetDeckTree {
 
   async execute(now: Date = new Date()): Promise<DeckTreeNode[]> {
     const roots = await this.deckRepository.findRoots();
-    const dueItems = await this.studyItemRepository.findDue(now);
-    const dueIds = new Set(dueItems.map(item => item.id.value));
+    const allItems = await this.studyItemRepository.findAll();
+    const dueIds = new Set(
+      allItems.filter(item => item.memoryState.due <= now).map(item => item.id.value),
+    );
+    const newIds = new Set(
+      allItems.filter(item => item.memoryState.reps === 0).map(item => item.id.value),
+    );
 
     const nodes: DeckTreeNode[] = [];
     for (const root of roots) {
-      nodes.push(await this.buildNode(root.id, root.name, root.studyItemIds.map(si => si.value), dueIds));
+      const result = await this.buildNode(
+        root.id,
+        root.name,
+        root.studyItemIds.map(si => si.value),
+        dueIds,
+        newIds,
+      );
+      nodes.push(result.node);
     }
     return nodes;
   }
@@ -31,33 +49,40 @@ export class GetDeckTree {
   private async buildNode(
     deckId: DeckId,
     name: string,
-    studyItemIdValues: string[],
+    directIds: string[],
     dueIds: Set<string>,
-  ): Promise<DeckTreeNode> {
+    newIds: Set<string>,
+  ): Promise<BuildResult> {
     const children = await this.deckRepository.findByParentId(deckId);
     const childNodes: DeckTreeNode[] = [];
-
-    let totalItems = studyItemIdValues.length;
-    let dueItems = studyItemIdValues.filter(id => dueIds.has(id)).length;
+    const subtreeIds = new Set(directIds);
 
     for (const child of children) {
-      const childNode = await this.buildNode(
+      const childResult = await this.buildNode(
         child.id,
         child.name,
         child.studyItemIds.map(si => si.value),
         dueIds,
+        newIds,
       );
-      childNodes.push(childNode);
-      totalItems += childNode.totalItems;
-      dueItems += childNode.dueItems;
+      childNodes.push(childResult.node);
+      for (const id of childResult.subtreeIds) {
+        subtreeIds.add(id);
+      }
     }
 
+    const subtreeArray = [...subtreeIds];
+
     return {
-      id: deckId.value,
-      name,
-      totalItems,
-      dueItems,
-      children: childNodes,
+      node: {
+        id: deckId.value,
+        name,
+        totalItems: subtreeIds.size,
+        dueItems: subtreeArray.filter(id => dueIds.has(id)).length,
+        newItems: subtreeArray.filter(id => newIds.has(id)).length,
+        children: childNodes,
+      },
+      subtreeIds,
     };
   }
 }

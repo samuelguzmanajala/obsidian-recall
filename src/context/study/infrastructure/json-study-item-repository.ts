@@ -10,8 +10,18 @@ type StudyItemStore = Record<string, SerializedStudyItem>;
 
 export class JsonStudyItemRepository implements StudyItemRepository {
   private cache: StudyItemStore | null = null;
+  private batchMode = false;
 
   constructor(private readonly file: JsonFilePort) {}
+
+  setBatchMode(on: boolean): void {
+    this.batchMode = on;
+  }
+
+  async flush(): Promise<void> {
+    this.batchMode = false;
+    await this.persist();
+  }
 
   private async load(): Promise<StudyItemStore> {
     if (!this.cache) {
@@ -21,7 +31,7 @@ export class JsonStudyItemRepository implements StudyItemRepository {
   }
 
   private async persist(): Promise<void> {
-    if (this.cache) {
+    if (this.cache && !this.batchMode) {
       await this.file.write(this.cache);
     }
   }
@@ -61,6 +71,11 @@ export class JsonStudyItemRepository implements StudyItemRepository {
   async remove(id: StudyItemId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
+    await this.persist();
+  }
+
+  async clear(): Promise<void> {
+    this.cache = {};
     await this.persist();
   }
 

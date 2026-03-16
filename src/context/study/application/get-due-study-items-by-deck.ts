@@ -37,7 +37,33 @@ export class GetDueStudyItemsByDeck {
       });
     }
 
-    return views;
+    return this.deduplicateSiblings(views);
+  }
+
+  /**
+   * When both directions of a bidirectional concept are due the same day,
+   * pick one at random and drop the other.
+   */
+  private deduplicateSiblings(views: DueStudyItemView[]): DueStudyItemView[] {
+    const byConceptId = new Map<string, DueStudyItemView[]>();
+
+    for (const view of views) {
+      const group = byConceptId.get(view.conceptId) ?? [];
+      group.push(view);
+      byConceptId.set(view.conceptId, group);
+    }
+
+    const result: DueStudyItemView[] = [];
+    for (const group of byConceptId.values()) {
+      if (group.length <= 1) {
+        result.push(...group);
+      } else {
+        const pick = group[Math.floor(Math.random() * group.length)];
+        result.push(pick);
+      }
+    }
+
+    return result;
   }
 
   private async collectStudyItemIds(deckId: DeckId): Promise<Set<string>> {

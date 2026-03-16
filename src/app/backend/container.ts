@@ -32,6 +32,7 @@ import { GetDueStudyItems } from '@context/study/application/get-due-study-items
 import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study-items-by-deck';
 import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
+import { RecallSettings } from './settings';
 
 export interface StorageFiles {
   concepts: JsonFilePort;
@@ -50,6 +51,9 @@ export class Container {
 
   // Storage
   readonly syncStateFile: JsonFilePort;
+
+  // Settings (mutable — updated by plugin on save)
+  settings: RecallSettings | null = null;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;

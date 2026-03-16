@@ -43,6 +43,25 @@ export class VaultSync {
   }
 
   /**
+   * Wipe all sync state, decks, concepts, study items, and reviews.
+   * Called when tag filter changes so we can rebuild from scratch.
+   * Uses atomic clear() — one write per store, not per entity.
+   */
+  async resetAll(): Promise<void> {
+    await this.container.deckRepository.clear();
+    await this.container.conceptRepository.clear();
+    await this.container.studyItemRepository.clear();
+    await this.container.reviewLog.clear();
+
+    // Clear in-memory maps
+    this.fileIndices.clear();
+    this.tagToDeckId.clear();
+
+    // Persist empty sync state
+    await this.persistState();
+  }
+
+  /**
    * Checks if a note's tags match the allowed filter.
    * A note tag "German/vocabulary" matches allowed tag "German".
    * Empty allowedTags = everything passes.
@@ -78,7 +97,10 @@ export class VaultSync {
     }
   }
 
-  async syncFile(filePath: string, content: string): Promise<void> {
+  /**
+   * Sync a single file. Returns true if the file was indexed (had matching tags + cards).
+   */
+  async syncFile(filePath: string, content: string): Promise<boolean> {
     const parsedCards = this.container.parser.parse(content, filePath);
     const tags = this.frontmatterParser.extractTags(content);
 
@@ -87,7 +109,15 @@ export class VaultSync {
       if (this.fileIndices.has(filePath)) {
         await this.removeFile(filePath);
       }
-      return;
+      return false;
+    }
+
+    if (parsedCards.length === 0) {
+      // Matching tags but no cards — remove if previously indexed
+      if (this.fileIndices.has(filePath)) {
+        await this.removeFile(filePath);
+      }
+      return false;
     }
 
     const previousIndex = this.fileIndices.get(filePath);
@@ -176,6 +206,7 @@ export class VaultSync {
 
     this.fileIndices.set(filePath, newIndex);
     await this.persistState();
+    return true;
   }
 
   async renameFile(oldPath: string, newPath: string): Promise<void> {
@@ -321,10 +352,19 @@ export class VaultSync {
 
   async beginBatch(): Promise<void> {
     this.batchMode = true;
+    this.container.conceptRepository.setBatchMode(true);
+    this.container.studyItemRepository.setBatchMode(true);
+    this.container.deckRepository.setBatchMode(true);
+    this.container.reviewLog.setBatchMode(true);
   }
 
   async endBatch(): Promise<void> {
     this.batchMode = false;
+    // Flush all repos once
+    await this.container.conceptRepository.flush();
+    await this.container.studyItemRepository.flush();
+    await this.container.deckRepository.flush();
+    await this.container.reviewLog.flush();
     await this.persistState();
   }
 

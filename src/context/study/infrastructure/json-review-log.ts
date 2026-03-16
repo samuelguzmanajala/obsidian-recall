@@ -6,8 +6,18 @@ import { JsonFilePort, SerializedReview } from '@context/shared/infrastructure/j
 
 export class JsonReviewLog implements ReviewLog {
   private cache: SerializedReview[] | null = null;
+  private batchMode = false;
 
   constructor(private readonly file: JsonFilePort) {}
+
+  setBatchMode(on: boolean): void {
+    this.batchMode = on;
+  }
+
+  async flush(): Promise<void> {
+    this.batchMode = false;
+    await this.persist();
+  }
 
   private async load(): Promise<SerializedReview[]> {
     if (!this.cache) {
@@ -17,7 +27,7 @@ export class JsonReviewLog implements ReviewLog {
   }
 
   private async persist(): Promise<void> {
-    if (this.cache) {
+    if (this.cache && !this.batchMode) {
       await this.file.write(this.cache);
     }
   }
@@ -38,6 +48,11 @@ export class JsonReviewLog implements ReviewLog {
   async findAll(): Promise<Review[]> {
     const store = await this.load();
     return store.map(raw => this.deserialize(raw));
+  }
+
+  async clear(): Promise<void> {
+    this.cache = [];
+    await this.persist();
   }
 
   async findSince(since: Date): Promise<Review[]> {

@@ -8,8 +8,18 @@ type DeckStore = Record<string, SerializedDeck>;
 
 export class JsonDeckRepository implements DeckRepository {
   private cache: DeckStore | null = null;
+  private batchMode = false;
 
   constructor(private readonly file: JsonFilePort) {}
+
+  setBatchMode(on: boolean): void {
+    this.batchMode = on;
+  }
+
+  async flush(): Promise<void> {
+    this.batchMode = false;
+    await this.persist();
+  }
 
   private async load(): Promise<DeckStore> {
     if (!this.cache) {
@@ -19,7 +29,7 @@ export class JsonDeckRepository implements DeckRepository {
   }
 
   private async persist(): Promise<void> {
-    if (this.cache) {
+    if (this.cache && !this.batchMode) {
       await this.file.write(this.cache);
     }
   }
@@ -59,6 +69,11 @@ export class JsonDeckRepository implements DeckRepository {
   async remove(id: DeckId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
+    await this.persist();
+  }
+
+  async clear(): Promise<void> {
+    this.cache = {};
     await this.persist();
   }
 

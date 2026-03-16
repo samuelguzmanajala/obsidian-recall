@@ -31,6 +31,34 @@ export class GetDueStudyItems {
       });
     }
 
-    return views;
+    return this.deduplicateSiblings(views);
+  }
+
+  /**
+   * When both directions of a bidirectional concept are due the same day,
+   * pick one at random and drop the other. They'll desync naturally after
+   * the first review pushes one direction's due date forward.
+   */
+  private deduplicateSiblings(views: DueStudyItemView[]): DueStudyItemView[] {
+    const byConceptId = new Map<string, DueStudyItemView[]>();
+
+    for (const view of views) {
+      const group = byConceptId.get(view.conceptId) ?? [];
+      group.push(view);
+      byConceptId.set(view.conceptId, group);
+    }
+
+    const result: DueStudyItemView[] = [];
+    for (const group of byConceptId.values()) {
+      if (group.length <= 1) {
+        result.push(...group);
+      } else {
+        // Pick one at random
+        const pick = group[Math.floor(Math.random() * group.length)];
+        result.push(pick);
+      }
+    }
+
+    return result;
   }
 }

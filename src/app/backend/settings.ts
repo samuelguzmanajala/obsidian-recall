@@ -4,14 +4,18 @@ import type RecallPlugin from './plugin';
 export interface RecallSettings {
   /** Tags to track for flashcards. Empty = track ALL notes with cards. */
   flashcardTags: string[];
+  /** Shuffle review order. Default true. */
+  shuffleReviews: boolean;
 }
 
 export const DEFAULT_SETTINGS: RecallSettings = {
   flashcardTags: [],
+  shuffleReviews: true,
 };
 
 export class RecallSettingTab extends PluginSettingTab {
   private plugin: RecallPlugin;
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(app: App, plugin: RecallPlugin) {
     super(app, plugin);
@@ -36,12 +40,29 @@ export class RecallSettingTab extends PluginSettingTab {
         text
           .setPlaceholder('#memorizar #German #dev')
           .setValue(this.plugin.settings.flashcardTags.map(t => `#${t}`).join(' '))
-          .onChange(async (value) => {
-            this.plugin.settings.flashcardTags = this.parseTags(value);
-            await this.plugin.saveSettings();
+          .onChange((value) => {
+            // Debounce: wait 1.5s after last keystroke before saving + re-syncing
+            if (this.saveTimeout) clearTimeout(this.saveTimeout);
+            this.saveTimeout = setTimeout(async () => {
+              this.plugin.settings.flashcardTags = this.parseTags(value);
+              await this.plugin.saveSettings();
+            }, 1500);
           });
         text.inputEl.rows = 4;
         text.inputEl.cols = 30;
+      });
+
+    // Shuffle reviews
+    new Setting(containerEl)
+      .setName('Shuffle review order')
+      .setDesc('Randomize the order of cards during review. Disable to review in file order.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.shuffleReviews)
+          .onChange(async (value) => {
+            this.plugin.settings.shuffleReviews = value;
+            await this.plugin.saveSettings();
+          });
       });
   }
 

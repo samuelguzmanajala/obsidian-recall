@@ -24,6 +24,7 @@ export default class RecallPlugin extends Plugin {
       reviews: createObsidianFilePort(this.app, 'reviews.json'),
       syncState: createObsidianFilePort(this.app, 'sync-state.json'),
     });
+    this.container.settings = this.settings;
     this.vaultSync = new VaultSync(this.container);
 
     // Register views
@@ -59,8 +60,13 @@ export default class RecallPlugin extends Plugin {
     // Pass settings to VaultSync for tag filtering
     this.vaultSync.setAllowedTags(this.settings.flashcardTags);
 
+    // Load existing sync state
     await this.vaultSync.initialize();
-    await this.initialSync();
+
+    // Wait for vault to be ready before syncing files
+    this.app.workspace.onLayoutReady(async () => {
+      await this.initialSync();
+    });
 
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
@@ -100,8 +106,10 @@ export default class RecallPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
-    // Update VaultSync filter and re-sync
+    this.container.settings = this.settings;
+    // Update VaultSync filter, reset all data, and re-sync from scratch
     this.vaultSync.setAllowedTags(this.settings.flashcardTags);
+    await this.vaultSync.resetAll();
     await this.initialSync();
     // Refresh deck browser if open
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
@@ -144,15 +152,19 @@ export default class RecallPlugin extends Plugin {
   private async initialSync(): Promise<void> {
     await this.vaultSync.beginBatch();
     const files = this.app.vault.getMarkdownFiles();
+    let synced = 0;
+    let skipped = 0;
     for (const file of files) {
       try {
         const content = await this.app.vault.cachedRead(file);
-        await this.vaultSync.syncFile(file.path, content);
+        const had = await this.vaultSync.syncFile(file.path, content);
+        if (had) synced++; else skipped++;
       } catch (err) {
         console.warn(`Recall: failed to sync ${file.path}`, err);
       }
     }
     await this.vaultSync.endBatch();
+    console.log(`Recall: initial sync done — ${synced} files indexed, ${skipped} skipped, ${files.length} total`);
   }
 
   private cancelPendingSync(path: string): void {

@@ -9,8 +9,18 @@ type ConceptStore = Record<string, SerializedConcept>;
 
 export class JsonConceptRepository implements ConceptRepository {
   private cache: ConceptStore | null = null;
+  private batchMode = false;
 
   constructor(private readonly file: JsonFilePort) {}
+
+  setBatchMode(on: boolean): void {
+    this.batchMode = on;
+  }
+
+  async flush(): Promise<void> {
+    this.batchMode = false;
+    await this.persist();
+  }
 
   private async load(): Promise<ConceptStore> {
     if (!this.cache) {
@@ -20,7 +30,7 @@ export class JsonConceptRepository implements ConceptRepository {
   }
 
   private async persist(): Promise<void> {
-    if (this.cache) {
+    if (this.cache && !this.batchMode) {
       await this.file.write(this.cache);
     }
   }
@@ -46,6 +56,11 @@ export class JsonConceptRepository implements ConceptRepository {
   async remove(id: ConceptId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
+    await this.persist();
+  }
+
+  async clear(): Promise<void> {
+    this.cache = {};
     await this.persist();
   }
 

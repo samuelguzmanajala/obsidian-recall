@@ -1,18 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { JsonConceptRepository } from '@context/concept/infrastructure/json-concept-repository';
-import { InMemoryJsonStorage } from '../../shared/infrastructure/in-memory-json-storage';
+import { InMemoryJsonFile } from '../../shared/infrastructure/in-memory-json-storage';
 import { Concept } from '@context/concept/domain/concept';
 import { ConceptId } from '@context/concept/domain/concept-id';
 import { Side } from '@context/concept/domain/side';
 import { Directionality } from '@context/concept/domain/directionality';
 
 describe('JsonConceptRepository', () => {
-  let storage: InMemoryJsonStorage;
   let repository: JsonConceptRepository;
 
   beforeEach(() => {
-    storage = new InMemoryJsonStorage();
-    repository = new JsonConceptRepository(storage);
+    repository = new JsonConceptRepository(new InMemoryJsonFile());
   });
 
   const createConcept = (id: string = crypto.randomUUID()) =>

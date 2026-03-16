@@ -1,4 +1,4 @@
-import { JsonStoragePort } from '@context/shared/infrastructure/json-storage';
+import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
 
 // Repositories
 import { JsonConceptRepository } from '@context/concept/infrastructure/json-concept-repository';
@@ -30,6 +30,15 @@ import { RemoveStudyItemFromDeck } from '@context/deck/application/remove-study-
 // Queries
 import { GetDueStudyItems } from '@context/study/application/get-due-study-items';
 import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study-items-by-deck';
+import { GetDeckTree } from '@context/deck/application/get-deck-tree';
+import { GetStudyStats } from '@context/study/application/get-study-stats';
+
+export interface StorageFiles {
+  concepts: JsonFilePort;
+  studyItems: JsonFilePort;
+  decks: JsonFilePort;
+  reviews: JsonFilePort;
+}
 
 export class Container {
   // Repositories
@@ -62,17 +71,19 @@ export class Container {
   // Queries
   readonly getDueStudyItems: GetDueStudyItems;
   readonly getDueStudyItemsByDeck: GetDueStudyItemsByDeck;
+  readonly getDeckTree: GetDeckTree;
+  readonly getStudyStats: GetStudyStats;
 
-  constructor(storage: JsonStoragePort) {
+  constructor(files: StorageFiles) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
 
-    // Repositories
-    this.conceptRepository = new JsonConceptRepository(storage);
-    this.studyItemRepository = new JsonStudyItemRepository(storage);
-    this.deckRepository = new JsonDeckRepository(storage);
-    this.reviewLog = new JsonReviewLog(storage);
+    // Repositories — each with its own file
+    this.conceptRepository = new JsonConceptRepository(files.concepts);
+    this.studyItemRepository = new JsonStudyItemRepository(files.studyItems);
+    this.deckRepository = new JsonDeckRepository(files.decks);
+    this.reviewLog = new JsonReviewLog(files.reviews);
 
     // Use cases
     this.createConcept = new CreateConcept(this.conceptRepository);
@@ -100,5 +111,7 @@ export class Container {
       this.conceptRepository,
       this.deckRepository,
     );
+    this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
+    this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
   }
 }

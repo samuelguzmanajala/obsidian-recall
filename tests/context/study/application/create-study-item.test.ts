@@ -8,6 +8,7 @@ describe('CreateStudyItem', () => {
     save: vi.fn(),
     findById: vi.fn(),
     findByConceptId: vi.fn(),
+    findAll: vi.fn(),
     findDue: vi.fn(),
     remove: vi.fn(),
   };

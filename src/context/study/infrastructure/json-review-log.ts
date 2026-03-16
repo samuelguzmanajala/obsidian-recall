@@ -2,41 +2,47 @@ import { Review } from '../domain/review';
 import { ReviewLog } from '../domain/review-log';
 import { StudyItemId } from '../domain/study-item-id';
 import { Rating } from '../domain/rating';
-import { JsonStoragePort, StorageData, SerializedReview } from '@context/shared/infrastructure/json-storage';
+import { JsonFilePort, SerializedReview } from '@context/shared/infrastructure/json-storage';
 
 export class JsonReviewLog implements ReviewLog {
-  private data: StorageData | null = null;
+  private cache: SerializedReview[] | null = null;
 
-  constructor(private readonly storage: JsonStoragePort) {}
+  constructor(private readonly file: JsonFilePort) {}
 
-  private async getData(): Promise<StorageData> {
-    if (!this.data) {
-      this.data = await this.storage.load();
+  private async load(): Promise<SerializedReview[]> {
+    if (!this.cache) {
+      this.cache = (await this.file.read<SerializedReview[]>()) ?? [];
     }
-    return this.data;
+    return this.cache;
+  }
+
+  private async persist(): Promise<void> {
+    if (this.cache) {
+      await this.file.write(this.cache);
+    }
   }
 
   async append(review: Review): Promise<void> {
-    const data = await this.getData();
-    data.reviews.push(this.serialize(review));
-    await this.storage.save(data);
+    const store = await this.load();
+    store.push(this.serialize(review));
+    await this.persist();
   }
 
   async findByStudyItemId(studyItemId: StudyItemId): Promise<Review[]> {
-    const data = await this.getData();
-    return data.reviews
+    const store = await this.load();
+    return store
       .filter(raw => raw.studyItemId === studyItemId.value)
       .map(raw => this.deserialize(raw));
   }
 
   async findAll(): Promise<Review[]> {
-    const data = await this.getData();
-    return data.reviews.map(raw => this.deserialize(raw));
+    const store = await this.load();
+    return store.map(raw => this.deserialize(raw));
   }
 
   async findSince(since: Date): Promise<Review[]> {
-    const data = await this.getData();
-    return data.reviews
+    const store = await this.load();
+    return store
       .filter(raw => new Date(raw.timestamp) >= since)
       .map(raw => this.deserialize(raw));
   }

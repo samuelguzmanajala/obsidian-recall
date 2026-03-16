@@ -1,26 +1,33 @@
-import { Plugin } from 'obsidian';
-import { JsonStoragePort, StorageData, emptyStorageData } from '@context/shared/infrastructure/json-storage';
+import { App } from 'obsidian';
+import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
+
+const PLUGIN_DATA_DIR = '.obsidian/plugins/obsidian-recall/data';
 
 /**
- * Obsidian-specific storage adapter.
- * Uses plugin.loadData/saveData which writes to .obsidian/plugins/<id>/data.json
+ * Creates a JsonFilePort backed by a file in the plugin's data directory.
+ * Each aggregate gets its own JSON file.
  */
-export class ObsidianStorage implements JsonStoragePort {
-  constructor(private readonly plugin: Plugin) {}
+export function createObsidianFilePort(app: App, filename: string): JsonFilePort {
+  const path = `${PLUGIN_DATA_DIR}/${filename}`;
 
-  async load(): Promise<StorageData> {
-    const raw = await this.plugin.loadData();
-    if (!raw) return emptyStorageData();
+  return {
+    async read<T>(): Promise<T | null> {
+      try {
+        const content = await app.vault.adapter.read(path);
+        return JSON.parse(content) as T;
+      } catch {
+        return null;
+      }
+    },
 
-    return {
-      concepts: raw.concepts ?? {},
-      studyItems: raw.studyItems ?? {},
-      decks: raw.decks ?? {},
-      reviews: raw.reviews ?? [],
-    };
-  }
-
-  async save(data: StorageData): Promise<void> {
-    await this.plugin.saveData(data);
-  }
+    async write<T>(data: T): Promise<void> {
+      const dir = path.substring(0, path.lastIndexOf('/'));
+      try {
+        await app.vault.adapter.mkdir(dir);
+      } catch {
+        // dir already exists
+      }
+      await app.vault.adapter.write(path, JSON.stringify(data));
+    },
+  };
 }

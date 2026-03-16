@@ -173,6 +173,12 @@ export class VaultSync {
     await this.container.removeConcept.execute({ id: conceptId });
   }
 
+  /**
+   * Stable key based on content. If content changes (typo fix),
+   * we detect it as remove+add, losing history. This is acceptable
+   * for MVP — a future improvement could use line-based heuristics
+   * or fuzzy matching to detect edits vs new cards.
+   */
   private cardKey(card: ParsedCard): string {
     return `${card.sideA}|${card.sideB}|${card.directionality}`;
   }

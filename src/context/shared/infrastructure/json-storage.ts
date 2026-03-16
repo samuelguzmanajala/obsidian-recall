@@ -1,9 +1,13 @@
-export interface StorageData {
-  concepts: Record<string, SerializedConcept>;
-  studyItems: Record<string, SerializedStudyItem>;
-  decks: Record<string, SerializedDeck>;
-  reviews: SerializedReview[];
+/**
+ * Generic JSON file storage port.
+ * Each repository gets its own instance pointing to a different file.
+ */
+export interface JsonFilePort {
+  read<T>(): Promise<T | null>;
+  write<T>(data: T): Promise<void>;
 }
+
+// Serialization types
 
 export interface SerializedConcept {
   id: string;
@@ -37,18 +41,4 @@ export interface SerializedReview {
   studyItemId: string;
   rating: string;
   timestamp: string;
-}
-
-export interface JsonStoragePort {
-  load(): Promise<StorageData>;
-  save(data: StorageData): Promise<void>;
-}
-
-export function emptyStorageData(): StorageData {
-  return {
-    concepts: {},
-    studyItems: {},
-    decks: {},
-    reviews: [],
-  };
 }

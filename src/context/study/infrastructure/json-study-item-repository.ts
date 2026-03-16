@@ -4,51 +4,64 @@ import { StudyItemRepository } from '../domain/study-item-repository';
 import { MemoryState } from '../domain/memory-state';
 import { Direction } from '../domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
-import { JsonStoragePort, StorageData, SerializedStudyItem } from '@context/shared/infrastructure/json-storage';
+import { JsonFilePort, SerializedStudyItem } from '@context/shared/infrastructure/json-storage';
+
+type StudyItemStore = Record<string, SerializedStudyItem>;
 
 export class JsonStudyItemRepository implements StudyItemRepository {
-  private data: StorageData | null = null;
+  private cache: StudyItemStore | null = null;
 
-  constructor(private readonly storage: JsonStoragePort) {}
+  constructor(private readonly file: JsonFilePort) {}
 
-  private async getData(): Promise<StorageData> {
-    if (!this.data) {
-      this.data = await this.storage.load();
+  private async load(): Promise<StudyItemStore> {
+    if (!this.cache) {
+      this.cache = (await this.file.read<StudyItemStore>()) ?? {};
     }
-    return this.data;
+    return this.cache;
+  }
+
+  private async persist(): Promise<void> {
+    if (this.cache) {
+      await this.file.write(this.cache);
+    }
   }
 
   async save(studyItem: StudyItem): Promise<void> {
-    const data = await this.getData();
-    data.studyItems[studyItem.id.value] = this.serialize(studyItem);
-    await this.storage.save(data);
+    const store = await this.load();
+    store[studyItem.id.value] = this.serialize(studyItem);
+    await this.persist();
   }
 
   async findById(id: StudyItemId): Promise<StudyItem | null> {
-    const data = await this.getData();
-    const raw = data.studyItems[id.value];
+    const store = await this.load();
+    const raw = store[id.value];
     if (!raw) return null;
     return this.deserialize(raw);
   }
 
   async findByConceptId(conceptId: ConceptId): Promise<StudyItem[]> {
-    const data = await this.getData();
-    return Object.values(data.studyItems)
+    const store = await this.load();
+    return Object.values(store)
       .filter(raw => raw.conceptId === conceptId.value)
       .map(raw => this.deserialize(raw));
   }
 
+  async findAll(): Promise<StudyItem[]> {
+    const store = await this.load();
+    return Object.values(store).map(raw => this.deserialize(raw));
+  }
+
   async findDue(now: Date): Promise<StudyItem[]> {
-    const data = await this.getData();
-    return Object.values(data.studyItems)
+    const store = await this.load();
+    return Object.values(store)
       .filter(raw => new Date(raw.memoryState.due) <= now)
       .map(raw => this.deserialize(raw));
   }
 
   async remove(id: StudyItemId): Promise<void> {
-    const data = await this.getData();
-    delete data.studyItems[id.value];
-    await this.storage.save(data);
+    const store = await this.load();
+    delete store[id.value];
+    await this.persist();
   }
 
   private serialize(item: StudyItem): SerializedStudyItem {

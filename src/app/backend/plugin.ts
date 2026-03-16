@@ -1,6 +1,6 @@
 import { Plugin, TFile } from 'obsidian';
 import { Container } from './container';
-import { ObsidianStorage } from './obsidian-storage';
+import { createObsidianFilePort } from './obsidian-storage';
 import { VaultSync } from './vault-sync';
 
 export default class RecallPlugin extends Plugin {
@@ -8,14 +8,16 @@ export default class RecallPlugin extends Plugin {
   vaultSync!: VaultSync;
 
   async onload(): Promise<void> {
-    const storage = new ObsidianStorage(this);
-    this.container = new Container(storage);
+    this.container = new Container({
+      concepts: createObsidianFilePort(this.app, 'concepts.json'),
+      studyItems: createObsidianFilePort(this.app, 'study-items.json'),
+      decks: createObsidianFilePort(this.app, 'decks.json'),
+      reviews: createObsidianFilePort(this.app, 'reviews.json'),
+    });
     this.vaultSync = new VaultSync(this.container);
 
-    // Initial sync — parse all markdown files
     await this.initialSync();
 
-    // Watch for file changes
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
         if (file instanceof TFile && file.extension === 'md') {

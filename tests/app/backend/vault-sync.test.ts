@@ -1,16 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Container } from '@app/backend/container';
 import { VaultSync } from '@app/backend/vault-sync';
-import { InMemoryJsonStorage } from '../../context/shared/infrastructure/in-memory-json-storage';
+import { createTestStorageFiles } from '../../context/shared/infrastructure/in-memory-json-storage';
 
 describe('VaultSync', () => {
-  let storage: InMemoryJsonStorage;
   let container: Container;
   let sync: VaultSync;
 
   beforeEach(() => {
-    storage = new InMemoryJsonStorage();
-    container = new Container(storage);
+    container = new Container(createTestStorageFiles());
     sync = new VaultSync(container);
   });
 
@@ -26,8 +24,8 @@ describe('VaultSync', () => {
     const concepts = await container.conceptRepository.findAll();
     expect(concepts).toHaveLength(2);
 
-    const data = await storage.load();
-    expect(Object.keys(data.studyItems)).toHaveLength(4);
+    const studyItems = await container.studyItemRepository.findAll();
+    expect(studyItems).toHaveLength(4);
   });
 
   it('should create 1 study item for unidirectional card', async () => {
@@ -35,9 +33,11 @@ describe('VaultSync', () => {
 
     await sync.syncFile('ddd.md', content);
 
-    const data = await storage.load();
-    expect(Object.keys(data.concepts)).toHaveLength(1);
-    expect(Object.keys(data.studyItems)).toHaveLength(1);
+    const concepts = await container.conceptRepository.findAll();
+    expect(concepts).toHaveLength(1);
+
+    const studyItems = await container.studyItemRepository.findAll();
+    expect(studyItems).toHaveLength(1);
   });
 
   it('should not duplicate concepts on re-sync', async () => {
@@ -61,8 +61,8 @@ describe('VaultSync', () => {
     expect(concepts).toHaveLength(1);
     expect(concepts[0].sideA.content).toBe('Aber');
 
-    const data = await storage.load();
-    expect(Object.keys(data.studyItems)).toHaveLength(2);
+    const studyItems = await container.studyItemRepository.findAll();
+    expect(studyItems).toHaveLength(2);
   });
 
   it('should remove all concepts when file is deleted', async () => {
@@ -74,8 +74,8 @@ describe('VaultSync', () => {
     const concepts = await container.conceptRepository.findAll();
     expect(concepts).toHaveLength(0);
 
-    const data = await storage.load();
-    expect(Object.keys(data.studyItems)).toHaveLength(0);
+    const studyItems = await container.studyItemRepository.findAll();
+    expect(studyItems).toHaveLength(0);
   });
 
   it('should handle file with no cards', async () => {
@@ -118,7 +118,7 @@ tags:
       const decks = await container.deckRepository.findAll();
       const vocabDeck = decks.find(d => d.name === 'vocabulary');
       expect(vocabDeck).toBeDefined();
-      expect(vocabDeck!.studyItemIds).toHaveLength(2); // bidirectional = 2
+      expect(vocabDeck!.studyItemIds).toHaveLength(2);
     });
 
     it('should not duplicate decks across files with same tag', async () => {
@@ -138,10 +138,10 @@ tags:
       await sync.syncFile('vocab2.md', content2);
 
       const decks = await container.deckRepository.findAll();
-      expect(decks).toHaveLength(2); // German + vocabulary
+      expect(decks).toHaveLength(2);
 
       const vocabDeck = decks.find(d => d.name === 'vocabulary');
-      expect(vocabDeck!.studyItemIds).toHaveLength(4); // 2 cards × 2 directions
+      expect(vocabDeck!.studyItemIds).toHaveLength(4);
     });
   });
 });

@@ -3,42 +3,50 @@ import { ConceptId } from '../domain/concept-id';
 import { Side } from '../domain/side';
 import { Directionality } from '../domain/directionality';
 import { ConceptRepository } from '../domain/concept-repository';
-import { JsonStoragePort, StorageData, SerializedConcept } from '@context/shared/infrastructure/json-storage';
+import { JsonFilePort, SerializedConcept } from '@context/shared/infrastructure/json-storage';
+
+type ConceptStore = Record<string, SerializedConcept>;
 
 export class JsonConceptRepository implements ConceptRepository {
-  private data: StorageData | null = null;
+  private cache: ConceptStore | null = null;
 
-  constructor(private readonly storage: JsonStoragePort) {}
+  constructor(private readonly file: JsonFilePort) {}
 
-  private async getData(): Promise<StorageData> {
-    if (!this.data) {
-      this.data = await this.storage.load();
+  private async load(): Promise<ConceptStore> {
+    if (!this.cache) {
+      this.cache = (await this.file.read<ConceptStore>()) ?? {};
     }
-    return this.data;
+    return this.cache;
+  }
+
+  private async persist(): Promise<void> {
+    if (this.cache) {
+      await this.file.write(this.cache);
+    }
   }
 
   async save(concept: Concept): Promise<void> {
-    const data = await this.getData();
-    data.concepts[concept.id.value] = this.serialize(concept);
-    await this.storage.save(data);
+    const store = await this.load();
+    store[concept.id.value] = this.serialize(concept);
+    await this.persist();
   }
 
   async findById(id: ConceptId): Promise<Concept | null> {
-    const data = await this.getData();
-    const raw = data.concepts[id.value];
+    const store = await this.load();
+    const raw = store[id.value];
     if (!raw) return null;
     return this.deserialize(raw);
   }
 
   async findAll(): Promise<Concept[]> {
-    const data = await this.getData();
-    return Object.values(data.concepts).map(raw => this.deserialize(raw));
+    const store = await this.load();
+    return Object.values(store).map(raw => this.deserialize(raw));
   }
 
   async remove(id: ConceptId): Promise<void> {
-    const data = await this.getData();
-    delete data.concepts[id.value];
-    await this.storage.save(data);
+    const store = await this.load();
+    delete store[id.value];
+    await this.persist();
   }
 
   private serialize(concept: Concept): SerializedConcept {

@@ -36,7 +36,8 @@ describe('ReviewStudyItem', () => {
       save: vi.fn(),
       findById: vi.fn().mockResolvedValue(studyItem),
       findByConceptId: vi.fn(),
-      findDue: vi.fn(),
+      findAll: vi.fn(),
+    findDue: vi.fn(),
       remove: vi.fn(),
     };
     const mockReviewLog: ReviewLog = {
@@ -60,7 +61,8 @@ describe('ReviewStudyItem', () => {
       save: vi.fn(),
       findById: vi.fn().mockResolvedValue(null),
       findByConceptId: vi.fn(),
-      findDue: vi.fn(),
+      findAll: vi.fn(),
+    findDue: vi.fn(),
       remove: vi.fn(),
     };
     const mockReviewLog: ReviewLog = {

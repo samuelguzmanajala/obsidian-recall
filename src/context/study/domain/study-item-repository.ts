@@ -6,6 +6,7 @@ export interface StudyItemRepository {
   save(studyItem: StudyItem): Promise<void>;
   findById(id: StudyItemId): Promise<StudyItem | null>;
   findByConceptId(conceptId: ConceptId): Promise<StudyItem[]>;
+  findAll(): Promise<StudyItem[]>;
   findDue(now: Date): Promise<StudyItem[]>;
   remove(id: StudyItemId): Promise<void>;
 }

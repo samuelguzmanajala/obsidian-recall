@@ -103,15 +103,24 @@ export default class RecallPlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.previousTags = [...this.settings.flashcardTags];
   }
+
+  private previousTags: string[] = [];
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
     this.container.settings = this.settings;
-    // Update VaultSync filter, reset all data, and re-sync from scratch
-    this.vaultSync.setAllowedTags(this.settings.flashcardTags);
-    await this.vaultSync.resetAll();
-    await this.initialSync();
+
+    // Only reset + rebuild if tags actually changed
+    const tagsChanged = JSON.stringify(this.settings.flashcardTags) !== JSON.stringify(this.previousTags);
+    if (tagsChanged) {
+      this.previousTags = [...this.settings.flashcardTags];
+      this.vaultSync.setAllowedTags(this.settings.flashcardTags);
+      await this.vaultSync.resetAll();
+      await this.initialSync();
+    }
+
     // Refresh deck browser if open
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
     for (const leaf of leaves) {

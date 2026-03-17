@@ -59,8 +59,10 @@ export class ReplayReviews {
         state = this.scheduler.schedule(state, review.rating as Rating, review.timestamp);
       }
 
-      // Only update if state actually differs
-      if (!item.memoryState.equals(state)) {
+      // Only update if replay produces MORE reviews than current state.
+      // This prevents overwriting imported SR data (which has higher reps)
+      // with a replay that only knows about Recall reviews.
+      if (state.reps > item.memoryState.reps) {
         const rebuilt = StudyItem.reconstitute(
           item.id, item.conceptId, item.direction, state,
         );

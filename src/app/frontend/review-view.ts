@@ -79,12 +79,21 @@ export class ReviewView extends ItemView {
     );
 
     if (!studyItem) {
-      // Card was edited — content changed so VaultSync replaced it.
-      // Remove stale item from queue and re-render.
-      this.items.splice(this.currentIndex, 1);
-      if (this.currentIndex >= this.items.length) this.currentIndex = 0;
-      this.answerRevealed = false;
-      this.render();
+      // Card was edited — VaultSync replaced it with a new StudyItem.
+      // Try to find the replacement by looking at the source file.
+      const replacement = await this.findReplacementItem(item);
+      if (replacement) {
+        // Swap in the new data, keep position in queue
+        Object.assign(item, replacement);
+        this.answerRevealed = false;
+        this.render();
+      } else {
+        // No replacement found — remove from queue
+        this.items.splice(this.currentIndex, 1);
+        if (this.currentIndex >= this.items.length) this.currentIndex = 0;
+        this.answerRevealed = false;
+        this.render();
+      }
       return;
     }
 
@@ -292,6 +301,33 @@ export class ReviewView extends ItemView {
       cls: 'recall-back-link',
     });
     backBtn.addEventListener('click', () => this.goBack());
+  }
+
+  /**
+   * When a card is edited, VaultSync creates a new Concept + StudyItem.
+   * Try to find the new item that replaced the old one by matching
+   * direction and source file.
+   */
+  private async findReplacementItem(oldItem: DueStudyItemView): Promise<DueStudyItemView | null> {
+    // Find the source file of the old concept
+    const oldFile = this.container.vaultSync?.findFileByConceptId(oldItem.conceptId);
+
+    // Get all due items and find one from the same file with the same direction
+    // that isn't already in our queue
+    const existingIds = new Set(this.items.map(i => i.studyItemId));
+    const allDue = await this.container.getDueStudyItems.execute();
+
+    for (const candidate of allDue) {
+      if (existingIds.has(candidate.studyItemId)) continue;
+      if (candidate.direction !== oldItem.direction) continue;
+
+      const candidateFile = this.container.vaultSync?.findFileByConceptId(candidate.conceptId);
+      if (candidateFile && oldFile && candidateFile.filePath === oldFile.filePath) {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 
   private async openSourceNote(conceptId: string): Promise<void> {

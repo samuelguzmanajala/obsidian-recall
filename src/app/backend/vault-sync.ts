@@ -13,6 +13,8 @@ import { SerializedSyncState } from '@context/shared/infrastructure/json-storage
 interface FileIndex {
   /** Map of "sideA|sideB|directionality" → conceptId */
   cardKeys: Map<string, string>;
+  /** Map of conceptId → line number in the source file */
+  conceptLines: Map<string, number>;
   /** studyItemIds created for this file */
   studyItemIds: string[];
   /** deckIds (leaf decks) assigned to this file's cards */
@@ -90,12 +92,15 @@ export class VaultSync {
   }
 
   /**
-   * Find which file a concept belongs to. Returns null if not found.
+   * Find which file and line a concept belongs to.
    */
-  findFileByConceptId(conceptId: string): string | null {
+  findFileByConceptId(conceptId: string): { filePath: string; line: number } | null {
     for (const [filePath, index] of this.fileIndices) {
       for (const cid of index.cardKeys.values()) {
-        if (cid === conceptId) return filePath;
+        if (cid === conceptId) {
+          const line = index.conceptLines.get(conceptId) ?? 1;
+          return { filePath, line };
+        }
       }
     }
     return null;
@@ -115,6 +120,7 @@ export class VaultSync {
     for (const [filePath, serialized] of Object.entries(state.fileIndices)) {
       const index: FileIndex = {
         cardKeys: new Map(Object.entries(serialized.cardKeys)),
+        conceptLines: new Map(Object.entries(serialized.conceptLines ?? {})),
         studyItemIds: serialized.studyItemIds,
         deckIds: serialized.deckIds,
       };
@@ -146,7 +152,7 @@ export class VaultSync {
     }
 
     const previousIndex = this.fileIndices.get(filePath);
-    const newIndex: FileIndex = { cardKeys: new Map(), studyItemIds: [], deckIds: [] };
+    const newIndex: FileIndex = { cardKeys: new Map(), conceptLines: new Map(), studyItemIds: [], deckIds: [] };
 
     const previousKeys = new Set(previousIndex?.cardKeys.keys() ?? []);
 
@@ -169,6 +175,7 @@ export class VaultSync {
         // Card still exists — keep it
         const conceptId = previousIndex.cardKeys.get(key)!;
         newIndex.cardKeys.set(key, conceptId);
+        newIndex.conceptLines.set(conceptId, card.lineNumber);
         previousKeys.delete(key);
 
         // If tags changed, reassign study items to new decks
@@ -210,6 +217,7 @@ export class VaultSync {
         // New card — create concept + study items + assign to decks
         const { conceptId, studyItemIds } = await this.createConceptWithStudyItems(card);
         newIndex.cardKeys.set(key, conceptId);
+        newIndex.conceptLines.set(conceptId, card.lineNumber);
         newIndex.studyItemIds.push(...studyItemIds);
 
         // Assign study items to leaf decks
@@ -404,6 +412,7 @@ export class VaultSync {
     for (const [filePath, index] of this.fileIndices) {
       state.fileIndices[filePath] = {
         cardKeys: Object.fromEntries(index.cardKeys),
+        conceptLines: Object.fromEntries(index.conceptLines),
         studyItemIds: index.studyItemIds,
         deckIds: index.deckIds,
       };

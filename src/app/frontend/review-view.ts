@@ -259,14 +259,16 @@ export class ReviewView extends ItemView {
   }
 
   private async openSourceNote(conceptId: string): Promise<void> {
-    const filePath = this.container.vaultSync?.findFileByConceptId(conceptId);
-    if (!filePath) return;
+    const result = this.container.vaultSync?.findFileByConceptId(conceptId);
+    if (!result) return;
 
-    const file = this.app.vault.getAbstractFileByPath(filePath);
+    const file = this.app.vault.getAbstractFileByPath(result.filePath);
     if (!file) return;
 
     const leaf = this.app.workspace.getLeaf('tab');
-    await leaf.openFile(file as any);
+    await leaf.openFile(file as any, {
+      eState: { line: result.line - 1 },
+    });
   }
 
   private goBack(): void {

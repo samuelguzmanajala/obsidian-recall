@@ -46,6 +46,8 @@ export interface SerializedReview {
 export interface SerializedFileIndex {
   /** Map of "sideA|sideB|directionality" → conceptId */
   cardKeys: Record<string, string>;
+  /** Map of conceptId → line number */
+  conceptLines?: Record<string, number>;
   /** studyItemIds created for this file */
   studyItemIds: string[];
   /** deckIds (leaf decks) assigned to this file's cards */

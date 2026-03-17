@@ -91,23 +91,39 @@ export default class RecallPlugin extends Plugin {
 
     // Wait for vault to be ready before loading
     this.app.workspace.onLayoutReady(async () => {
-      const existingItems = await this.container.studyItemRepository.findAll();
-      if (existingItems.length > 0) {
-        // Data exists — replay reviews to ensure MemoryState is up to date
-        // (handles case where reviews.json was synced from another device)
-        const replayed = await this.container.replayReviews.execute();
-        console.log(`Recall: ${existingItems.length} items loaded, ${replayed} updated from review log`);
-      } else {
-        const hasRecallDir = await this.hasRecallData();
-        if (hasRecallDir) {
-          console.log('Recall: .recall/ exists but no items, running initial sync');
-          await this.initialSync();
-          // Replay reviews after sync (in case reviews.json has data)
-          await this.container.replayReviews.execute();
-        } else {
-          console.log('Recall: no .recall/ directory, waiting for Sync or first setup');
-        }
+      const hasData = await this.hasRecallData();
+      if (!hasData) {
+        console.log('Recall: no .recall/ directory, waiting for Sync or first setup');
+        return;
       }
+
+      const existingItems = await this.container.studyItemRepository.findAll();
+      if (existingItems.length === 0) {
+        // No items but dir exists — first run or post-Sync
+        console.log('Recall: running initial sync + import');
+        await this.initialSync();
+        await this.importFromSR();
+        this.settings.deterministicIds = true;
+        await this.saveData(this.settings);
+        console.log('Recall: initial setup complete');
+        return;
+      }
+
+      // Check if we need to migrate to deterministic IDs
+      if (this.needsIdMigration()) {
+        console.log('Recall: migrating to deterministic IDs...');
+        await this.vaultSync.resetKeepReviews();
+        await this.initialSync();
+        await this.importFromSR();
+        this.settings.deterministicIds = true;
+        await this.saveData(this.settings);
+        console.log('Recall: migration complete');
+        return;
+      }
+
+      // Normal startup — replay reviews for any synced from other devices
+      const replayed = await this.container.replayReviews.execute();
+      console.log(`Recall: ${existingItems.length} items loaded, ${replayed} updated from review log`);
     });
 
     this.registerEvent(
@@ -235,6 +251,10 @@ export default class RecallPlugin extends Plugin {
       const view = leaf.view as DeckBrowserView;
       if (view.render) await view.render();
     }
+  }
+
+  private needsIdMigration(): boolean {
+    return !this.settings.deterministicIds;
   }
 
   private async hasRecallData(): Promise<boolean> {

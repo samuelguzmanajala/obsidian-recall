@@ -16,6 +16,8 @@ export interface RecallSettings {
   leechThreshold: number;
   /** Deck IDs the user has expanded in the sidebar. */
   expandedDeckIds: string[];
+  /** Whether IDs have been migrated to deterministic format. */
+  deterministicIds: boolean;
   /** LLM provider for card generation. */
   llmProvider: LlmProvider;
   /** API key for the selected LLM provider. */
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   dailyReviewLimit: 0,
   leechThreshold: 8,
   expandedDeckIds: [],
+  deterministicIds: false,
   llmProvider: 'none',
   llmApiKey: '',
 };

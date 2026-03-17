@@ -26,7 +26,6 @@ export default class RecallPlugin extends Plugin {
     }
 
     const deviceId = await getDeviceId(this.app);
-    console.log(`Recall: device ID = ${deviceId}`);
 
     this.container = new Container({
       concepts: createObsidianFilePort(this.app, 'concepts.json'),
@@ -82,7 +81,6 @@ export default class RecallPlugin extends Plugin {
           const view = leaf.view as DeckBrowserView;
           if (view.render) await view.render();
         }
-        console.log('Recall: rebuild complete');
       },
     });
 
@@ -99,20 +97,15 @@ export default class RecallPlugin extends Plugin {
     this.app.workspace.onLayoutReady(async () => {
       const hasData = await this.hasRecallData();
       if (!hasData) {
-        console.log('Recall: no .recall/ directory, waiting for Sync or first setup');
+        // No recall-data/ directory — waiting for Sync or first setup
         return;
       }
 
       // Always do incremental sync for new/changed notes
       const existingItems = await this.container.studyItemRepository.findAll();
       if (existingItems.length === 0) {
-        console.log('Recall: first run, building index');
         await this.initialSync();
       }
-
-      // Data exists — just use it. Reviews are saved immediately to study-items.json.
-      // Cross-device sync happens via Sync of recall-data/ files.
-      console.log(`Recall: ${existingItems.length} items loaded`);
     });
 
     // Listen for file system changes (includes Sync updates)
@@ -146,13 +139,11 @@ export default class RecallPlugin extends Plugin {
           this.cancelPendingSync(oldPath);
           this.vaultSync.renameFile(oldPath, file.path).then(
             () => this.debouncedSync(file),
-            (err) => console.warn(`Recall: failed to rename ${oldPath}`, err),
+            () => { /* skip files that fail to rename */ },
           );
         }
       }),
     );
-
-    console.log('Recall plugin loaded');
   }
 
   async loadSettings(): Promise<void> {
@@ -227,8 +218,8 @@ export default class RecallPlugin extends Plugin {
             if (result) imported++;
           }
         }
-      } catch (err) {
-        console.warn(`Recall: SR import failed for ${file.path}`, err);
+      } catch {
+        // Skip files that fail SR import
       }
     }
 
@@ -241,8 +232,7 @@ export default class RecallPlugin extends Plugin {
     // Rebuild from vault notes (creates fresh items with reps=0)
     await this.initialSync();
     // Replay reviews to restore MemoryState from the log
-    const replayed = await this.container.replayReviews.execute();
-    console.log(`Recall: rebuild done, ${replayed} items restored from review log`);
+    await this.container.replayReviews.execute();
     // Refresh UI
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
     for (const leaf of leaves) {
@@ -313,7 +303,6 @@ export default class RecallPlugin extends Plugin {
       }
       if (!hasData) continue;
 
-      console.log(`Recall: migrating data from ${oldDir}/ to ${newDir}/`);
       try { await this.app.vault.adapter.mkdir(newDir); } catch { /* exists */ }
 
       // Migrate data files
@@ -342,7 +331,6 @@ export default class RecallPlugin extends Plugin {
 
       // Clean up old dir
       try { await this.app.vault.adapter.rmdir(oldDir, false); } catch { /* not empty */ }
-      console.log('Recall: migration complete');
       break; // only migrate from the first found location
     }
   }
@@ -374,25 +362,20 @@ export default class RecallPlugin extends Plugin {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
-    console.log('Recall plugin unloaded');
   }
 
   private async initialSync(): Promise<void> {
     await this.vaultSync.beginBatch();
     const files = this.app.vault.getMarkdownFiles();
-    let synced = 0;
-    let skipped = 0;
     for (const file of files) {
       try {
         const content = await this.app.vault.cachedRead(file);
-        const had = await this.vaultSync.syncFile(file.path, content);
-        if (had) synced++; else skipped++;
-      } catch (err) {
-        console.warn(`Recall: failed to sync ${file.path}`, err);
+        await this.vaultSync.syncFile(file.path, content);
+      } catch {
+        // Skip files that fail to sync
       }
     }
     await this.vaultSync.endBatch();
-    console.log(`Recall: initial sync done — ${synced} files indexed, ${skipped} skipped, ${files.length} total`);
   }
 
   private cancelPendingSync(path: string): void {
@@ -413,8 +396,8 @@ export default class RecallPlugin extends Plugin {
         try {
           const content = await this.app.vault.read(file);
           await this.vaultSync.syncFile(file.path, content);
-        } catch (err) {
-          console.warn(`Recall: failed to sync ${file.path}`, err);
+        } catch {
+          // Skip files that fail to sync
         }
       }, RecallPlugin.DEBOUNCE_MS),
     );

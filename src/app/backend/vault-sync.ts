@@ -45,15 +45,6 @@ export class VaultSync {
   }
 
   /**
-   * Clear in-memory sync state maps (for rebuild without losing reviews).
-   */
-  async clearSyncState(): Promise<void> {
-    this.fileIndices.clear();
-    this.tagToDeckId.clear();
-    await this.persistState();
-  }
-
-  /**
    * Wipe everything EXCEPT reviews (source of truth for event sourcing).
    * Used by rebuild to recreate items from vault while preserving history.
    */

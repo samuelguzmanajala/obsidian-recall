@@ -6,7 +6,7 @@ import { SerializedReview } from '@context/shared/infrastructure/json-storage';
 
 /**
  * Port for reading/writing review files per device.
- * Each device gets its own file: .recall/reviews-{deviceId}.json
+ * Each device gets its own file: recall-data/reviews-{deviceId}.json
  * Replay reads ALL device files to reconstruct state.
  */
 export interface ReviewFilePort {

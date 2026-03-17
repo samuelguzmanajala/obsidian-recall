@@ -6,7 +6,7 @@ const RECALL_DATA_DIR = 'recall-data';
 const DEVICE_ID_PATH = '.obsidian/plugins/obsidian-recall/device-id';
 
 /**
- * Creates a JsonFilePort backed by a file in the .recall/ vault directory.
+ * Creates a JsonFilePort backed by a file in the recall-data/ vault directory.
  * Uses vault adapter so files are visible to Obsidian Sync.
  * Each aggregate gets its own JSON file.
  */
@@ -36,7 +36,7 @@ export function createObsidianFilePort(app: App, filename: string): JsonFilePort
 
 /**
  * Get or create a stable device ID. Stored in the plugin dir
- * (NOT in data.json, NOT in .recall/) so it doesn't sync.
+ * (NOT in data.json, NOT in recall-data/) so it doesn't sync.
  */
 export async function getDeviceId(app: App): Promise<string> {
   try {
@@ -97,7 +97,7 @@ export function createReviewFilePort(app: App, deviceId: string): ReviewFilePort
           }
         }
       } catch {
-        // .recall/ doesn't exist yet
+        // recall-data/ doesn't exist yet
       }
 
       // Also read legacy reviews.json if it exists

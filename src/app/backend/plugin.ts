@@ -74,7 +74,16 @@ export default class RecallPlugin extends Plugin {
 
     // Wait for vault to be ready before syncing files
     this.app.workspace.onLayoutReady(async () => {
-      await this.initialSync();
+      // If we already have study items (from Sync or previous session),
+      // skip full rebuild — just do incremental sync for new/changed files.
+      // This prevents a race condition where initialSync runs before
+      // Obsidian Sync has finished pulling data from other devices.
+      const existingItems = await this.container.studyItemRepository.findAll();
+      if (existingItems.length > 0) {
+        console.log(`Recall: skipping full rebuild — ${existingItems.length} items already loaded`);
+      } else {
+        await this.initialSync();
+      }
     });
 
     this.registerEvent(

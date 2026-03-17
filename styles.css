@@ -178,6 +178,81 @@
   text-align: center;
 }
 
+/* Leeches section */
+.recall-leech-section {
+  margin-top: 16px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.recall-leech-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.recall-leech-header:hover {
+  background: var(--background-secondary);
+}
+
+.recall-leech-title {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.recall-leech-list {
+  margin-top: 4px;
+}
+
+.recall-leech-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 4px 26px;
+  border-radius: 6px;
+}
+
+.recall-leech-row:hover {
+  background: var(--background-secondary);
+}
+
+.recall-leech-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.recall-leech-text {
+  font-size: 0.85em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recall-leech-count {
+  font-size: 0.75em;
+  color: var(--color-red);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.recall-leech-edit {
+  cursor: pointer;
+  font-size: 0.85em;
+  padding: 2px 4px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.recall-leech-edit:hover {
+  background: var(--background-modifier-hover);
+}
+
 /* ============================================
    Recall — Review View
    ============================================ */

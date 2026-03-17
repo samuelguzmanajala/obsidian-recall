@@ -1,6 +1,8 @@
 import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import { Container } from '@app/backend/container';
 import { DeckTreeNode } from '@context/deck/application/get-deck-tree';
+import { LeechView } from '@context/study/application/get-leeches';
+import { Direction } from '@context/study/domain/direction';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
 
 export class DeckBrowserView extends ItemView {
@@ -9,6 +11,7 @@ export class DeckBrowserView extends ItemView {
   private lastHash = '';
   /** Track expanded state by deck id — collapsed by default */
   private expandedDecks = new Set<string>();
+  private leechesExpanded = false;
 
   constructor(leaf: WorkspaceLeaf, container: Container) {
     super(leaf);
@@ -93,6 +96,15 @@ export class DeckBrowserView extends ItemView {
     for (const node of tree) {
       this.renderDeckNode(list, node, 0);
     }
+
+    // Leeches section
+    const threshold = this.container.settings?.leechThreshold ?? 8;
+    if (threshold > 0) {
+      const leeches = await this.container.getLeeches.execute(threshold);
+      if (leeches.length > 0) {
+        this.renderLeechSection(el, leeches);
+      }
+    }
   }
 
   private createStat(parent: HTMLElement, value: string, label: string, cls: string): void {
@@ -163,6 +175,58 @@ export class DeckBrowserView extends ItemView {
         this.renderDeckNode(wrapper, child, depth + 1);
       }
     }
+  }
+
+  private renderLeechSection(parent: HTMLElement, leeches: LeechView[]): void {
+    const section = parent.createDiv({ cls: 'recall-leech-section' });
+
+    const header = section.createDiv({ cls: 'recall-leech-header' });
+    const toggle = header.createSpan({ cls: 'recall-collapse-toggle' });
+    setIcon(toggle, this.leechesExpanded ? 'chevron-down' : 'chevron-right');
+
+    header.createSpan({ text: `🩸 Leeches (${leeches.length})`, cls: 'recall-leech-title' });
+
+    header.addEventListener('click', () => {
+      this.leechesExpanded = !this.leechesExpanded;
+      this.render();
+    });
+
+    if (this.leechesExpanded) {
+      const list = section.createDiv({ cls: 'recall-leech-list' });
+      for (const leech of leeches) {
+        const row = list.createDiv({ cls: 'recall-leech-row' });
+
+        const question = leech.direction === Direction.AtoB ? leech.sideA : leech.sideB;
+        // Truncate long questions
+        const display = question.length > 60 ? question.slice(0, 57) + '...' : question;
+
+        const left = row.createDiv({ cls: 'recall-leech-left' });
+        left.createSpan({ text: display, cls: 'recall-leech-text' });
+        left.createSpan({
+          text: `${leech.lapses} lapses`,
+          cls: 'recall-leech-count',
+        });
+
+        const openBtn = row.createSpan({ text: '📝', cls: 'recall-leech-edit' });
+        openBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.openLeechNote(leech.conceptId);
+        });
+      }
+    }
+  }
+
+  private async openLeechNote(conceptId: string): Promise<void> {
+    const result = this.container.vaultSync?.findFileByConceptId(conceptId);
+    if (!result) return;
+
+    const file = this.app.vault.getAbstractFileByPath(result.filePath);
+    if (!file) return;
+
+    const leaf = this.app.workspace.getLeaf('tab');
+    await leaf.openFile(file as any, {
+      eState: { line: result.line - 1 },
+    });
   }
 
   private async openReview(deckId?: string): Promise<void> {

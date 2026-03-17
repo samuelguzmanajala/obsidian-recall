@@ -8,6 +8,8 @@ export interface RecallSettings {
   flashcardTags: string[];
   /** Shuffle review order. Default true. */
   shuffleReviews: boolean;
+  /** Leech threshold — items with this many lapses are marked as leeches. */
+  leechThreshold: number;
   /** LLM provider for card generation. */
   llmProvider: LlmProvider;
   /** API key for the selected LLM provider. */
@@ -17,6 +19,7 @@ export interface RecallSettings {
 export const DEFAULT_SETTINGS: RecallSettings = {
   flashcardTags: [],
   shuffleReviews: true,
+  leechThreshold: 8,
   llmProvider: 'none',
   llmApiKey: '',
 };
@@ -70,6 +73,24 @@ export class RecallSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.shuffleReviews = value;
             await this.plugin.saveSettings();
+          });
+      });
+
+    // Leech threshold
+    new Setting(containerEl)
+      .setName('Leech threshold')
+      .setDesc('Cards with this many lapses (Again presses) are flagged as leeches. Set to 0 to disable.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.style.width = '60px';
+        text
+          .setValue(String(this.plugin.settings.leechThreshold))
+          .onChange(async (value) => {
+            const n = parseInt(value);
+            if (!isNaN(n) && n >= 0) {
+              this.plugin.settings.leechThreshold = n;
+              await this.plugin.saveSettings();
+            }
           });
       });
 

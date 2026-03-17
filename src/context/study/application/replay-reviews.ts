@@ -63,9 +63,10 @@ export class ReplayReviews {
         state = this.scheduler.schedule(state, review.rating as Rating, review.timestamp);
       }
 
-      // Update if state differs — reviews (including synthetic SR imports)
-      // are the source of truth, replay always wins.
-      if (!item.memoryState.equals(state)) {
+      // Only update if replayed state has more reps than current.
+      // This preserves SR imports (which have reps but no review log entries).
+      if (state.reps > item.memoryState.reps || 
+          (state.reps === item.memoryState.reps && !item.memoryState.equals(state))) {
         const rebuilt = StudyItem.reconstitute(
           item.id, item.conceptId, item.direction, state,
         );

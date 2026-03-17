@@ -110,12 +110,9 @@ export default class RecallPlugin extends Plugin {
         await this.initialSync();
       }
 
-      // Replay reviews — this is the source of truth.
-      const allReviews = await this.container.reviewLog.findAll();
-      console.log(`Recall: ${existingItems.length} items loaded, ${allReviews.length} reviews in log`);
-      const replayed = await this.container.replayReviews.execute();
-      const total = await this.container.studyItemRepository.findAll();
-      console.log(`Recall: ${total.length} items, ${replayed} updated from review log`);
+      // Data exists — just use it. Reviews are saved immediately to study-items.json.
+      // Cross-device sync happens via Sync of recall-data/ files.
+      console.log(`Recall: ${existingItems.length} items loaded`);
     });
 
     this.registerEvent(

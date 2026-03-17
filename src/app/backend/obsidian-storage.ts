@@ -2,7 +2,7 @@ import { App } from 'obsidian';
 import { JsonFilePort, SerializedReview } from '@context/shared/infrastructure/json-storage';
 import { ReviewFilePort } from '@context/study/infrastructure/json-review-log';
 
-const RECALL_DATA_DIR = '.recall';
+const RECALL_DATA_DIR = 'recall-data';
 const DEVICE_ID_PATH = '.obsidian/plugins/obsidian-recall/device-id';
 
 /**

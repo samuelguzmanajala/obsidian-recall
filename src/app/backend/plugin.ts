@@ -19,10 +19,10 @@ export default class RecallPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Migrate data from old location — only if .recall/ doesn't exist yet
+    // Migrate from old locations if needed
     const hasNewData = await this.hasRecallData();
     if (!hasNewData) {
-      await this.migrateFromPluginDir();
+      await this.migrateOldData();
     }
 
     const deviceId = await getDeviceId(this.app);
@@ -253,7 +253,7 @@ export default class RecallPlugin extends Plugin {
 
   private async hasRecallData(): Promise<boolean> {
     try {
-      await this.app.vault.adapter.stat('.recall/study-items.json');
+      await this.app.vault.adapter.stat('recall-data/study-items.json');
       return true;
     } catch {
       return false;
@@ -261,52 +261,59 @@ export default class RecallPlugin extends Plugin {
   }
 
   /**
-   * One-time migration: move data files from .obsidian/plugins/obsidian-recall/data/
-   * to .recall/ in the vault root (for Obsidian Sync compatibility).
+   * One-time migration from old storage locations to recall-data/.
    */
-  private async migrateFromPluginDir(): Promise<void> {
-    const oldDir = '.obsidian/plugins/obsidian-recall/data';
-    const newDir = '.recall';
-    const files = ['concepts.json', 'study-items.json', 'decks.json', 'reviews.json', 'sync-state.json'];
+  private async migrateOldData(): Promise<void> {
+    const newDir = 'recall-data';
+    const dataFiles = ['concepts.json', 'study-items.json', 'decks.json', 'sync-state.json'];
+    const oldDirs = [
+      '.obsidian/plugins/obsidian-recall/data',
+      '.recall',
+    ];
 
-    let hasOldData = false;
-    for (const file of files) {
-      try {
-        await this.app.vault.adapter.stat(`${oldDir}/${file}`);
-        hasOldData = true;
-        break;
-      } catch {
-        // file doesn't exist
+    for (const oldDir of oldDirs) {
+      let hasData = false;
+      for (const file of dataFiles) {
+        try {
+          await this.app.vault.adapter.stat(`${oldDir}/${file}`);
+          hasData = true;
+          break;
+        } catch { /* doesn't exist */ }
       }
-    }
+      if (!hasData) continue;
 
-    if (!hasOldData) return;
+      console.log(`Recall: migrating data from ${oldDir}/ to ${newDir}/`);
+      try { await this.app.vault.adapter.mkdir(newDir); } catch { /* exists */ }
 
-    console.log('Recall: migrating data from plugin dir to .recall/');
-    try {
-      await this.app.vault.adapter.mkdir(newDir);
-    } catch {
-      // already exists
-    }
-
-    for (const file of files) {
-      try {
-        const content = await this.app.vault.adapter.read(`${oldDir}/${file}`);
-        await this.app.vault.adapter.write(`${newDir}/${file}`, content);
-        await this.app.vault.adapter.remove(`${oldDir}/${file}`);
-      } catch {
-        // file doesn't exist in old location, skip
+      // Migrate data files
+      for (const file of dataFiles) {
+        try {
+          const content = await this.app.vault.adapter.read(`${oldDir}/${file}`);
+          await this.app.vault.adapter.write(`${newDir}/${file}`, content);
+          await this.app.vault.adapter.remove(`${oldDir}/${file}`);
+        } catch { /* skip */ }
       }
-    }
 
-    // Clean up old dir
-    try {
-      await this.app.vault.adapter.rmdir(oldDir, false);
-    } catch {
-      // not empty or doesn't exist
-    }
+      // Migrate review files (reviews.json + reviews-*.json)
+      try {
+        const listing = await this.app.vault.adapter.list(oldDir);
+        for (const file of listing.files) {
+          const filename = file.split('/').pop()!;
+          if (filename.startsWith('reviews')) {
+            try {
+              const content = await this.app.vault.adapter.read(file);
+              await this.app.vault.adapter.write(`${newDir}/${filename}`, content);
+              await this.app.vault.adapter.remove(file);
+            } catch { /* skip */ }
+          }
+        }
+      } catch { /* dir doesn't exist */ }
 
-    console.log('Recall: migration complete');
+      // Clean up old dir
+      try { await this.app.vault.adapter.rmdir(oldDir, false); } catch { /* not empty */ }
+      console.log('Recall: migration complete');
+      break; // only migrate from the first found location
+    }
   }
 
   private async activateDeckBrowser(): Promise<void> {

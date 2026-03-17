@@ -1,10 +1,15 @@
 import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
 
-// Repositories
+// Domain ports
+import { ConceptRepository } from '@context/concept/domain/concept-repository';
+import { StudyItemRepository } from '@context/study/domain/study-item-repository';
+import { DeckRepository } from '@context/deck/domain/deck-repository';
+import { ReviewLog } from '@context/study/domain/review-log';
+
+// Infrastructure implementations
 import { JsonConceptRepository } from '@context/concept/infrastructure/json-concept-repository';
 import { JsonStudyItemRepository } from '@context/study/infrastructure/json-study-item-repository';
 import { JsonDeckRepository } from '@context/deck/infrastructure/json-deck-repository';
-import { MultiDeviceReviewLog, ReviewFilePort } from '@context/study/infrastructure/json-review-log';
 
 // Infrastructure
 import { FsrsScheduler } from '@context/study/infrastructure/fsrs-scheduler';
@@ -44,16 +49,16 @@ export interface StorageFiles {
   concepts: JsonFilePort;
   studyItems: JsonFilePort;
   decks: JsonFilePort;
-  reviewPort: ReviewFilePort;
+  reviewLog: ReviewLog;
   syncState: JsonFilePort;
 }
 
 export class Container {
-  // Repositories
-  readonly conceptRepository: JsonConceptRepository;
-  readonly studyItemRepository: JsonStudyItemRepository;
-  readonly deckRepository: JsonDeckRepository;
-  readonly reviewLog: MultiDeviceReviewLog;
+  // Domain ports — the ONLY way to access data from use cases and frontend
+  readonly conceptRepository: ConceptRepository;
+  readonly studyItemRepository: StudyItemRepository;
+  readonly deckRepository: DeckRepository;
+  readonly reviewLog: ReviewLog;
 
   // Storage
   readonly syncStateFile: JsonFilePort;
@@ -67,7 +72,7 @@ export class Container {
   // VaultSync reference (set by plugin after construction)
   vaultSync: VaultSync | null = null;
 
-  // LLM client (reads provider/key from settings dynamically)
+  // LLM client
   readonly llmClient: LlmClient;
 
   // Infrastructure
@@ -106,11 +111,11 @@ export class Container {
     this.parser = new MarkdownParser();
     this.syncStateFile = files.syncState;
 
-    // Repositories — each with its own file
+    // Repositories — plain implementations, no cache logic
     this.conceptRepository = new JsonConceptRepository(files.concepts);
     this.studyItemRepository = new JsonStudyItemRepository(files.studyItems);
     this.deckRepository = new JsonDeckRepository(files.decks);
-    this.reviewLog = new MultiDeviceReviewLog(files.reviewPort);
+    this.reviewLog = files.reviewLog;
 
     // Use cases
     this.createConcept = new CreateConcept(this.conceptRepository);
@@ -144,7 +149,7 @@ export class Container {
     this.importSrData = new ImportSrData(this.studyItemRepository);
     this.replayReviews = new ReplayReviews(this.studyItemRepository, this.reviewLog, this.scheduler);
 
-    // LLM — reads from settings lazily so it always uses current config
+    // LLM
     this.llmClient = new HttpLlmClient(
       () => this.settings?.llmProvider ?? 'none',
       () => this.settings?.llmApiKey ?? '',

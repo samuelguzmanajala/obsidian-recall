@@ -1,6 +1,8 @@
 import { Plugin, TFile, WorkspaceLeaf } from 'obsidian';
 import { Container } from './container';
 import { createObsidianFilePort, createReviewFilePort, getDeviceId } from './obsidian-storage';
+import { CachedJsonFilePort } from './cached-json-file-port';
+import { MultiDeviceReviewLog } from '@context/study/infrastructure/json-review-log';
 import { VaultSync } from './vault-sync';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
@@ -13,6 +15,15 @@ export default class RecallPlugin extends Plugin {
   container!: Container;
   vaultSync!: VaultSync;
   settings!: RecallSettings;
+
+  // Cached file ports — plugin controls batch/invalidation
+  private cachedPorts!: {
+    concepts: CachedJsonFilePort;
+    studyItems: CachedJsonFilePort;
+    decks: CachedJsonFilePort;
+    syncState: CachedJsonFilePort;
+  };
+  private reviewLogImpl!: MultiDeviceReviewLog;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private static readonly DEBOUNCE_MS = 500;
 
@@ -27,18 +38,30 @@ export default class RecallPlugin extends Plugin {
 
     const deviceId = await getDeviceId(this.app);
 
+    // Create cached file ports — repos see JsonFilePort, plugin controls cache
+    this.cachedPorts = {
+      concepts: new CachedJsonFilePort(createObsidianFilePort(this.app, 'concepts.json')),
+      studyItems: new CachedJsonFilePort(createObsidianFilePort(this.app, 'study-items.json')),
+      decks: new CachedJsonFilePort(createObsidianFilePort(this.app, 'decks.json')),
+      syncState: new CachedJsonFilePort(createObsidianFilePort(this.app, 'sync-state.json')),
+    };
+
+    this.reviewLogImpl = new MultiDeviceReviewLog(createReviewFilePort(this.app, deviceId));
+
     this.container = new Container({
-      concepts: createObsidianFilePort(this.app, 'concepts.json'),
-      studyItems: createObsidianFilePort(this.app, 'study-items.json'),
-      decks: createObsidianFilePort(this.app, 'decks.json'),
-      reviewPort: createReviewFilePort(this.app, deviceId),
-      syncState: createObsidianFilePort(this.app, 'sync-state.json'),
+      concepts: this.cachedPorts.concepts,
+      studyItems: this.cachedPorts.studyItems,
+      decks: this.cachedPorts.decks,
+      reviewLog: this.reviewLogImpl,
+      syncState: this.cachedPorts.syncState,
     });
     this.container.settings = this.settings;
     this.container.saveSettingsQuiet = async () => {
       await this.saveData(this.settings);
     };
     this.vaultSync = new VaultSync(this.container);
+    this.vaultSync.setCachedPorts(this.cachedPorts);
+    this.vaultSync.setReviewLog(this.reviewLogImpl);
     this.container.vaultSync = this.vaultSync;
 
     // Register views
@@ -256,10 +279,11 @@ export default class RecallPlugin extends Plugin {
     // Debounce: wait 1s after last change before invalidating
     if (this.dataChangeTimer) clearTimeout(this.dataChangeTimer);
     this.dataChangeTimer = setTimeout(() => {
-      this.container.conceptRepository.invalidateCache();
-      this.container.studyItemRepository.invalidateCache();
-      this.container.deckRepository.invalidateCache();
-      this.container.reviewLog.invalidateCache();
+      this.cachedPorts.concepts.invalidate();
+      this.cachedPorts.studyItems.invalidate();
+      this.cachedPorts.decks.invalidate();
+      this.cachedPorts.syncState.invalidate();
+      this.reviewLogImpl.invalidateCache();
       this.refreshDeckBrowser();
     }, 1000);
   }

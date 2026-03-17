@@ -9,41 +9,12 @@ import { JsonFilePort, SerializedStudyItem } from '@context/shared/infrastructur
 type StudyItemStore = Record<string, SerializedStudyItem>;
 
 export class JsonStudyItemRepository implements StudyItemRepository {
-  private cache: StudyItemStore | null = null;
-  private batchMode = false;
-
   constructor(private readonly file: JsonFilePort) {}
-
-  setBatchMode(on: boolean): void {
-    this.batchMode = on;
-  }
-
-  async flush(): Promise<void> {
-    this.batchMode = false;
-    await this.persist();
-  }
-
-  invalidateCache(): void {
-    this.cache = null;
-  }
-
-  private async load(): Promise<StudyItemStore> {
-    if (!this.cache) {
-      this.cache = (await this.file.read<StudyItemStore>()) ?? {};
-    }
-    return this.cache;
-  }
-
-  private async persist(): Promise<void> {
-    if (this.cache && !this.batchMode) {
-      await this.file.write(this.cache);
-    }
-  }
 
   async save(studyItem: StudyItem): Promise<void> {
     const store = await this.load();
     store[studyItem.id.value] = this.serialize(studyItem);
-    await this.persist();
+    await this.file.write(store);
   }
 
   async findById(id: StudyItemId): Promise<StudyItem | null> {
@@ -75,12 +46,11 @@ export class JsonStudyItemRepository implements StudyItemRepository {
   async remove(id: StudyItemId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
-    await this.persist();
+    await this.file.write(store);
   }
 
-  async clear(): Promise<void> {
-    this.cache = {};
-    await this.persist();
+  private async load(): Promise<StudyItemStore> {
+    return (await this.file.read<StudyItemStore>()) ?? {};
   }
 
   private serialize(item: StudyItem): SerializedStudyItem {

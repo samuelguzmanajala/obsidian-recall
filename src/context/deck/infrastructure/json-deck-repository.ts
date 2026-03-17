@@ -7,41 +7,12 @@ import { JsonFilePort, SerializedDeck } from '@context/shared/infrastructure/jso
 type DeckStore = Record<string, SerializedDeck>;
 
 export class JsonDeckRepository implements DeckRepository {
-  private cache: DeckStore | null = null;
-  private batchMode = false;
-
   constructor(private readonly file: JsonFilePort) {}
-
-  setBatchMode(on: boolean): void {
-    this.batchMode = on;
-  }
-
-  async flush(): Promise<void> {
-    this.batchMode = false;
-    await this.persist();
-  }
-
-  invalidateCache(): void {
-    this.cache = null;
-  }
-
-  private async load(): Promise<DeckStore> {
-    if (!this.cache) {
-      this.cache = (await this.file.read<DeckStore>()) ?? {};
-    }
-    return this.cache;
-  }
-
-  private async persist(): Promise<void> {
-    if (this.cache && !this.batchMode) {
-      await this.file.write(this.cache);
-    }
-  }
 
   async save(deck: Deck): Promise<void> {
     const store = await this.load();
     store[deck.id.value] = this.serialize(deck);
-    await this.persist();
+    await this.file.write(store);
   }
 
   async findById(id: DeckId): Promise<Deck | null> {
@@ -73,12 +44,11 @@ export class JsonDeckRepository implements DeckRepository {
   async remove(id: DeckId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
-    await this.persist();
+    await this.file.write(store);
   }
 
-  async clear(): Promise<void> {
-    this.cache = {};
-    await this.persist();
+  private async load(): Promise<DeckStore> {
+    return (await this.file.read<DeckStore>()) ?? {};
   }
 
   private serialize(deck: Deck): SerializedDeck {

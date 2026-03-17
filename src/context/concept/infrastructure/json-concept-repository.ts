@@ -8,41 +8,12 @@ import { JsonFilePort, SerializedConcept } from '@context/shared/infrastructure/
 type ConceptStore = Record<string, SerializedConcept>;
 
 export class JsonConceptRepository implements ConceptRepository {
-  private cache: ConceptStore | null = null;
-  private batchMode = false;
-
   constructor(private readonly file: JsonFilePort) {}
-
-  setBatchMode(on: boolean): void {
-    this.batchMode = on;
-  }
-
-  async flush(): Promise<void> {
-    this.batchMode = false;
-    await this.persist();
-  }
-
-  invalidateCache(): void {
-    this.cache = null;
-  }
-
-  private async load(): Promise<ConceptStore> {
-    if (!this.cache) {
-      this.cache = (await this.file.read<ConceptStore>()) ?? {};
-    }
-    return this.cache;
-  }
-
-  private async persist(): Promise<void> {
-    if (this.cache && !this.batchMode) {
-      await this.file.write(this.cache);
-    }
-  }
 
   async save(concept: Concept): Promise<void> {
     const store = await this.load();
     store[concept.id.value] = this.serialize(concept);
-    await this.persist();
+    await this.file.write(store);
   }
 
   async findById(id: ConceptId): Promise<Concept | null> {
@@ -60,12 +31,11 @@ export class JsonConceptRepository implements ConceptRepository {
   async remove(id: ConceptId): Promise<void> {
     const store = await this.load();
     delete store[id.value];
-    await this.persist();
+    await this.file.write(store);
   }
 
-  async clear(): Promise<void> {
-    this.cache = {};
-    await this.persist();
+  private async load(): Promise<ConceptStore> {
+    return (await this.file.read<ConceptStore>()) ?? {};
   }
 
   private serialize(concept: Concept): SerializedConcept {

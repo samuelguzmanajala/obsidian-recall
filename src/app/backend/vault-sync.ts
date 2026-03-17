@@ -1,4 +1,6 @@
 import { Container } from './container';
+import { CachedJsonFilePort } from './cached-json-file-port';
+import { MultiDeviceReviewLog } from '@context/study/infrastructure/json-review-log';
 import { ParsedCard } from '@context/concept/infrastructure/markdown-parser';
 import { FrontmatterParser } from '@context/concept/infrastructure/frontmatter-parser';
 import { Directionality } from '@context/concept/domain/directionality';
@@ -34,7 +36,29 @@ export class VaultSync {
   /** Tags the user configured in settings. Empty = allow all. */
   private allowedTags: string[] = [];
 
+  private cachedPorts: {
+    concepts: CachedJsonFilePort;
+    studyItems: CachedJsonFilePort;
+    decks: CachedJsonFilePort;
+    syncState: CachedJsonFilePort;
+  } | null = null;
+
+  private reviewLogRef: MultiDeviceReviewLog | null = null;
+
   constructor(private readonly container: Container) {}
+
+  setReviewLog(reviewLog: MultiDeviceReviewLog): void {
+    this.reviewLogRef = reviewLog;
+  }
+
+  setCachedPorts(ports: {
+    concepts: CachedJsonFilePort;
+    studyItems: CachedJsonFilePort;
+    decks: CachedJsonFilePort;
+    syncState: CachedJsonFilePort;
+  }): void {
+    this.cachedPorts = ports;
+  }
 
   /**
    * Set which tags are allowed. Only notes with at least one matching tag
@@ -49,9 +73,10 @@ export class VaultSync {
    * Used by rebuild to recreate items from vault while preserving history.
    */
   async resetKeepReviews(): Promise<void> {
-    await this.container.deckRepository.clear();
-    await this.container.conceptRepository.clear();
-    await this.container.studyItemRepository.clear();
+    if (!this.cachedPorts) throw new Error('CachedPorts not set');
+    await this.cachedPorts.decks.clear();
+    await this.cachedPorts.concepts.clear();
+    await this.cachedPorts.studyItems.clear();
     // Reviews intentionally NOT cleared
 
     this.fileIndices.clear();
@@ -65,10 +90,12 @@ export class VaultSync {
    * Uses atomic clear() — one write per store, not per entity.
    */
   async resetAll(): Promise<void> {
-    await this.container.deckRepository.clear();
-    await this.container.conceptRepository.clear();
-    await this.container.studyItemRepository.clear();
-    await this.container.reviewLog.clear();
+    if (!this.cachedPorts) throw new Error('CachedPorts not set');
+    await this.cachedPorts.decks.clear();
+    await this.cachedPorts.concepts.clear();
+    await this.cachedPorts.studyItems.clear();
+    // Reviews cleared via MultiDeviceReviewLog directly
+    if (this.reviewLogRef) await this.reviewLogRef.clear();
 
     // Clear in-memory maps
     this.fileIndices.clear();
@@ -427,21 +454,21 @@ export class VaultSync {
   }
 
   async beginBatch(): Promise<void> {
+    if (!this.cachedPorts) throw new Error('CachedPorts not set');
     this.batchMode = true;
-    this.container.conceptRepository.setBatchMode(true);
-    this.container.studyItemRepository.setBatchMode(true);
-    this.container.deckRepository.setBatchMode(true);
-    this.container.reviewLog.setBatchMode(true);
+    this.cachedPorts.concepts.setBatchMode(true);
+    this.cachedPorts.studyItems.setBatchMode(true);
+    this.cachedPorts.decks.setBatchMode(true);
+    this.cachedPorts.syncState.setBatchMode(true);
   }
 
   async endBatch(): Promise<void> {
+    if (!this.cachedPorts) throw new Error('CachedPorts not set');
     this.batchMode = false;
-    // Flush all repos once
-    await this.container.conceptRepository.flush();
-    await this.container.studyItemRepository.flush();
-    await this.container.deckRepository.flush();
-    await this.container.reviewLog.flush();
-    await this.persistState();
+    await this.cachedPorts.concepts.flush();
+    await this.cachedPorts.studyItems.flush();
+    await this.cachedPorts.decks.flush();
+    await this.cachedPorts.syncState.flush();
   }
 
   private async persistState(): Promise<void> {

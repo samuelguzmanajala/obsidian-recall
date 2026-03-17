@@ -1,6 +1,7 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf } from 'obsidian';
 import { Container } from '@app/backend/container';
 import { ConceptId } from '@context/concept/domain/concept-id';
+import { StudyItemId } from '@context/study/domain/study-item-id';
 import { DueStudyItemView } from '@context/study/application/study-item-view';
 import { Rating } from '@context/study/domain/rating';
 import { Direction } from '@context/study/domain/direction';
@@ -70,15 +71,31 @@ export class ReviewView extends ItemView {
     if (this.items.length === 0 || this.currentIndex >= this.items.length) return;
 
     const item = this.items[this.currentIndex];
+
+    // Check if the study item still exists (might have been replaced after edit)
+    const studyItem = await this.container.studyItemRepository.findById(
+      new StudyItemId(item.studyItemId),
+    );
+
+    if (!studyItem) {
+      // Item was replaced — remove from queue and re-render
+      this.items.splice(this.currentIndex, 1);
+      if (this.currentIndex >= this.items.length) this.currentIndex = 0;
+      this.answerRevealed = false;
+      this.render();
+      return;
+    }
+
+    // Check if concept content changed
     const concept = await this.container.conceptRepository.findById(
       new ConceptId(item.conceptId),
     );
     if (!concept) return;
 
-    // Update the view data if content changed
     if (concept.sideA.content !== item.sideA || concept.sideB.content !== item.sideB) {
       item.sideA = concept.sideA.content;
       item.sideB = concept.sideB.content;
+      this.answerRevealed = false;
       this.render();
     }
   }

@@ -100,18 +100,18 @@ export default class RecallPlugin extends Plugin {
         return;
       }
 
+      // Always do incremental sync for new/changed notes
       const existingItems = await this.container.studyItemRepository.findAll();
       if (existingItems.length === 0) {
-        // No items — first run, build from vault
         console.log('Recall: first run, building index');
         await this.initialSync();
-        console.log('Recall: initial setup complete — run Import from SR in Settings if needed');
-        return;
       }
 
-      // Normal startup — replay reviews for any synced from other devices
+      // Replay reviews — this is the source of truth.
+      // Handles: SR imports (synthetic reviews), real reviews from any device.
       const replayed = await this.container.replayReviews.execute();
-      console.log(`Recall: ${existingItems.length} items loaded, ${replayed} updated from review log`);
+      const total = await this.container.studyItemRepository.findAll();
+      console.log(`Recall: ${total.length} items, ${replayed} updated from review log`);
     });
 
     this.registerEvent(
@@ -162,8 +162,9 @@ export default class RecallPlugin extends Plugin {
     if (tagsChanged) {
       this.previousTags = [...this.settings.flashcardTags];
       this.vaultSync.setAllowedTags(this.settings.flashcardTags);
-      await this.vaultSync.resetAll();
+      await this.vaultSync.resetKeepReviews();
       await this.initialSync();
+      await this.container.replayReviews.execute();
     }
 
     // Refresh deck browser if open

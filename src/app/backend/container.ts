@@ -141,7 +141,7 @@ export class Container {
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
     this.getLeeches = new GetLeeches(this.studyItemRepository, this.conceptRepository);
-    this.importSrData = new ImportSrData(this.studyItemRepository);
+    this.importSrData = new ImportSrData(this.reviewLog);
     this.replayReviews = new ReplayReviews(this.studyItemRepository, this.reviewLog, this.scheduler);
 
     // LLM — reads from settings lazily so it always uses current config

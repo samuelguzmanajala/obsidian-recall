@@ -115,6 +115,13 @@ export default class RecallPlugin extends Plugin {
       console.log(`Recall: ${existingItems.length} items loaded`);
     });
 
+    // Poll for Sync updates to recall-data/ files
+    // Obsidian doesn't expose events for adapter-level file changes,
+    // so we check periodically if study-items.json was modified externally.
+    this.registerInterval(window.setInterval(() => {
+      this.checkForExternalChanges();
+    }, 10000)); // every 10s
+
     this.registerEvent(
       this.app.vault.on('modify', (file) => {
         if (file instanceof TFile && file.extension === 'md') {
@@ -247,6 +254,35 @@ export default class RecallPlugin extends Plugin {
    * Check if current IDs are deterministic by comparing a sample item's
    * actual ID with what it should be based on its content.
    */
+
+  private lastStudyItemsSize = -1;
+
+  /**
+   * Check if recall-data/study-items.json changed externally (via Sync).
+   * If so, invalidate caches so UI picks up new data.
+   */
+  private async checkForExternalChanges(): Promise<void> {
+    try {
+      const stat = await this.app.vault.adapter.stat('recall-data/study-items.json');
+      if (!stat) return;
+
+      if (this.lastStudyItemsSize === -1) {
+        this.lastStudyItemsSize = stat.size;
+        return;
+      }
+
+      if (stat.size !== this.lastStudyItemsSize) {
+        console.log('Recall: external change detected, reloading data');
+        this.lastStudyItemsSize = stat.size;
+        this.container.conceptRepository.invalidateCache();
+        this.container.studyItemRepository.invalidateCache();
+        this.container.deckRepository.invalidateCache();
+        this.container.reviewLog.invalidateCache();
+      }
+    } catch {
+      // file doesn't exist yet
+    }
+  }
 
   private async hasRecallData(): Promise<boolean> {
     try {

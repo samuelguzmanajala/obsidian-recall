@@ -21,6 +21,10 @@ export class JsonDeckRepository implements DeckRepository {
     await this.persist();
   }
 
+  invalidateCache(): void {
+    this.cache = null;
+  }
+
   private async load(): Promise<DeckStore> {
     if (!this.cache) {
       this.cache = (await this.file.read<DeckStore>()) ?? {};

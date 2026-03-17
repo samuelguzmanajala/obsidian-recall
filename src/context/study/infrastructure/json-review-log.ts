@@ -20,6 +20,7 @@ export interface ReviewFilePort {
 
 export class MultiDeviceReviewLog implements ReviewLog {
   private cache: SerializedReview[] | null = null;
+  private allCache: Review[] | null = null;
   private batchMode = false;
 
   constructor(private readonly port: ReviewFilePort) {}
@@ -52,6 +53,7 @@ export class MultiDeviceReviewLog implements ReviewLog {
     const exists = store.some(r => this.serializedKey(r) === key);
     if (!exists) {
       store.push(this.serialize(review));
+      this.allCache = null; // invalidate all-devices cache
       await this.persist();
     }
   }
@@ -64,11 +66,21 @@ export class MultiDeviceReviewLog implements ReviewLog {
   /**
    * Read ALL reviews from ALL devices. This is the source of truth
    * for replay — merges all device files, deduplicates, sorts.
+   * Cached until a new review is appended locally.
    */
   async findAll(): Promise<Review[]> {
-    const allRaw = await this.port.readAll();
-    const deduped = this.dedup(allRaw);
-    return deduped.map(raw => this.deserialize(raw));
+    if (!this.allCache) {
+      const allRaw = await this.port.readAll();
+      const deduped = this.dedup(allRaw);
+      this.allCache = deduped.map(raw => this.deserialize(raw));
+    }
+    return this.allCache;
+  }
+
+  /** Force re-read from all device files (call after Sync updates) */
+  invalidateCache(): void {
+    this.allCache = null;
+    this.cache = null;
   }
 
   async clear(): Promise<void> {

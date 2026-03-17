@@ -19,8 +19,11 @@ export default class RecallPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
-    // Migrate data from old location if needed
-    await this.migrateFromPluginDir();
+    // Migrate data from old location — only if .recall/ doesn't exist yet
+    const hasNewData = await this.hasRecallData();
+    if (!hasNewData) {
+      await this.migrateFromPluginDir();
+    }
 
     this.container = new Container({
       concepts: createObsidianFilePort(this.app, 'concepts.json'),

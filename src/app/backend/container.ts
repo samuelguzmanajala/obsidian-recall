@@ -34,6 +34,7 @@ import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { GetLeeches } from '@context/study/application/get-leeches';
 import { ImportSrData } from '@context/study/application/import-sr-data';
+import { ReplayReviews } from '@context/study/application/replay-reviews';
 import { RecallSettings } from './settings';
 import type { VaultSync } from './vault-sync';
 import { LlmClient } from '@context/shared/domain/llm-client';
@@ -97,6 +98,7 @@ export class Container {
   readonly getStudyStats: GetStudyStats;
   readonly getLeeches: GetLeeches;
   readonly importSrData: ImportSrData;
+  readonly replayReviews: ReplayReviews;
 
   constructor(files: StorageFiles) {
     // Infrastructure
@@ -140,6 +142,7 @@ export class Container {
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
     this.getLeeches = new GetLeeches(this.studyItemRepository, this.conceptRepository);
     this.importSrData = new ImportSrData(this.studyItemRepository);
+    this.replayReviews = new ReplayReviews(this.studyItemRepository, this.reviewLog, this.scheduler);
 
     // LLM — reads from settings lazily so it always uses current config
     this.llmClient = new HttpLlmClient(

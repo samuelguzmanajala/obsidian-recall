@@ -45,6 +45,30 @@ export class VaultSync {
   }
 
   /**
+   * Clear in-memory sync state maps (for rebuild without losing reviews).
+   */
+  async clearSyncState(): Promise<void> {
+    this.fileIndices.clear();
+    this.tagToDeckId.clear();
+    await this.persistState();
+  }
+
+  /**
+   * Wipe everything EXCEPT reviews (source of truth for event sourcing).
+   * Used by rebuild to recreate items from vault while preserving history.
+   */
+  async resetKeepReviews(): Promise<void> {
+    await this.container.deckRepository.clear();
+    await this.container.conceptRepository.clear();
+    await this.container.studyItemRepository.clear();
+    // Reviews intentionally NOT cleared
+
+    this.fileIndices.clear();
+    this.tagToDeckId.clear();
+    await this.persistState();
+  }
+
+  /**
    * Wipe all sync state, decks, concepts, study items, and reviews.
    * Called when tag filter changes so we can rebuild from scratch.
    * Uses atomic clear() — one write per store, not per entity.
@@ -293,7 +317,7 @@ export class VaultSync {
           : parts.slice(0, i + 1).join('/');
 
         if (!this.tagToDeckId.has(fullTag)) {
-          const deckId = crypto.randomUUID();
+          const deckId = await this.deterministicId(`deck:${fullTag}`);
           this.tagToDeckId.set(fullTag, deckId);
 
           await this.container.createDeck.execute({
@@ -323,7 +347,9 @@ export class VaultSync {
   private async createConceptWithStudyItems(
     card: ParsedCard,
   ): Promise<{ conceptId: string; studyItemIds: string[] }> {
-    const conceptId = crypto.randomUUID();
+    // Deterministic IDs based on content — same card always gets same ID
+    // This makes reviews survive rebuild (IDs don't change)
+    const conceptId = await this.deterministicId(`concept:${card.sideA}|${card.sideB}|${card.directionality}`);
     const studyItemIds: string[] = [];
 
     await this.container.createConcept.execute({
@@ -333,7 +359,7 @@ export class VaultSync {
       directionality: card.directionality,
     });
 
-    const atobId = crypto.randomUUID();
+    const atobId = await this.deterministicId(`si:${card.sideA}|${card.sideB}|a-to-b`);
     await this.container.createStudyItem.execute({
       id: atobId,
       conceptId,
@@ -342,7 +368,7 @@ export class VaultSync {
     studyItemIds.push(atobId);
 
     if (card.directionality === Directionality.Bidirectional) {
-      const btoaId = crypto.randomUUID();
+      const btoaId = await this.deterministicId(`si:${card.sideA}|${card.sideB}|b-to-a`);
       await this.container.createStudyItem.execute({
         id: btoaId,
         conceptId,
@@ -352,6 +378,22 @@ export class VaultSync {
     }
 
     return { conceptId, studyItemIds };
+  }
+
+  /**
+   * Generate a deterministic UUID-like ID from a string.
+   * Same input always produces the same output.
+   * Uses SHA-256 truncated to UUID format.
+   */
+  private async deterministicId(input: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(input);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    const hex = Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+    // Format as UUID v4-like: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
   }
 
   private async removeConceptWithStudyItems(

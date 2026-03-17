@@ -34,8 +34,48 @@ export class JsonReviewLog implements ReviewLog {
 
   async append(review: Review): Promise<void> {
     const store = await this.load();
-    store.push(this.serialize(review));
-    await this.persist();
+    // Dedup: don't add if same studyItemId+timestamp already exists
+    const key = this.reviewKey(review);
+    const exists = store.some(r => this.serializedKey(r) === key);
+    if (!exists) {
+      store.push(this.serialize(review));
+      await this.persist();
+    }
+  }
+
+  /**
+   * Merge reviews from another source (e.g. after Sync conflict).
+   * Adds only reviews not already present (by studyItemId+timestamp).
+   */
+  async mergeFrom(reviews: SerializedReview[]): Promise<number> {
+    const store = await this.load();
+    const existingKeys = new Set(store.map(r => this.serializedKey(r)));
+    let added = 0;
+
+    for (const review of reviews) {
+      const key = this.serializedKey(review);
+      if (!existingKeys.has(key)) {
+        store.push(review);
+        existingKeys.add(key);
+        added++;
+      }
+    }
+
+    if (added > 0) {
+      // Sort by timestamp for consistency
+      store.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      await this.persist();
+    }
+
+    return added;
+  }
+
+  private reviewKey(review: Review): string {
+    return `${review.studyItemId.value}:${review.timestamp.getTime()}`;
+  }
+
+  private serializedKey(raw: SerializedReview): string {
+    return `${raw.studyItemId}:${new Date(raw.timestamp).getTime()}`;
   }
 
   async findByStudyItemId(studyItemId: StudyItemId): Promise<Review[]> {

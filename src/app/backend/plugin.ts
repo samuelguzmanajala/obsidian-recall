@@ -93,19 +93,18 @@ export default class RecallPlugin extends Plugin {
     this.app.workspace.onLayoutReady(async () => {
       const existingItems = await this.container.studyItemRepository.findAll();
       if (existingItems.length > 0) {
-        // Data exists (from previous session or Sync) — use it as-is
-        console.log(`Recall: ${existingItems.length} items loaded, skipping rebuild`);
+        // Data exists — replay reviews to ensure MemoryState is up to date
+        // (handles case where reviews.json was synced from another device)
+        const replayed = await this.container.replayReviews.execute();
+        console.log(`Recall: ${existingItems.length} items loaded, ${replayed} updated from review log`);
       } else {
-        // Check if .recall/ dir exists — if not, this might be a fresh
-        // device waiting for Sync. Don't create data that would block Sync.
         const hasRecallDir = await this.hasRecallData();
         if (hasRecallDir) {
-          // Dir exists but empty storage — first run, do initial sync
           console.log('Recall: .recall/ exists but no items, running initial sync');
           await this.initialSync();
+          // Replay reviews after sync (in case reviews.json has data)
+          await this.container.replayReviews.execute();
         } else {
-          // No .recall/ dir — likely waiting for Sync from another device.
-          // Show empty state, auto-refresh will pick up data when Sync arrives.
           console.log('Recall: no .recall/ directory, waiting for Sync or first setup');
         }
       }
@@ -223,8 +222,14 @@ export default class RecallPlugin extends Plugin {
   }
 
   async rebuildIndex(): Promise<void> {
-    await this.vaultSync.resetAll();
+    // Reset items/decks but keep reviews (source of truth)
+    await this.vaultSync.resetKeepReviews();
+    // Rebuild from vault notes (creates fresh items with reps=0)
     await this.initialSync();
+    // Replay reviews to restore MemoryState from the log
+    const replayed = await this.container.replayReviews.execute();
+    console.log(`Recall: rebuild done, ${replayed} items restored from review log`);
+    // Refresh UI
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
     for (const leaf of leaves) {
       const view = leaf.view as DeckBrowserView;

@@ -265,7 +265,7 @@ export class ReviewView extends ItemView {
     } else {
       // Reveal button
       const revealBtn = el.createEl('button', {
-        text: 'Show answer',
+        text: 'Show answer [space]',
         cls: 'recall-reveal-btn',
       });
       revealBtn.addEventListener('click', () => {
@@ -294,12 +294,15 @@ export class ReviewView extends ItemView {
       const rating = ratings[i];
       const preview = previews[i];
 
+      const shortcutKey = String(i + 1);
+
       const btn = buttons.createDiv({
         cls: `recall-rating-btn ${RATING_COLORS[rating]}`,
       });
 
       btn.createSpan({ text: RATING_LABELS[rating], cls: 'recall-rating-label' });
       btn.createSpan({ text: formatInterval(preview.intervalDays), cls: 'recall-rating-interval' });
+      btn.createSpan({ text: shortcutKey, cls: 'recall-rating-shortcut' });
 
       btn.addEventListener('click', () => this.submitRating(item, rating));
     }

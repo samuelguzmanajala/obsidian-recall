@@ -139,6 +139,40 @@ export class RecallSettingTab extends PluginSettingTab {
           });
       });
 
+    // Migration section
+    containerEl.createEl('h2', { text: 'Migration' });
+
+    new Setting(containerEl)
+      .setName('Import from Spaced Repetition')
+      .setDesc(
+        'Import scheduling data from the Spaced Repetition plugin (<!--SR:!date,interval,ease--> comments). ' +
+        'Only updates cards that haven\'t been reviewed in Recall yet. Safe to run multiple times.',
+      )
+      .addButton((btn) => {
+        btn
+          .setButtonText('Import')
+          .setCta()
+          .onClick(async () => {
+            btn.setButtonText('Importing...');
+            btn.setDisabled(true);
+            try {
+              const count = await this.plugin.importFromSR();
+              btn.setButtonText(`✓ Imported ${count} cards`);
+              setTimeout(() => {
+                btn.setButtonText('Import');
+                btn.setDisabled(false);
+              }, 3000);
+            } catch (err) {
+              btn.setButtonText('✗ Error');
+              console.error('SR import error:', err);
+              setTimeout(() => {
+                btn.setButtonText('Import');
+                btn.setDisabled(false);
+              }, 3000);
+            }
+          });
+      });
+
     // LLM section
     containerEl.createEl('h2', { text: 'AI Integration' });
 

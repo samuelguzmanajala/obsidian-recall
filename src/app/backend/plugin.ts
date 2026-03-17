@@ -6,6 +6,8 @@ import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from '@app/frontend/constants';
 import { RecallSettings, DEFAULT_SETTINGS, RecallSettingTab } from './settings';
+import { Direction } from '@context/study/domain/direction';
+import { ConceptId } from '@context/concept/domain/concept-id';
 
 export default class RecallPlugin extends Plugin {
   container!: Container;
@@ -130,6 +132,57 @@ export default class RecallPlugin extends Plugin {
       const view = leaf.view as DeckBrowserView;
       if (view.render) await view.render();
     }
+  }
+
+  /**
+   * Import scheduling data from Spaced Repetition plugin comments.
+   * Walks all synced files, parses <!--SR:!date,interval,ease-->,
+   * and updates StudyItem MemoryState for items still at reps=0.
+   * Returns count of imported items.
+   */
+  async importFromSR(): Promise<number> {
+    let imported = 0;
+    const files = this.app.vault.getMarkdownFiles();
+
+    for (const file of files) {
+      try {
+        const content = await this.app.vault.cachedRead(file);
+        const cards = this.container.parser.parse(content, file.path);
+
+        for (const card of cards) {
+          if (!card.schedulingMetadata) continue;
+
+          // Find the concept for this card
+          const key = JSON.stringify([card.sideA, card.sideB, card.directionality]);
+          const conceptId = this.vaultSync.findConceptIdByCardKey(file.path, key);
+          if (!conceptId) continue;
+
+          // Find study items for this concept
+          const studyItems = await this.container.studyItemRepository.findByConceptId(
+            new ConceptId(conceptId),
+          );
+
+          for (const si of studyItems) {
+            const schedule = si.direction === Direction.AtoB
+              ? card.schedulingMetadata.aToB
+              : card.schedulingMetadata.bToA;
+
+            if (!schedule) continue;
+
+            const result = await this.container.importSrData.execute(si.id.value, {
+              due: schedule.due,
+              interval: schedule.interval,
+              ease: schedule.ease,
+            });
+            if (result) imported++;
+          }
+        }
+      } catch (err) {
+        console.warn(`Recall: SR import failed for ${file.path}`, err);
+      }
+    }
+
+    return imported;
   }
 
   private async activateDeckBrowser(): Promise<void> {

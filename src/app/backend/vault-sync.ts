@@ -92,6 +92,15 @@ export class VaultSync {
   }
 
   /**
+   * Find a conceptId by file path and card key.
+   */
+  findConceptIdByCardKey(filePath: string, cardKey: string): string | null {
+    const index = this.fileIndices.get(filePath);
+    if (!index) return null;
+    return index.cardKeys.get(cardKey) ?? null;
+  }
+
+  /**
    * Find which file and line a concept belongs to.
    */
   findFileByConceptId(conceptId: string): { filePath: string; line: number } | null {

@@ -50,11 +50,14 @@ export class ReviewView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    // Make focusable for keyboard shortcuts
+    this.contentEl.tabIndex = 0;
+    this.contentEl.focus();
+
     await this.loadItems();
     this.render();
 
     // Re-render current card when switching back to this tab (after editing note)
-    // Delay slightly to let VaultSync debounce complete
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
@@ -62,6 +65,39 @@ export class ReviewView extends ItemView {
         }
       }),
     );
+
+    // Keyboard shortcuts
+    this.registerDomEvent(this.contentEl, 'keydown', (e: KeyboardEvent) => {
+      if (this.items.length === 0) return;
+      const item = this.items[this.currentIndex];
+      if (!item) return;
+
+      if (!this.answerRevealed) {
+        // Space or Enter → reveal answer
+        if (e.key === ' ' || e.key === 'Enter') {
+          e.preventDefault();
+          this.answerRevealed = true;
+          this.render();
+        }
+      } else {
+        // 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
+        const ratingMap: Record<string, Rating> = {
+          '1': Rating.Again,
+          '2': Rating.Hard,
+          '3': Rating.Good,
+          '4': Rating.Easy,
+        };
+        if (e.key in ratingMap) {
+          e.preventDefault();
+          this.submitRating(item, ratingMap[e.key]);
+        }
+        // Space → Good (most common)
+        if (e.key === ' ') {
+          e.preventDefault();
+          this.submitRating(item, Rating.Good);
+        }
+      }
+    });
   }
 
   /**
@@ -163,6 +199,7 @@ export class ReviewView extends ItemView {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-review');
+    el.focus();
 
     if (this.items.length === 0) {
       this.renderComplete(el);

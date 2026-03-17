@@ -83,14 +83,21 @@ export class ReviewView extends ItemView {
     }
   }
 
+  private getLimits(): { maxNew: number; maxReview: number } | undefined {
+    const s = this.container.settings;
+    if (!s) return undefined;
+    if (s.dailyNewLimit === 0 && s.dailyReviewLimit === 0) return undefined;
+    return { maxNew: s.dailyNewLimit, maxReview: s.dailyReviewLimit };
+  }
+
   private async loadItems(): Promise<void> {
+    const limits = this.getLimits();
     if (this.deckId) {
-      this.items = await this.container.getDueStudyItemsByDeck.execute(this.deckId);
-      // Resolve deck name from tree
+      this.items = await this.container.getDueStudyItemsByDeck.execute(this.deckId, new Date(), limits);
       const tree = await this.container.getDeckTree.execute();
       this.deckName = this.findDeckName(tree, this.deckId) ?? 'Deck';
     } else {
-      this.items = await this.container.getDueStudyItems.execute();
+      this.items = await this.container.getDueStudyItems.execute(new Date(), limits);
       this.deckName = 'All decks';
     }
     // Shuffle if enabled in settings

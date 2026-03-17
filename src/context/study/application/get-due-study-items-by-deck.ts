@@ -11,7 +11,11 @@ export class GetDueStudyItemsByDeck {
     private readonly deckRepository: DeckRepository,
   ) {}
 
-  async execute(deckId: string, now: Date = new Date()): Promise<DueStudyItemView[]> {
+  async execute(
+    deckId: string,
+    now: Date = new Date(),
+    limits?: { maxNew: number; maxReview: number },
+  ): Promise<DueStudyItemView[]> {
     const allDueItems = await this.studyItemRepository.findDue(now);
     const allowedIds = await this.collectStudyItemIds(new DeckId(deckId));
 
@@ -37,13 +41,35 @@ export class GetDueStudyItemsByDeck {
       });
     }
 
-    return this.deduplicateSiblings(views);
+    const deduped = this.deduplicateSiblings(views);
+    return this.applyLimits(deduped, limits);
   }
 
-  /**
-   * When both directions of a bidirectional concept are due the same day,
-   * pick one at random and drop the other.
-   */
+  private applyLimits(
+    views: DueStudyItemView[],
+    limits?: { maxNew: number; maxReview: number },
+  ): DueStudyItemView[] {
+    if (!limits) return views;
+
+    const result: DueStudyItemView[] = [];
+    let newCount = 0;
+    let reviewCount = 0;
+
+    for (const view of views) {
+      const isNew = view.reps === 0;
+      if (isNew) {
+        if (limits.maxNew > 0 && newCount >= limits.maxNew) continue;
+        newCount++;
+      } else {
+        if (limits.maxReview > 0 && reviewCount >= limits.maxReview) continue;
+        reviewCount++;
+      }
+      result.push(view);
+    }
+
+    return result;
+  }
+
   private deduplicateSiblings(views: DueStudyItemView[]): DueStudyItemView[] {
     const byConceptId = new Map<string, DueStudyItemView[]>();
 

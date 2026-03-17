@@ -8,6 +8,10 @@ export interface RecallSettings {
   flashcardTags: string[];
   /** Shuffle review order. Default true. */
   shuffleReviews: boolean;
+  /** Max new cards per day. 0 = unlimited. */
+  dailyNewLimit: number;
+  /** Max reviews per day. 0 = unlimited. */
+  dailyReviewLimit: number;
   /** Leech threshold — items with this many lapses are marked as leeches. */
   leechThreshold: number;
   /** LLM provider for card generation. */
@@ -19,6 +23,8 @@ export interface RecallSettings {
 export const DEFAULT_SETTINGS: RecallSettings = {
   flashcardTags: [],
   shuffleReviews: true,
+  dailyNewLimit: 20,
+  dailyReviewLimit: 0,
   leechThreshold: 8,
   llmProvider: 'none',
   llmApiKey: '',
@@ -73,6 +79,42 @@ export class RecallSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             this.plugin.settings.shuffleReviews = value;
             await this.plugin.saveSettings();
+          });
+      });
+
+    // Daily new card limit
+    new Setting(containerEl)
+      .setName('Daily new cards limit')
+      .setDesc('Maximum number of new cards introduced per day. Set to 0 for unlimited.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.style.width = '60px';
+        text
+          .setValue(String(this.plugin.settings.dailyNewLimit))
+          .onChange(async (value) => {
+            const n = parseInt(value);
+            if (!isNaN(n) && n >= 0) {
+              this.plugin.settings.dailyNewLimit = n;
+              await this.plugin.saveSettings();
+            }
+          });
+      });
+
+    // Daily review limit
+    new Setting(containerEl)
+      .setName('Daily review limit')
+      .setDesc('Maximum number of reviews per day. Set to 0 for unlimited.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.style.width = '60px';
+        text
+          .setValue(String(this.plugin.settings.dailyReviewLimit))
+          .onChange(async (value) => {
+            const n = parseInt(value);
+            if (!isNaN(n) && n >= 0) {
+              this.plugin.settings.dailyReviewLimit = n;
+              await this.plugin.saveSettings();
+            }
           });
       });
 

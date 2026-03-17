@@ -8,7 +8,10 @@ export class GetDueStudyItems {
     private readonly conceptRepository: ConceptRepository,
   ) {}
 
-  async execute(now: Date = new Date()): Promise<DueStudyItemView[]> {
+  async execute(
+    now: Date = new Date(),
+    limits?: { maxNew: number; maxReview: number },
+  ): Promise<DueStudyItemView[]> {
     const dueItems = await this.studyItemRepository.findDue(now);
     const views: DueStudyItemView[] = [];
 
@@ -31,7 +34,33 @@ export class GetDueStudyItems {
       });
     }
 
-    return this.deduplicateSiblings(views);
+    const deduped = this.deduplicateSiblings(views);
+    return this.applyLimits(deduped, limits);
+  }
+
+  private applyLimits(
+    views: DueStudyItemView[],
+    limits?: { maxNew: number; maxReview: number },
+  ): DueStudyItemView[] {
+    if (!limits) return views;
+
+    const result: DueStudyItemView[] = [];
+    let newCount = 0;
+    let reviewCount = 0;
+
+    for (const view of views) {
+      const isNew = view.reps === 0;
+      if (isNew) {
+        if (limits.maxNew > 0 && newCount >= limits.maxNew) continue;
+        newCount++;
+      } else {
+        if (limits.maxReview > 0 && reviewCount >= limits.maxReview) continue;
+        reviewCount++;
+      }
+      result.push(view);
+    }
+
+    return result;
   }
 
   /**

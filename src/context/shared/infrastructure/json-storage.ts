@@ -2,7 +2,7 @@
  * Generic JSON file storage port.
  * Each repository gets its own instance pointing to a different file.
  */
-export interface JsonFilePort {
+export interface JsonFileStorage {
   read<T>(): Promise<T | null>;
   write<T>(data: T): Promise<void>;
 }

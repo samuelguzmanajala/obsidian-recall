@@ -1,5 +1,5 @@
 import { Container } from './container';
-import { CachedJsonFilePort } from './cached-json-file-port';
+import { CachedJsonFileStorage } from './cached-json-file-storage';
 import { MultiDeviceReviewLog } from '@context/study/infrastructure/json-review-log';
 import { ParsedCard } from '@context/concept/infrastructure/markdown-parser';
 import { FrontmatterParser } from '@context/concept/infrastructure/frontmatter-parser';
@@ -37,10 +37,10 @@ export class VaultSync {
   private allowedTags: string[] = [];
 
   private cachedPorts: {
-    concepts: CachedJsonFilePort;
-    studyItems: CachedJsonFilePort;
-    decks: CachedJsonFilePort;
-    syncState: CachedJsonFilePort;
+    concepts: CachedJsonFileStorage;
+    studyItems: CachedJsonFileStorage;
+    decks: CachedJsonFileStorage;
+    syncState: CachedJsonFileStorage;
   } | null = null;
 
   private reviewLogRef: MultiDeviceReviewLog | null = null;
@@ -52,10 +52,10 @@ export class VaultSync {
   }
 
   setCachedPorts(ports: {
-    concepts: CachedJsonFilePort;
-    studyItems: CachedJsonFilePort;
-    decks: CachedJsonFilePort;
-    syncState: CachedJsonFilePort;
+    concepts: CachedJsonFileStorage;
+    studyItems: CachedJsonFileStorage;
+    decks: CachedJsonFileStorage;
+    syncState: CachedJsonFileStorage;
   }): void {
     this.cachedPorts = ports;
   }

@@ -1,7 +1,7 @@
 import { Plugin, TFile, WorkspaceLeaf } from 'obsidian';
 import { Container } from './container';
-import { createObsidianFilePort, createReviewFilePort, getDeviceId } from './obsidian-storage';
-import { CachedJsonFilePort } from './cached-json-file-port';
+import { createJsonFileStorage, createReviewDeviceStorage, getDeviceId } from './obsidian-storage';
+import { CachedJsonFileStorage } from './cached-json-file-storage';
 import { MultiDeviceReviewLog } from '@context/study/infrastructure/json-review-log';
 import { VaultSync } from './vault-sync';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
@@ -18,10 +18,10 @@ export default class RecallPlugin extends Plugin {
 
   // Cached file ports — plugin controls batch/invalidation
   private cachedPorts!: {
-    concepts: CachedJsonFilePort;
-    studyItems: CachedJsonFilePort;
-    decks: CachedJsonFilePort;
-    syncState: CachedJsonFilePort;
+    concepts: CachedJsonFileStorage;
+    studyItems: CachedJsonFileStorage;
+    decks: CachedJsonFileStorage;
+    syncState: CachedJsonFileStorage;
   };
   private reviewLogImpl!: MultiDeviceReviewLog;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -38,15 +38,15 @@ export default class RecallPlugin extends Plugin {
 
     const deviceId = await getDeviceId(this.app);
 
-    // Create cached file ports — repos see JsonFilePort, plugin controls cache
+    // Create cached file ports — repos see JsonFileStorage, plugin controls cache
     this.cachedPorts = {
-      concepts: new CachedJsonFilePort(createObsidianFilePort(this.app, 'concepts.json')),
-      studyItems: new CachedJsonFilePort(createObsidianFilePort(this.app, 'study-items.json')),
-      decks: new CachedJsonFilePort(createObsidianFilePort(this.app, 'decks.json')),
-      syncState: new CachedJsonFilePort(createObsidianFilePort(this.app, 'sync-state.json')),
+      concepts: new CachedJsonFileStorage(createJsonFileStorage(this.app, 'concepts.json')),
+      studyItems: new CachedJsonFileStorage(createJsonFileStorage(this.app, 'study-items.json')),
+      decks: new CachedJsonFileStorage(createJsonFileStorage(this.app, 'decks.json')),
+      syncState: new CachedJsonFileStorage(createJsonFileStorage(this.app, 'sync-state.json')),
     };
 
-    this.reviewLogImpl = new MultiDeviceReviewLog(createReviewFilePort(this.app, deviceId));
+    this.reviewLogImpl = new MultiDeviceReviewLog(createReviewDeviceStorage(this.app, deviceId));
 
     this.container = new Container({
       concepts: this.cachedPorts.concepts,

@@ -1,17 +1,17 @@
-import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
+import { JsonFileStorage } from '@context/shared/infrastructure/json-storage';
 
 /**
- * Decorator over JsonFilePort that adds in-memory caching and batch mode.
- * The repos don't know about this — they just call read/write on JsonFilePort.
+ * Decorator over JsonFileStorage that adds in-memory caching and batch mode.
+ * The repos don't know about this — they just call read/write on JsonFileStorage.
  *
  * The plugin controls batch mode and cache invalidation directly on this class.
  */
-export class CachedJsonFilePort implements JsonFilePort {
+export class CachedJsonFileStorage implements JsonFileStorage {
   private cache: unknown | null = null;
   private dirty = false;
   private batchMode = false;
 
-  constructor(private readonly inner: JsonFilePort) {}
+  constructor(private readonly inner: JsonFileStorage) {}
 
   async read<T>(): Promise<T | null> {
     if (this.cache !== null) return this.cache as T;
@@ -29,7 +29,7 @@ export class CachedJsonFilePort implements JsonFilePort {
     await this.inner.write(data);
   }
 
-  // --- Methods for plugin/infra use only (NOT part of JsonFilePort) ---
+  // --- Methods for plugin/infra use only (NOT part of JsonFileStorage) ---
 
   setBatchMode(on: boolean): void {
     this.batchMode = on;

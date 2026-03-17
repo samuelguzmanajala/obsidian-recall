@@ -4,12 +4,12 @@ import { StudyItemRepository } from '../domain/study-item-repository';
 import { MemoryState } from '../domain/memory-state';
 import { Direction } from '../domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
-import { JsonFilePort, SerializedStudyItem } from '@context/shared/infrastructure/json-storage';
+import { JsonFileStorage, SerializedStudyItem } from '@context/shared/infrastructure/json-storage';
 
 type StudyItemStore = Record<string, SerializedStudyItem>;
 
 export class JsonStudyItemRepository implements StudyItemRepository {
-  constructor(private readonly file: JsonFilePort) {}
+  constructor(private readonly file: JsonFileStorage) {}
 
   async save(studyItem: StudyItem): Promise<void> {
     const store = await this.load();

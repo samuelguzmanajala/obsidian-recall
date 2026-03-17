@@ -1,4 +1,4 @@
-import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
+import { JsonFileStorage } from '@context/shared/infrastructure/json-storage';
 
 // Domain ports
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
@@ -46,11 +46,11 @@ import { LlmClient } from '@context/shared/domain/llm-client';
 import { HttpLlmClient } from '@context/shared/infrastructure/llm-adapters';
 
 export interface StorageFiles {
-  concepts: JsonFilePort;
-  studyItems: JsonFilePort;
-  decks: JsonFilePort;
+  concepts: JsonFileStorage;
+  studyItems: JsonFileStorage;
+  decks: JsonFileStorage;
   reviewLog: ReviewLog;
-  syncState: JsonFilePort;
+  syncState: JsonFileStorage;
 }
 
 export class Container {
@@ -61,7 +61,7 @@ export class Container {
   readonly reviewLog: ReviewLog;
 
   // Storage
-  readonly syncStateFile: JsonFilePort;
+  readonly syncStateFile: JsonFileStorage;
 
   // Settings (mutable — updated by plugin on save)
   settings: RecallSettings | null = null;

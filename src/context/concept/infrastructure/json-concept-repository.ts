@@ -3,12 +3,12 @@ import { ConceptId } from '../domain/concept-id';
 import { Side } from '../domain/side';
 import { Directionality } from '../domain/directionality';
 import { ConceptRepository } from '../domain/concept-repository';
-import { JsonFilePort, SerializedConcept } from '@context/shared/infrastructure/json-storage';
+import { JsonFileStorage, SerializedConcept } from '@context/shared/infrastructure/json-storage';
 
 type ConceptStore = Record<string, SerializedConcept>;
 
 export class JsonConceptRepository implements ConceptRepository {
-  constructor(private readonly file: JsonFilePort) {}
+  constructor(private readonly file: JsonFileStorage) {}
 
   async save(concept: Concept): Promise<void> {
     const store = await this.load();

@@ -1,16 +1,16 @@
 import { App } from 'obsidian';
-import { JsonFilePort, SerializedReview } from '@context/shared/infrastructure/json-storage';
-import { ReviewFilePort } from '@context/study/infrastructure/json-review-log';
+import { JsonFileStorage, SerializedReview } from '@context/shared/infrastructure/json-storage';
+import { ReviewDeviceStorage } from '@context/study/infrastructure/json-review-log';
 
 const RECALL_DATA_DIR = 'recall-data';
 const DEVICE_ID_PATH = '.obsidian/plugins/obsidian-recall/device-id';
 
 /**
- * Creates a JsonFilePort backed by a file in the recall-data/ vault directory.
+ * Creates a JsonFileStorage backed by a file in the recall-data/ vault directory.
  * Uses vault adapter so files are visible to Obsidian Sync.
  * Each aggregate gets its own JSON file.
  */
-export function createObsidianFilePort(app: App, filename: string): JsonFilePort {
+export function createJsonFileStorage(app: App, filename: string): JsonFileStorage {
   const path = `${RECALL_DATA_DIR}/${filename}`;
 
   return {
@@ -56,10 +56,10 @@ export async function getDeviceId(app: App): Promise<string> {
 }
 
 /**
- * Creates a ReviewFilePort that writes to a per-device file
+ * Creates a ReviewDeviceStorage that writes to a per-device file
  * and reads ALL device review files for replay.
  */
-export function createReviewFilePort(app: App, deviceId: string): ReviewFilePort {
+export function createReviewDeviceStorage(app: App, deviceId: string): ReviewDeviceStorage {
   const localPath = `${RECALL_DATA_DIR}/reviews-${deviceId}.json`;
 
   return {

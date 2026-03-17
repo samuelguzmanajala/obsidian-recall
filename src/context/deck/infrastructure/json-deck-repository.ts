@@ -2,12 +2,12 @@ import { Deck } from '../domain/deck';
 import { DeckId } from '../domain/deck-id';
 import { DeckRepository } from '../domain/deck-repository';
 import { StudyItemId } from '@context/study/domain/study-item-id';
-import { JsonFilePort, SerializedDeck } from '@context/shared/infrastructure/json-storage';
+import { JsonFileStorage, SerializedDeck } from '@context/shared/infrastructure/json-storage';
 
 type DeckStore = Record<string, SerializedDeck>;
 
 export class JsonDeckRepository implements DeckRepository {
-  constructor(private readonly file: JsonFilePort) {}
+  constructor(private readonly file: JsonFileStorage) {}
 
   async save(deck: Deck): Promise<void> {
     const store = await this.load();

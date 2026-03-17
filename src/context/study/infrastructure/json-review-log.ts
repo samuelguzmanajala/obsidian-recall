@@ -8,7 +8,7 @@ import { SerializedReview } from '@context/shared/infrastructure/json-storage';
  * Each device gets its own file: recall-data/reviews-{deviceId}.json
  * Replay reads ALL device files to reconstruct state.
  */
-export interface ReviewFilePort {
+export interface ReviewDeviceStorage {
   /** Read this device's review file */
   readLocal(): Promise<SerializedReview[]>;
   /** Write this device's review file */
@@ -22,7 +22,7 @@ export class MultiDeviceReviewLog implements ReviewLog {
   private allCache: Review[] | null = null;
   private batchMode = false;
 
-  constructor(private readonly port: ReviewFilePort) {}
+  constructor(private readonly port: ReviewDeviceStorage) {}
 
   setBatchMode(on: boolean): void {
     this.batchMode = on;

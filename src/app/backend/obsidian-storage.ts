@@ -1,14 +1,15 @@
 import { App } from 'obsidian';
 import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
 
-const PLUGIN_DATA_DIR = '.obsidian/plugins/obsidian-recall/data';
+const RECALL_DATA_DIR = '.recall';
 
 /**
- * Creates a JsonFilePort backed by a file in the plugin's data directory.
+ * Creates a JsonFilePort backed by a file in the .recall/ vault directory.
+ * Uses vault adapter so files are visible to Obsidian Sync.
  * Each aggregate gets its own JSON file.
  */
 export function createObsidianFilePort(app: App, filename: string): JsonFilePort {
-  const path = `${PLUGIN_DATA_DIR}/${filename}`;
+  const path = `${RECALL_DATA_DIR}/${filename}`;
 
   return {
     async read<T>(): Promise<T | null> {
@@ -21,9 +22,8 @@ export function createObsidianFilePort(app: App, filename: string): JsonFilePort
     },
 
     async write<T>(data: T): Promise<void> {
-      const dir = path.substring(0, path.lastIndexOf('/'));
       try {
-        await app.vault.adapter.mkdir(dir);
+        await app.vault.adapter.mkdir(RECALL_DATA_DIR);
       } catch {
         // dir already exists
       }

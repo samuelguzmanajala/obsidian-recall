@@ -19,6 +19,9 @@ export default class RecallPlugin extends Plugin {
   async onload(): Promise<void> {
     await this.loadSettings();
 
+    // Migrate data from old location if needed
+    await this.migrateFromPluginDir();
+
     this.container = new Container({
       concepts: createObsidianFilePort(this.app, 'concepts.json'),
       studyItems: createObsidianFilePort(this.app, 'study-items.json'),
@@ -183,6 +186,55 @@ export default class RecallPlugin extends Plugin {
     }
 
     return imported;
+  }
+
+  /**
+   * One-time migration: move data files from .obsidian/plugins/obsidian-recall/data/
+   * to .recall/ in the vault root (for Obsidian Sync compatibility).
+   */
+  private async migrateFromPluginDir(): Promise<void> {
+    const oldDir = '.obsidian/plugins/obsidian-recall/data';
+    const newDir = '.recall';
+    const files = ['concepts.json', 'study-items.json', 'decks.json', 'reviews.json', 'sync-state.json'];
+
+    let hasOldData = false;
+    for (const file of files) {
+      try {
+        await this.app.vault.adapter.stat(`${oldDir}/${file}`);
+        hasOldData = true;
+        break;
+      } catch {
+        // file doesn't exist
+      }
+    }
+
+    if (!hasOldData) return;
+
+    console.log('Recall: migrating data from plugin dir to .recall/');
+    try {
+      await this.app.vault.adapter.mkdir(newDir);
+    } catch {
+      // already exists
+    }
+
+    for (const file of files) {
+      try {
+        const content = await this.app.vault.adapter.read(`${oldDir}/${file}`);
+        await this.app.vault.adapter.write(`${newDir}/${file}`, content);
+        await this.app.vault.adapter.remove(`${oldDir}/${file}`);
+      } catch {
+        // file doesn't exist in old location, skip
+      }
+    }
+
+    // Clean up old dir
+    try {
+      await this.app.vault.adapter.rmdir(oldDir, false);
+    } catch {
+      // not empty or doesn't exist
+    }
+
+    console.log('Recall: migration complete');
   }
 
   private async activateDeckBrowser(): Promise<void> {

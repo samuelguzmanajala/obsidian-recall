@@ -103,21 +103,18 @@ export default class RecallPlugin extends Plugin {
         console.log('Recall: running initial sync + import');
         await this.initialSync();
         await this.importFromSR();
-        this.settings.deterministicIds = true;
-        await this.saveData(this.settings);
         console.log('Recall: initial setup complete');
         return;
       }
 
-      // Check if we need to migrate to deterministic IDs
-      if (this.needsIdMigration()) {
-        console.log('Recall: migrating to deterministic IDs...');
+      // Check if IDs match deterministic format by verifying a sample
+      const needsMigration = await this.checkNeedsMigration(existingItems);
+      if (needsMigration) {
+        console.log('Recall: IDs are not deterministic, migrating...');
         await this.vaultSync.resetKeepReviews();
         await this.initialSync();
         await this.importFromSR();
-        this.settings.deterministicIds = true;
-        await this.saveData(this.settings);
-        console.log('Recall: migration complete');
+        console.log('Recall: migration to deterministic IDs complete');
         return;
       }
 
@@ -253,8 +250,23 @@ export default class RecallPlugin extends Plugin {
     }
   }
 
-  private needsIdMigration(): boolean {
-    return !this.settings.deterministicIds;
+  /**
+   * Check if current IDs are deterministic by comparing a sample item's
+   * actual ID with what it should be based on its content.
+   */
+  private async checkNeedsMigration(items: any[]): Promise<boolean> {
+    if (items.length === 0) return false;
+
+    // Pick first item, find its concept, compute expected ID
+    const item = items[0];
+    const concept = await this.container.conceptRepository.findById(item.conceptId);
+    if (!concept) return false;
+
+    const expectedId = await this.vaultSync.computeDeterministicId(
+      `si:${concept.sideA.content}|${concept.sideB.content}|${item.direction}`,
+    );
+
+    return item.id.value !== expectedId;
   }
 
   private async hasRecallData(): Promise<boolean> {

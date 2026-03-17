@@ -317,7 +317,7 @@ export class VaultSync {
           : parts.slice(0, i + 1).join('/');
 
         if (!this.tagToDeckId.has(fullTag)) {
-          const deckId = await this.deterministicId(`deck:${fullTag}`);
+          const deckId = await this.computeDeterministicId(`deck:${fullTag}`);
           this.tagToDeckId.set(fullTag, deckId);
 
           await this.container.createDeck.execute({
@@ -349,7 +349,7 @@ export class VaultSync {
   ): Promise<{ conceptId: string; studyItemIds: string[] }> {
     // Deterministic IDs based on content — same card always gets same ID
     // This makes reviews survive rebuild (IDs don't change)
-    const conceptId = await this.deterministicId(`concept:${card.sideA}|${card.sideB}|${card.directionality}`);
+    const conceptId = await this.computeDeterministicId(`concept:${card.sideA}|${card.sideB}|${card.directionality}`);
     const studyItemIds: string[] = [];
 
     await this.container.createConcept.execute({
@@ -359,7 +359,7 @@ export class VaultSync {
       directionality: card.directionality,
     });
 
-    const atobId = await this.deterministicId(`si:${card.sideA}|${card.sideB}|a-to-b`);
+    const atobId = await this.computeDeterministicId(`si:${card.sideA}|${card.sideB}|a-to-b`);
     await this.container.createStudyItem.execute({
       id: atobId,
       conceptId,
@@ -368,7 +368,7 @@ export class VaultSync {
     studyItemIds.push(atobId);
 
     if (card.directionality === Directionality.Bidirectional) {
-      const btoaId = await this.deterministicId(`si:${card.sideA}|${card.sideB}|b-to-a`);
+      const btoaId = await this.computeDeterministicId(`si:${card.sideA}|${card.sideB}|b-to-a`);
       await this.container.createStudyItem.execute({
         id: btoaId,
         conceptId,
@@ -385,7 +385,7 @@ export class VaultSync {
    * Same input always produces the same output.
    * Uses SHA-256 truncated to UUID format.
    */
-  private async deterministicId(input: string): Promise<string> {
+  async computeDeterministicId(input: string): Promise<string> {
     const encoder = new TextEncoder();
     const data = encoder.encode(input);
     const hash = await crypto.subtle.digest('SHA-256', data);

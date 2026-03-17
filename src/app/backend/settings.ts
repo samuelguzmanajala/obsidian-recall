@@ -139,6 +139,36 @@ export class RecallSettingTab extends PluginSettingTab {
           });
       });
 
+    // Data management
+    containerEl.createEl('h2', { text: 'Data' });
+
+    new Setting(containerEl)
+      .setName('Rebuild index')
+      .setDesc(
+        'Re-scan all vault notes and rebuild the card index from scratch. ' +
+        'Use on a new device after Sync, or if cards are missing. ' +
+        'Preserves existing review progress.',
+      )
+      .addButton((btn) => {
+        btn
+          .setButtonText('Rebuild')
+          .onClick(async () => {
+            btn.setButtonText('Rebuilding...');
+            btn.setDisabled(true);
+            try {
+              await this.plugin.rebuildIndex();
+              btn.setButtonText('✓ Done');
+            } catch (err) {
+              btn.setButtonText('✗ Error');
+              console.error('Rebuild error:', err);
+            }
+            setTimeout(() => {
+              btn.setButtonText('Rebuild');
+              btn.setDisabled(false);
+            }, 3000);
+          });
+      });
+
     // Migration section
     containerEl.createEl('h2', { text: 'Migration' });
 

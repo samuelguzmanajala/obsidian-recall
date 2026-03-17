@@ -63,6 +63,23 @@ export default class RecallPlugin extends Plugin {
       callback: () => this.openReview(),
     });
 
+    // Command to force rebuild (for first setup or troubleshooting)
+    this.addCommand({
+      id: 'rebuild-index',
+      name: 'Rebuild index from vault',
+      callback: async () => {
+        await this.vaultSync.resetAll();
+        await this.initialSync();
+        // Refresh deck browser
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
+        for (const leaf of leaves) {
+          const view = leaf.view as DeckBrowserView;
+          if (view.render) await view.render();
+        }
+        console.log('Recall: rebuild complete');
+      },
+    });
+
     // Settings tab
     this.addSettingTab(new RecallSettingTab(this.app, this));
 
@@ -72,20 +89,26 @@ export default class RecallPlugin extends Plugin {
     // Load existing sync state
     await this.vaultSync.initialize();
 
-    // Wait for vault to be ready, then delay to let Obsidian Sync finish
-    this.app.workspace.onLayoutReady(() => {
-      // Give Sync 5 seconds to pull data from other devices
-      setTimeout(async () => {
-        // Re-load from storage in case Sync updated .recall/ files
-        await this.vaultSync.initialize();
-        const existingItems = await this.container.studyItemRepository.findAll();
-        if (existingItems.length > 0) {
-          console.log(`Recall: ${existingItems.length} items loaded from storage, skipping rebuild`);
-        } else {
-          console.log('Recall: no existing data, running initial sync');
+    // Wait for vault to be ready before loading
+    this.app.workspace.onLayoutReady(async () => {
+      const existingItems = await this.container.studyItemRepository.findAll();
+      if (existingItems.length > 0) {
+        // Data exists (from previous session or Sync) — use it as-is
+        console.log(`Recall: ${existingItems.length} items loaded, skipping rebuild`);
+      } else {
+        // Check if .recall/ dir exists — if not, this might be a fresh
+        // device waiting for Sync. Don't create data that would block Sync.
+        const hasRecallDir = await this.hasRecallData();
+        if (hasRecallDir) {
+          // Dir exists but empty storage — first run, do initial sync
+          console.log('Recall: .recall/ exists but no items, running initial sync');
           await this.initialSync();
+        } else {
+          // No .recall/ dir — likely waiting for Sync from another device.
+          // Show empty state, auto-refresh will pick up data when Sync arrives.
+          console.log('Recall: no .recall/ directory, waiting for Sync or first setup');
         }
-      }, 5000);
+      }
     });
 
     this.registerEvent(
@@ -197,6 +220,25 @@ export default class RecallPlugin extends Plugin {
     }
 
     return imported;
+  }
+
+  async rebuildIndex(): Promise<void> {
+    await this.vaultSync.resetAll();
+    await this.initialSync();
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
+    for (const leaf of leaves) {
+      const view = leaf.view as DeckBrowserView;
+      if (view.render) await view.render();
+    }
+  }
+
+  private async hasRecallData(): Promise<boolean> {
+    try {
+      await this.app.vault.adapter.stat('.recall/study-items.json');
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

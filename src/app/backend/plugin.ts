@@ -7,6 +7,7 @@ import { ReviewView } from '@app/frontend/review-view';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from '@app/frontend/constants';
 import { RecallSettings, DEFAULT_SETTINGS, RecallSettingTab } from './settings';
 import { Direction } from '@context/study/domain/direction';
+import { StudyItem } from '@context/study/domain/study-item';
 import { ConceptId } from '@context/concept/domain/concept-id';
 
 export default class RecallPlugin extends Plugin {
@@ -254,19 +255,26 @@ export default class RecallPlugin extends Plugin {
    * Check if current IDs are deterministic by comparing a sample item's
    * actual ID with what it should be based on its content.
    */
-  private async checkNeedsMigration(items: any[]): Promise<boolean> {
+  private async checkNeedsMigration(items: StudyItem[]): Promise<boolean> {
     if (items.length === 0) return false;
 
     // Pick first item, find its concept, compute expected ID
     const item = items[0];
     const concept = await this.container.conceptRepository.findById(item.conceptId);
-    if (!concept) return false;
+    if (!concept) {
+      // Can't verify — assume OK to avoid infinite migration loop
+      return false;
+    }
 
     const expectedId = await this.vaultSync.computeDeterministicId(
       `si:${concept.sideA.content}|${concept.sideB.content}|${item.direction}`,
     );
 
-    return item.id.value !== expectedId;
+    const needsMigration = item.id.value !== expectedId;
+    if (needsMigration) {
+      console.log(`Recall: ID mismatch — got ${item.id.value}, expected ${expectedId}`);
+    }
+    return needsMigration;
   }
 
   private async hasRecallData(): Promise<boolean> {

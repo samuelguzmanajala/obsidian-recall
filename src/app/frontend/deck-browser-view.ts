@@ -7,7 +7,6 @@ import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
 
 export class DeckBrowserView extends ItemView {
   private container: Container;
-  private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private lastHash = '';
   private leechesExpanded = false;
 
@@ -30,17 +29,10 @@ export class DeckBrowserView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
-    this.refreshInterval = setInterval(() => this.refreshIfChanged(), 5000);
   }
 
-  async onClose(): Promise<void> {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-      this.refreshInterval = null;
-    }
-  }
-
-  private async refreshIfChanged(): Promise<void> {
+  /** Called externally when data changes (Sync, review, settings) */
+  async refresh(): Promise<void> {
     try {
       const stats = await this.container.getStudyStats.execute();
       const hash = `${stats.dueNow}:${stats.newItems}:${stats.totalItems}:${stats.reviewsToday}`;
@@ -48,7 +40,7 @@ export class DeckBrowserView extends ItemView {
         await this.render();
       }
     } catch {
-      // Ignore errors during background refresh
+      // Ignore errors during refresh
     }
   }
 

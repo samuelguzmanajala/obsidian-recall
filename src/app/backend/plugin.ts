@@ -270,7 +270,16 @@ export default class RecallPlugin extends Plugin {
       this.container.studyItemRepository.invalidateCache();
       this.container.deckRepository.invalidateCache();
       this.container.reviewLog.invalidateCache();
+      this.refreshDeckBrowser();
     }, 1000);
+  }
+
+  private refreshDeckBrowser(): void {
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
+    for (const leaf of leaves) {
+      const view = leaf.view as DeckBrowserView;
+      if (view.refresh) view.refresh();
+    }
   }
 
   private async hasRecallData(): Promise<boolean> {

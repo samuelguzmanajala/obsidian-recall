@@ -14,6 +14,8 @@ export interface RecallSettings {
   dailyReviewLimit: number;
   /** Leech threshold — items with this many lapses are marked as leeches. */
   leechThreshold: number;
+  /** Deck IDs the user has expanded in the sidebar. */
+  expandedDeckIds: string[];
   /** LLM provider for card generation. */
   llmProvider: LlmProvider;
   /** API key for the selected LLM provider. */
@@ -26,6 +28,7 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   dailyNewLimit: 20,
   dailyReviewLimit: 0,
   leechThreshold: 8,
+  expandedDeckIds: [],
   llmProvider: 'none',
   llmApiKey: '',
 };

@@ -59,6 +59,9 @@ export class Container {
   // Settings (mutable — updated by plugin on save)
   settings: RecallSettings | null = null;
 
+  // Callback to persist settings without triggering full reset
+  saveSettingsQuiet: (() => Promise<void>) | null = null;
+
   // VaultSync reference (set by plugin after construction)
   vaultSync: VaultSync | null = null;
 

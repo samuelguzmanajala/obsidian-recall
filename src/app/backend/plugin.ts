@@ -25,6 +25,9 @@ export default class RecallPlugin extends Plugin {
       syncState: createObsidianFilePort(this.app, 'sync-state.json'),
     });
     this.container.settings = this.settings;
+    this.container.saveSettingsQuiet = async () => {
+      await this.saveData(this.settings);
+    };
     this.vaultSync = new VaultSync(this.container);
     this.container.vaultSync = this.vaultSync;
 

@@ -9,8 +9,6 @@ export class DeckBrowserView extends ItemView {
   private container: Container;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
   private lastHash = '';
-  /** Track expanded state by deck id — collapsed by default */
-  private expandedDecks = new Set<string>();
   private leechesExpanded = false;
 
   constructor(leaf: WorkspaceLeaf, container: Container) {
@@ -115,7 +113,8 @@ export class DeckBrowserView extends ItemView {
 
   private renderDeckNode(parent: HTMLElement, node: DeckTreeNode, depth: number): void {
     const hasChildren = node.children.length > 0;
-    const isCollapsed = !this.expandedDecks.has(node.id);
+    const expandedIds = this.container.settings?.expandedDeckIds ?? [];
+    const isCollapsed = !expandedIds.includes(node.id);
 
     const wrapper = parent.createDiv({ cls: 'recall-deck-wrapper' });
 
@@ -134,11 +133,7 @@ export class DeckBrowserView extends ItemView {
       setIcon(toggle, isCollapsed ? 'chevron-right' : 'chevron-down');
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this.expandedDecks.has(node.id)) {
-          this.expandedDecks.delete(node.id);
-        } else {
-          this.expandedDecks.add(node.id);
-        }
+        this.toggleDeckExpanded(node.id);
         this.render();
       });
     } else {
@@ -227,6 +222,22 @@ export class DeckBrowserView extends ItemView {
     await leaf.openFile(file as any, {
       eState: { line: result.line - 1 },
     });
+  }
+
+  private toggleDeckExpanded(deckId: string): void {
+    const settings = this.container.settings;
+    if (!settings) return;
+
+    const ids = settings.expandedDeckIds;
+    const idx = ids.indexOf(deckId);
+    if (idx >= 0) {
+      ids.splice(idx, 1);
+    } else {
+      ids.push(deckId);
+    }
+
+    // Persist quietly (no reset, no re-sync)
+    this.container.saveSettingsQuiet?.();
   }
 
   private async openReview(deckId?: string): Promise<void> {

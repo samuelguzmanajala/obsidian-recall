@@ -46,12 +46,16 @@ export class ReplayReviews {
     }
 
     let updated = 0;
+    let notFound = 0;
 
     for (const [itemId, reviews] of reviewsByItem) {
       const item = await this.studyItemRepository.findById(
         new StudyItemId(itemId),
       );
-      if (!item) continue;
+      if (!item) {
+        notFound++;
+        continue;
+      }
 
       // Start from initial state and replay each review
       let state = MemoryState.initial();
@@ -70,6 +74,9 @@ export class ReplayReviews {
       }
     }
 
+    if (notFound > 0) {
+      console.log(`Recall replay: ${notFound} reviews skipped (item not found), ${updated} updated, ${reviewsByItem.size} total review groups`);
+    }
     return updated;
   }
 }

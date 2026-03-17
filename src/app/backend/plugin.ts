@@ -108,7 +108,8 @@ export default class RecallPlugin extends Plugin {
       }
 
       // Replay reviews — this is the source of truth.
-      // Handles: SR imports (synthetic reviews), real reviews from any device.
+      const allReviews = await this.container.reviewLog.findAll();
+      console.log(`Recall: ${existingItems.length} items loaded, ${allReviews.length} reviews in log`);
       const replayed = await this.container.replayReviews.execute();
       const total = await this.container.studyItemRepository.findAll();
       console.log(`Recall: ${total.length} items, ${replayed} updated from review log`);

@@ -54,10 +54,11 @@ export class ReviewView extends ItemView {
     this.render();
 
     // Re-render current card when switching back to this tab (after editing note)
+    // Delay slightly to let VaultSync debounce complete
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
-          this.refreshCurrentCard();
+          setTimeout(() => this.refreshCurrentCard(), 600);
         }
       }),
     );
@@ -78,7 +79,8 @@ export class ReviewView extends ItemView {
     );
 
     if (!studyItem) {
-      // Item was replaced — remove from queue and re-render
+      // Card was edited — content changed so VaultSync replaced it.
+      // Remove stale item from queue and re-render.
       this.items.splice(this.currentIndex, 1);
       if (this.currentIndex >= this.items.length) this.currentIndex = 0;
       this.answerRevealed = false;
@@ -86,11 +88,17 @@ export class ReviewView extends ItemView {
       return;
     }
 
-    // Check if concept content changed
+    // StudyItem exists — check if concept content was updated in place
     const concept = await this.container.conceptRepository.findById(
       new ConceptId(item.conceptId),
     );
-    if (!concept) return;
+    if (!concept) {
+      this.items.splice(this.currentIndex, 1);
+      if (this.currentIndex >= this.items.length) this.currentIndex = 0;
+      this.answerRevealed = false;
+      this.render();
+      return;
+    }
 
     if (concept.sideA.content !== item.sideA || concept.sideB.content !== item.sideB) {
       item.sideA = concept.sideA.content;

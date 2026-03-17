@@ -1,16 +1,24 @@
 import { PluginSettingTab, App, Setting } from 'obsidian';
 import type RecallPlugin from './plugin';
 
+export type LlmProvider = 'none' | 'openai' | 'anthropic' | 'gemini';
+
 export interface RecallSettings {
   /** Tags to track for flashcards. Empty = track ALL notes with cards. */
   flashcardTags: string[];
   /** Shuffle review order. Default true. */
   shuffleReviews: boolean;
+  /** LLM provider for card generation. */
+  llmProvider: LlmProvider;
+  /** API key for the selected LLM provider. */
+  llmApiKey: string;
 }
 
 export const DEFAULT_SETTINGS: RecallSettings = {
   flashcardTags: [],
   shuffleReviews: true,
+  llmProvider: 'none',
+  llmApiKey: '',
 };
 
 export class RecallSettingTab extends PluginSettingTab {
@@ -64,6 +72,54 @@ export class RecallSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           });
       });
+
+    // LLM section
+    containerEl.createEl('h2', { text: 'AI Integration' });
+
+    // Provider selector
+    new Setting(containerEl)
+      .setName('LLM provider')
+      .setDesc('Select the AI provider for flashcard generation and hints.')
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption('none', 'None')
+          .addOption('openai', 'OpenAI (GPT)')
+          .addOption('anthropic', 'Anthropic (Claude)')
+          .addOption('gemini', 'Google (Gemini)')
+          .setValue(this.plugin.settings.llmProvider)
+          .onChange(async (value) => {
+            this.plugin.settings.llmProvider = value as LlmProvider;
+            await this.plugin.saveSettings();
+            // Re-render to show/hide API key field
+            this.display();
+          });
+      });
+
+    // API key — only show when a provider is selected
+    if (this.plugin.settings.llmProvider !== 'none') {
+      const providerNames: Record<string, string> = {
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        gemini: 'Google AI',
+      };
+      new Setting(containerEl)
+        .setName('API key')
+        .setDesc(
+          `Your ${providerNames[this.plugin.settings.llmProvider]} API key. ` +
+          'Stored locally in your vault — never sent anywhere except the provider\'s API.',
+        )
+        .addText((text) => {
+          text.inputEl.type = 'password';
+          text.inputEl.style.width = '300px';
+          text
+            .setPlaceholder('sk-...')
+            .setValue(this.plugin.settings.llmApiKey)
+            .onChange(async (value) => {
+              this.plugin.settings.llmApiKey = value.trim();
+              await this.plugin.saveSettings();
+            });
+        });
+    }
   }
 
   /**

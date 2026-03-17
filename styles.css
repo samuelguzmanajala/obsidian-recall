@@ -378,6 +378,19 @@
   font-size: 1em;
   font-weight: 600;
   cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recall-reveal-shortcut {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 0.65em;
+  color: var(--text-faint);
+  font-weight: 400;
 }
 
 /* Rating buttons */

@@ -265,9 +265,10 @@ export class ReviewView extends ItemView {
     } else {
       // Reveal button
       const revealBtn = el.createEl('button', {
-        text: 'Show answer [space]',
         cls: 'recall-reveal-btn',
       });
+      revealBtn.createSpan({ text: 'Show answer' });
+      revealBtn.createSpan({ text: 'space', cls: 'recall-reveal-shortcut' });
       revealBtn.addEventListener('click', () => {
         this.answerRevealed = true;
         this.render();

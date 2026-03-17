@@ -34,6 +34,8 @@ import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { RecallSettings } from './settings';
 import type { VaultSync } from './vault-sync';
+import { LlmClient } from '@context/shared/domain/llm-client';
+import { HttpLlmClient } from '@context/shared/infrastructure/llm-adapters';
 
 export interface StorageFiles {
   concepts: JsonFilePort;
@@ -58,6 +60,9 @@ export class Container {
 
   // VaultSync reference (set by plugin after construction)
   vaultSync: VaultSync | null = null;
+
+  // LLM client (reads provider/key from settings dynamically)
+  readonly llmClient: LlmClient;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;
@@ -126,5 +131,11 @@ export class Container {
     );
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
+
+    // LLM — reads from settings lazily so it always uses current config
+    this.llmClient = new HttpLlmClient(
+      () => this.settings?.llmProvider ?? 'none',
+      () => this.settings?.llmApiKey ?? '',
+    );
   }
 }

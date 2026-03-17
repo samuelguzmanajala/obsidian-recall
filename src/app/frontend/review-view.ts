@@ -235,10 +235,14 @@ export class ReviewView extends ItemView {
   }
 
   private async submitRating(item: DueStudyItemView, rating: Rating): Promise<void> {
-    await this.container.reviewStudyItem.execute({
-      studyItemId: item.studyItemId,
-      rating,
-    });
+    try {
+      await this.container.reviewStudyItem.execute({
+        studyItemId: item.studyItemId,
+        rating,
+      });
+    } catch {
+      // StudyItem was deleted (card edited while reviewing) — skip it
+    }
 
     // Move to next card
     this.items.splice(this.currentIndex, 1);

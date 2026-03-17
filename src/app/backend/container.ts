@@ -4,7 +4,7 @@ import { JsonFilePort } from '@context/shared/infrastructure/json-storage';
 import { JsonConceptRepository } from '@context/concept/infrastructure/json-concept-repository';
 import { JsonStudyItemRepository } from '@context/study/infrastructure/json-study-item-repository';
 import { JsonDeckRepository } from '@context/deck/infrastructure/json-deck-repository';
-import { JsonReviewLog } from '@context/study/infrastructure/json-review-log';
+import { MultiDeviceReviewLog, ReviewFilePort } from '@context/study/infrastructure/json-review-log';
 
 // Infrastructure
 import { FsrsScheduler } from '@context/study/infrastructure/fsrs-scheduler';
@@ -44,7 +44,7 @@ export interface StorageFiles {
   concepts: JsonFilePort;
   studyItems: JsonFilePort;
   decks: JsonFilePort;
-  reviews: JsonFilePort;
+  reviewPort: ReviewFilePort;
   syncState: JsonFilePort;
 }
 
@@ -53,7 +53,7 @@ export class Container {
   readonly conceptRepository: JsonConceptRepository;
   readonly studyItemRepository: JsonStudyItemRepository;
   readonly deckRepository: JsonDeckRepository;
-  readonly reviewLog: JsonReviewLog;
+  readonly reviewLog: MultiDeviceReviewLog;
 
   // Storage
   readonly syncStateFile: JsonFilePort;
@@ -110,7 +110,7 @@ export class Container {
     this.conceptRepository = new JsonConceptRepository(files.concepts);
     this.studyItemRepository = new JsonStudyItemRepository(files.studyItems);
     this.deckRepository = new JsonDeckRepository(files.decks);
-    this.reviewLog = new JsonReviewLog(files.reviews);
+    this.reviewLog = new MultiDeviceReviewLog(files.reviewPort);
 
     // Use cases
     this.createConcept = new CreateConcept(this.conceptRepository);

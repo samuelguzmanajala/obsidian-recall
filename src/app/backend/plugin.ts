@@ -1,6 +1,6 @@
 import { Plugin, TFile, WorkspaceLeaf } from 'obsidian';
 import { Container } from './container';
-import { createObsidianFilePort } from './obsidian-storage';
+import { createObsidianFilePort, createReviewFilePort, getDeviceId } from './obsidian-storage';
 import { VaultSync } from './vault-sync';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
@@ -25,11 +25,14 @@ export default class RecallPlugin extends Plugin {
       await this.migrateFromPluginDir();
     }
 
+    const deviceId = await getDeviceId(this.app);
+    console.log(`Recall: device ID = ${deviceId}`);
+
     this.container = new Container({
       concepts: createObsidianFilePort(this.app, 'concepts.json'),
       studyItems: createObsidianFilePort(this.app, 'study-items.json'),
       decks: createObsidianFilePort(this.app, 'decks.json'),
-      reviews: createObsidianFilePort(this.app, 'reviews.json'),
+      reviewPort: createReviewFilePort(this.app, deviceId),
       syncState: createObsidianFilePort(this.app, 'sync-state.json'),
     });
     this.container.settings = this.settings;

@@ -9,6 +9,7 @@ export class DeckBrowserView extends ItemView {
   private container: Container;
   private lastHash = '';
   private leechesExpanded = false;
+  private dueCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(leaf: WorkspaceLeaf, container: Container) {
     super(leaf);
@@ -29,6 +30,15 @@ export class DeckBrowserView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
+    // Check every 60s for cards that became due (time-based, not event-based)
+    this.dueCheckInterval = setInterval(() => this.refresh(), 60_000);
+  }
+
+  async onClose(): Promise<void> {
+    if (this.dueCheckInterval) {
+      clearInterval(this.dueCheckInterval);
+      this.dueCheckInterval = null;
+    }
   }
 
   /** Called externally when data changes (Sync, review, settings) */

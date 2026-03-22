@@ -316,7 +316,7 @@ export class ReviewView extends ItemView {
         rating,
       });
     } catch {
-      // StudyItem was deleted (card edited while reviewing) — skip it
+      // StudyItem may have been replaced (card edited) — skip
     }
 
     // Remove this card and any sibling (other direction of same concept)

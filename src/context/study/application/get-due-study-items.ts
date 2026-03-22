@@ -70,39 +70,80 @@ export class GetDueStudyItems {
    * Uses today's review log to decide: if one direction was already reviewed
    * today, exclude the other. If neither was reviewed, pick one at random.
    */
+  /**
+   * Sibling dedup: only one direction of a bidirectional concept per day.
+   * Uses today's review log — if direction A was reviewed today,
+   * direction B is excluded even if it's due (and vice versa).
+   */
   private async deduplicateSiblings(views: DueStudyItemView[], now: Date): Promise<DueStudyItemView[]> {
-    // Get today's reviews to check which directions were already done
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
     const todayReviews = await this.reviewLog.findSince(startOfDay);
-    const reviewedItemIds = new Set(todayReviews.map(r => r.studyItemId.value));
 
-    const byConceptId = new Map<string, DueStudyItemView[]>();
+    // Build a map: conceptId → set of studyItemIds reviewed today
+    const reviewedByConceptToday = new Map<string, Set<string>>();
+    for (const review of todayReviews) {
+      // Need to find conceptId for this studyItemId — check in our views first
+      const view = views.find(v => v.studyItemId === review.studyItemId.value);
+      if (view) {
+        const set = reviewedByConceptToday.get(view.conceptId) ?? new Set();
+        set.add(review.studyItemId.value);
+        reviewedByConceptToday.set(view.conceptId, set);
+      }
+    }
+
+    // Also check items not in views (sibling was reviewed but its due moved to future)
+    const allItems = await this.studyItemRepository.findAll();
+    for (const review of todayReviews) {
+      const item = allItems.find(i => i.id.value === review.studyItemId.value);
+      if (item) {
+        const set = reviewedByConceptToday.get(item.conceptId.value) ?? new Set();
+        set.add(review.studyItemId.value);
+        reviewedByConceptToday.set(item.conceptId.value, set);
+      }
+    }
+
+    const result: DueStudyItemView[] = [];
     for (const view of views) {
+      const reviewedSiblings = reviewedByConceptToday.get(view.conceptId);
+      if (!reviewedSiblings || reviewedSiblings.size === 0) {
+        // No sibling reviewed today — include
+        result.push(view);
+        continue;
+      }
+
+      if (reviewedSiblings.has(view.studyItemId)) {
+        // This exact direction was reviewed today — include (learning steps)
+        result.push(view);
+      }
+      // else: sibling was reviewed but not this one → exclude
+    }
+
+    // Handle case where no direction was reviewed yet but both are due
+    // → pick one at random per concept
+    const byConceptId = new Map<string, DueStudyItemView[]>();
+    for (const view of result) {
       const group = byConceptId.get(view.conceptId) ?? [];
       group.push(view);
       byConceptId.set(view.conceptId, group);
     }
 
-    const result: DueStudyItemView[] = [];
-    for (const group of byConceptId.values()) {
+    const final: DueStudyItemView[] = [];
+    const seenConcepts = new Set<string>();
+    for (const view of result) {
+      const group = byConceptId.get(view.conceptId)!;
       if (group.length <= 1) {
-        result.push(...group);
+        final.push(view);
         continue;
       }
-
-      // Check if any direction was already reviewed today
-      const reviewedToday = group.filter(v => reviewedItemIds.has(v.studyItemId));
-      if (reviewedToday.length > 0) {
-        // Only show the direction(s) already reviewed today (for learning steps)
-        result.push(...reviewedToday);
-      } else {
-        // Neither reviewed today — pick one at random
+      // Multiple directions due, none reviewed yet → pick one
+      if (!seenConcepts.has(view.conceptId)) {
+        seenConcepts.add(view.conceptId);
         const pick = group[Math.floor(Math.random() * group.length)];
-        result.push(pick);
+        final.push(pick);
       }
     }
 
-    return result;
+    return final;
   }
 }

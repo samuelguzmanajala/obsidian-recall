@@ -76,32 +76,53 @@ export class GetDueStudyItemsByDeck {
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
     const todayReviews = await this.reviewLog.findSince(startOfDay);
-    const reviewedItemIds = new Set(todayReviews.map(r => r.studyItemId.value));
+
+    const reviewedByConceptToday = new Map<string, Set<string>>();
+    const allItems = await this.studyItemRepository.findAll();
+    for (const review of todayReviews) {
+      const item = allItems.find(i => i.id.value === review.studyItemId.value);
+      if (item) {
+        const set = reviewedByConceptToday.get(item.conceptId.value) ?? new Set();
+        set.add(review.studyItemId.value);
+        reviewedByConceptToday.set(item.conceptId.value, set);
+      }
+    }
+
+    const result: DueStudyItemView[] = [];
+    for (const view of views) {
+      const reviewedSiblings = reviewedByConceptToday.get(view.conceptId);
+      if (!reviewedSiblings || reviewedSiblings.size === 0) {
+        result.push(view);
+        continue;
+      }
+      if (reviewedSiblings.has(view.studyItemId)) {
+        result.push(view);
+      }
+    }
 
     const byConceptId = new Map<string, DueStudyItemView[]>();
-    for (const view of views) {
+    for (const view of result) {
       const group = byConceptId.get(view.conceptId) ?? [];
       group.push(view);
       byConceptId.set(view.conceptId, group);
     }
 
-    const result: DueStudyItemView[] = [];
-    for (const group of byConceptId.values()) {
+    const final: DueStudyItemView[] = [];
+    const seenConcepts = new Set<string>();
+    for (const view of result) {
+      const group = byConceptId.get(view.conceptId)!;
       if (group.length <= 1) {
-        result.push(...group);
+        final.push(view);
         continue;
       }
-
-      const reviewedToday = group.filter(v => reviewedItemIds.has(v.studyItemId));
-      if (reviewedToday.length > 0) {
-        result.push(...reviewedToday);
-      } else {
+      if (!seenConcepts.has(view.conceptId)) {
+        seenConcepts.add(view.conceptId);
         const pick = group[Math.floor(Math.random() * group.length)];
-        result.push(pick);
+        final.push(pick);
       }
     }
 
-    return result;
+    return final;
   }
 
   private async collectStudyItemIds(deckId: DeckId): Promise<Set<string>> {

@@ -319,8 +319,13 @@ export class ReviewView extends ItemView {
       // StudyItem was deleted (card edited while reviewing) — skip it
     }
 
-    // Move to next card
-    this.items.splice(this.currentIndex, 1);
+    // Remove this card and any sibling (other direction of same concept)
+    const reviewedConceptId = item.conceptId;
+    this.items = this.items.filter((v, idx) => {
+      if (idx === this.currentIndex) return false; // remove current
+      if (v.conceptId === reviewedConceptId && v.studyItemId !== item.studyItemId) return false; // remove sibling
+      return true;
+    });
     if (this.currentIndex >= this.items.length) {
       this.currentIndex = 0;
     }

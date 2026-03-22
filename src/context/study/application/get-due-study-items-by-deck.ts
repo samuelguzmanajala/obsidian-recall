@@ -1,6 +1,7 @@
 import { StudyItemRepository } from '../domain/study-item-repository';
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
 import { DeckRepository } from '@context/deck/domain/deck-repository';
+import { ReviewLog } from '../domain/review-log';
 import { DeckId } from '@context/deck/domain/deck-id';
 import { DueStudyItemView } from './study-item-view';
 
@@ -9,6 +10,7 @@ export class GetDueStudyItemsByDeck {
     private readonly studyItemRepository: StudyItemRepository,
     private readonly conceptRepository: ConceptRepository,
     private readonly deckRepository: DeckRepository,
+    private readonly reviewLog: ReviewLog,
   ) {}
 
   async execute(
@@ -41,7 +43,7 @@ export class GetDueStudyItemsByDeck {
       });
     }
 
-    const deduped = this.deduplicateSiblings(views);
+    const deduped = await this.deduplicateSiblings(views, now);
     return this.applyLimits(deduped, limits);
   }
 
@@ -70,9 +72,13 @@ export class GetDueStudyItemsByDeck {
     return result;
   }
 
-  private deduplicateSiblings(views: DueStudyItemView[]): DueStudyItemView[] {
-    const byConceptId = new Map<string, DueStudyItemView[]>();
+  private async deduplicateSiblings(views: DueStudyItemView[], now: Date): Promise<DueStudyItemView[]> {
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const todayReviews = await this.reviewLog.findSince(startOfDay);
+    const reviewedItemIds = new Set(todayReviews.map(r => r.studyItemId.value));
 
+    const byConceptId = new Map<string, DueStudyItemView[]>();
     for (const view of views) {
       const group = byConceptId.get(view.conceptId) ?? [];
       group.push(view);
@@ -83,6 +89,12 @@ export class GetDueStudyItemsByDeck {
     for (const group of byConceptId.values()) {
       if (group.length <= 1) {
         result.push(...group);
+        continue;
+      }
+
+      const reviewedToday = group.filter(v => reviewedItemIds.has(v.studyItemId));
+      if (reviewedToday.length > 0) {
+        result.push(...reviewedToday);
       } else {
         const pick = group[Math.floor(Math.random() * group.length)];
         result.push(pick);

@@ -137,11 +137,12 @@ export class Container {
     this.removeStudyItemFromDeck = new RemoveStudyItemFromDeck(this.deckRepository);
 
     // Queries
-    this.getDueStudyItems = new GetDueStudyItems(this.studyItemRepository, this.conceptRepository);
+    this.getDueStudyItems = new GetDueStudyItems(this.studyItemRepository, this.conceptRepository, this.reviewLog);
     this.getDueStudyItemsByDeck = new GetDueStudyItemsByDeck(
       this.studyItemRepository,
       this.conceptRepository,
       this.deckRepository,
+      this.reviewLog,
     );
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);

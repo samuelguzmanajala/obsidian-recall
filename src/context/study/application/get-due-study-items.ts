@@ -1,11 +1,13 @@
 import { StudyItemRepository } from '../domain/study-item-repository';
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
+import { ReviewLog } from '../domain/review-log';
 import { DueStudyItemView } from './study-item-view';
 
 export class GetDueStudyItems {
   constructor(
     private readonly studyItemRepository: StudyItemRepository,
     private readonly conceptRepository: ConceptRepository,
+    private readonly reviewLog: ReviewLog,
   ) {}
 
   async execute(
@@ -34,7 +36,7 @@ export class GetDueStudyItems {
       });
     }
 
-    const deduped = this.deduplicateSiblings(views);
+    const deduped = await this.deduplicateSiblings(views, now);
     return this.applyLimits(deduped, limits);
   }
 
@@ -64,13 +66,18 @@ export class GetDueStudyItems {
   }
 
   /**
-   * When both directions of a bidirectional concept are due the same day,
-   * pick one at random and drop the other. They'll desync naturally after
-   * the first review pushes one direction's due date forward.
+   * When both directions of a bidirectional concept are due, only show one.
+   * Uses today's review log to decide: if one direction was already reviewed
+   * today, exclude the other. If neither was reviewed, pick one at random.
    */
-  private deduplicateSiblings(views: DueStudyItemView[]): DueStudyItemView[] {
-    const byConceptId = new Map<string, DueStudyItemView[]>();
+  private async deduplicateSiblings(views: DueStudyItemView[], now: Date): Promise<DueStudyItemView[]> {
+    // Get today's reviews to check which directions were already done
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const todayReviews = await this.reviewLog.findSince(startOfDay);
+    const reviewedItemIds = new Set(todayReviews.map(r => r.studyItemId.value));
 
+    const byConceptId = new Map<string, DueStudyItemView[]>();
     for (const view of views) {
       const group = byConceptId.get(view.conceptId) ?? [];
       group.push(view);
@@ -81,8 +88,16 @@ export class GetDueStudyItems {
     for (const group of byConceptId.values()) {
       if (group.length <= 1) {
         result.push(...group);
+        continue;
+      }
+
+      // Check if any direction was already reviewed today
+      const reviewedToday = group.filter(v => reviewedItemIds.has(v.studyItemId));
+      if (reviewedToday.length > 0) {
+        // Only show the direction(s) already reviewed today (for learning steps)
+        result.push(...reviewedToday);
       } else {
-        // Pick one at random
+        // Neither reviewed today — pick one at random
         const pick = group[Math.floor(Math.random() * group.length)];
         result.push(pick);
       }

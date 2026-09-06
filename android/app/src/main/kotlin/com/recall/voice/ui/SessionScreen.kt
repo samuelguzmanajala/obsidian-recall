@@ -92,7 +92,12 @@ private fun Header(state: SessionState, onExit: () -> Unit) {
       text = if (total > 0) "$idx / $total" else " ",
       style = MaterialTheme.typography.titleMedium,
     )
-    Text(text = stateLabel(state), style = MaterialTheme.typography.bodyMedium)
+    Text(
+      text = stateLabel(state),
+      style = MaterialTheme.typography.bodyMedium,
+      modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+      textAlign = TextAlign.Center,
+    )
     TextButton(onClick = onExit) { Text("Salir") }
   }
   if (state is SessionState.ReadingQuestion ||

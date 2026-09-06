@@ -169,6 +169,14 @@ borrado y renombrado pendientes, ediciones offline, conflicto entre dispositivos
 con peticion en curso, separacion de servidores, diario corrupto y silencio sin valoracion.
 Las pruebas que escriben repasos utilizan bases temporales, no la base personal.
 
+Comprobacion fisica posterior en el Pixel: al mostrar una respuesta y dejar agotar la
+escucha, la primera tarjeta permanecio en pausa sin enviar una valoracion. `Reanudar
+escucha` volvio al reconocimiento en esa misma tarjeta. Se corrigio el encabezado para
+que el mensaje largo de pausa no desplazara `Salir` fuera de pantalla; tras reinstalar,
+ambos botones quedaron visibles y `Salir` regreso al navegador de mazos. El contador
+permanecio en 5 repasos durante ambas pruebas. Las 25 pruebas Android siguen pasando.
+La copia anterior a ese ajuste esta en `backups/android-2026-09-06T12-34-09-537Z`.
+
 Copias previas de esta fase, dentro de Recall Backend:
 
 - `backups/recall-2026-09-06T12-14-16-418Z.sqlite` (14.602 eventos; integridad verificada).

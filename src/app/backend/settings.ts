@@ -1,7 +1,50 @@
-import { PluginSettingTab, App, Setting } from 'obsidian';
+import { Notice, PluginSettingTab, App, Setting } from 'obsidian';
 import type RecallPlugin from './plugin';
+import { generateToken } from './voice-api/auth';
 
-export type LlmProvider = 'none' | 'openai' | 'anthropic' | 'gemini';
+export type LlmProvider = 'none' | 'openai' | 'anthropic' | 'gemini' | 'deepseek';
+
+/**
+ * Voice instructions for gpt-4o-mini-tts. Written in English because that's
+ * what OpenAI's models follow most reliably for steering.
+ */
+export const DEFAULT_VOICE_INSTRUCTIONS = [
+  'You are reading flashcard text aloud for a Spanish learner studying English and German.',
+  'The text mixes Spanish (the framing language), English, and sometimes German.',
+  '',
+  'Strict pronunciation rules:',
+  '1. Words written in English MUST be pronounced with native English pronunciation.',
+  '2. Words written in Spanish MUST be pronounced with native Spanish (Castilian) pronunciation.',
+  '3. Words written in German MUST be pronounced with native German pronunciation.',
+  '4. Switch accents IMMEDIATELY between segments. Never use a hybrid or neutral accent.',
+  '5. Words enclosed in double quotes are foreign-language tokens — pronounce them in their native language.',
+  '6. Spanish framings like "La palabra inglesa:" stay in Spanish; the quoted word that follows must be in its language.',
+  '',
+  'Pacing: moderate and clear, suitable for someone listening while driving.',
+  'Tone: warm, like a tutor who knows the student is making progress.',
+].join('\n');
+
+export interface VoiceApiSettings {
+  enabled: boolean;
+  port: number;
+  token: string;
+  bindAddress: string;
+}
+
+export interface VoiceTtsSettings {
+  /** Whether the audio endpoint should attempt cloud generation. */
+  enabled: boolean;
+  /** OpenAI API key for /v1/audio/speech. */
+  apiKey: string;
+  /** OpenAI voice id (alloy, echo, fable, onyx, nova, shimmer). */
+  voice: string;
+  /** OpenAI TTS model — gpt-4o-mini-tts handles multilingual natively. */
+  model: string;
+  /** Free-text steering for gpt-4o-mini-tts (accent, tone, pace). Empty = no instructions. */
+  instructions: string;
+  /** Run card text through the configured LLM before TTS to handle multilingual mixing. */
+  llmPreprocess: boolean;
+}
 
 export interface RecallSettings {
   /** Tags to track for flashcards. Empty = track ALL notes with cards. */
@@ -21,6 +64,14 @@ export interface RecallSettings {
   llmProvider: LlmProvider;
   /** API key for the selected LLM provider. */
   llmApiKey: string;
+  /** Optional model override — empty falls back to the provider's default (e.g. deepseek-chat). */
+  llmModel: string;
+
+  /** Local HTTP API for the mobile/voice client (consumed via Tailscale). */
+  voiceApi: VoiceApiSettings;
+
+  /** Cloud TTS for serving multilingual audio to the voice API client. */
+  voiceTts: VoiceTtsSettings;
 }
 
 export const DEFAULT_SETTINGS: RecallSettings = {
@@ -32,6 +83,21 @@ export const DEFAULT_SETTINGS: RecallSettings = {
   expandedDeckIds: [],
   llmProvider: 'none',
   llmApiKey: '',
+  llmModel: '',
+  voiceApi: {
+    enabled: false,
+    port: 27124,
+    token: '',
+    bindAddress: '0.0.0.0',
+  },
+  voiceTts: {
+    enabled: false,
+    apiKey: '',
+    voice: 'alloy',
+    model: 'gpt-4o-mini-tts',
+    instructions: DEFAULT_VOICE_INSTRUCTIONS,
+    llmPreprocess: false,
+  },
 };
 
 export class RecallSettingTab extends PluginSettingTab {
@@ -217,6 +283,7 @@ export class RecallSettingTab extends PluginSettingTab {
           .addOption('openai', 'OpenAI (GPT)')
           .addOption('anthropic', 'Anthropic (Claude)')
           .addOption('gemini', 'Google (Gemini)')
+          .addOption('deepseek', 'DeepSeek')
           .setValue(this.plugin.settings.llmProvider)
           .onChange(async (value) => {
             this.plugin.settings.llmProvider = value as LlmProvider;
@@ -232,6 +299,7 @@ export class RecallSettingTab extends PluginSettingTab {
         openai: 'OpenAI',
         anthropic: 'Anthropic',
         gemini: 'Google AI',
+        deepseek: 'DeepSeek',
       };
       new Setting(containerEl)
         .setName('API key')
@@ -250,7 +318,325 @@ export class RecallSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
             });
         });
+
+      const defaultModelHint: Record<string, string> = {
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-haiku-4-5-20250414',
+        gemini: 'gemini-2.0-flash',
+        deepseek: 'deepseek-chat',
+      };
+      new Setting(containerEl)
+        .setName('Model (optional)')
+        .setDesc(
+          'Override the default model. Examples: ' +
+          `${defaultModelHint[this.plugin.settings.llmProvider] ?? ''}, deepseek-v4, ` +
+          'gpt-4.1-mini, claude-sonnet-4-6. Leave empty for the provider default.',
+        )
+        .addText((text) => {
+          text.inputEl.style.width = '300px';
+          text
+            .setPlaceholder(defaultModelHint[this.plugin.settings.llmProvider] ?? '')
+            .setValue(this.plugin.settings.llmModel)
+            .onChange(async (value) => {
+              this.plugin.settings.llmModel = value.trim();
+              await this.plugin.saveSettings();
+            });
+        });
     }
+
+    // Voice API section — local HTTP server for the car / mobile client
+    containerEl.createEl('h2', { text: 'Voice API (car / mobile)' });
+
+    const intro = containerEl.createEl('p', {
+      cls: 'setting-item-description',
+    });
+    intro.appendText(
+      'Expose a local HTTP API so a mobile companion app can run review ' +
+      'sessions by voice (TTS reads cards, STT captures ratings). Reach ' +
+      'this PC from your phone over ',
+    );
+    intro.createEl('a', {
+      text: 'Tailscale',
+      href: 'https://tailscale.com/',
+    });
+    intro.appendText(' (recommended) for end-to-end encrypted access without exposing your machine to the public internet.');
+
+    new Setting(containerEl)
+      .setName('Enable voice API server')
+      .setDesc('Start the HTTP server when Obsidian launches. Disabled by default.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.voiceApi.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceApi.enabled = value;
+            // Auto-generate a token the first time the API is enabled
+            if (value && !this.plugin.settings.voiceApi.token) {
+              this.plugin.settings.voiceApi.token = generateToken();
+            }
+            await this.plugin.saveSettings();
+            this.display();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Port')
+      .setDesc('TCP port for the HTTP server. Restart the server after changing.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.style.width = '90px';
+        text
+          .setValue(String(this.plugin.settings.voiceApi.port))
+          .onChange(async (value) => {
+            const n = parseInt(value);
+            if (!isNaN(n) && n > 0 && n < 65536) {
+              this.plugin.settings.voiceApi.port = n;
+              await this.plugin.saveSettings();
+            }
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Bind address')
+      .setDesc(
+        '0.0.0.0 listens on all interfaces (needed so Tailscale can reach the server). ' +
+        '127.0.0.1 restricts to localhost only.',
+      )
+      .addText((text) => {
+        text.inputEl.style.width = '160px';
+        text
+          .setValue(this.plugin.settings.voiceApi.bindAddress)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceApi.bindAddress = value.trim() || '0.0.0.0';
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // Token row — show / regenerate / copy
+    new Setting(containerEl)
+      .setName('API token')
+      .setDesc(
+        'Bearer token required by the mobile client. Treat it like a password. ' +
+        'Regenerate to revoke any previously authorized device.',
+      )
+      .addText((text) => {
+        text.inputEl.type = 'text';
+        text.inputEl.readOnly = true;
+        text.inputEl.style.width = '320px';
+        text.inputEl.style.fontFamily = 'monospace';
+        text.setValue(this.plugin.settings.voiceApi.token || '(not generated)');
+      })
+      .addButton((btn) => {
+        btn
+          .setButtonText('Copy')
+          .onClick(async () => {
+            const t = this.plugin.settings.voiceApi.token;
+            if (!t) {
+              new Notice('No token to copy yet.');
+              return;
+            }
+            await navigator.clipboard.writeText(t);
+            new Notice('Token copied to clipboard.');
+          });
+      })
+      .addButton((btn) => {
+        btn
+          .setButtonText('Regenerate')
+          .setWarning()
+          .onClick(async () => {
+            this.plugin.settings.voiceApi.token = generateToken();
+            await this.plugin.saveSettings();
+            this.display();
+            new Notice('New token generated. Update the mobile client.');
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Restart server')
+      .setDesc('Apply port / bind-address changes immediately.')
+      .addButton((btn) => {
+        btn
+          .setButtonText('Restart')
+          .onClick(async () => {
+            try {
+              await this.plugin.restartVoiceApi();
+              new Notice('Voice API restarted.');
+            } catch (err) {
+              new Notice(`Failed: ${(err as Error).message}`);
+            }
+          });
+      });
+
+    // Cloud TTS section
+    containerEl.createEl('h2', { text: 'Voice TTS (cloud)' });
+
+    const ttsIntro = containerEl.createEl('p', { cls: 'setting-item-description' });
+    ttsIntro.setText(
+      'Generate card audio with OpenAI TTS-1 (multilingual). Audio is cached on disk per card — only the first request hits the API. Falls back to on-device TTS in the mobile app if disabled or unreachable.',
+    );
+
+    new Setting(containerEl)
+      .setName('Enable cloud TTS')
+      .setDesc('Serve audio via /api/v1/audio/<id>/<side>. Disabled by default.')
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.voiceTts.enabled)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceTts.enabled = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('OpenAI API key')
+      .setDesc('Used only for /v1/audio/speech. Stored locally in the vault.')
+      .addText((text) => {
+        text.inputEl.type = 'password';
+        text.inputEl.style.width = '320px';
+        text
+          .setPlaceholder('sk-...')
+          .setValue(this.plugin.settings.voiceTts.apiKey)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceTts.apiKey = value.trim();
+            await this.plugin.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Voice')
+      .setDesc('Pick an OpenAI voice. All work for es / en / de.')
+      .addDropdown((dd) => {
+        const voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'ash', 'ballad', 'coral', 'sage', 'verse'];
+        for (const v of voices) dd.addOption(v, v);
+        dd.setValue(this.plugin.settings.voiceTts.voice || 'alloy');
+        dd.onChange(async (value) => {
+          this.plugin.settings.voiceTts.voice = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('TTS model')
+      .setDesc(
+        'gpt-4o-mini-tts handles multilingual natively (recommended; lets you turn off LLM preprocessing). ' +
+        'tts-1 is faster and cheaper but mono-language per utterance. tts-1-hd is higher quality but slower.',
+      )
+      .addDropdown((dd) => {
+        const models = ['gpt-4o-mini-tts', 'tts-1', 'tts-1-hd'];
+        for (const m of models) dd.addOption(m, m);
+        dd.setValue(this.plugin.settings.voiceTts.model || 'gpt-4o-mini-tts');
+        dd.onChange(async (value) => {
+          this.plugin.settings.voiceTts.model = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Voice instructions (gpt-4o-mini-tts only)')
+      .setDesc(
+        'Free-text steering for the voice. Ignored by tts-1/tts-1-hd. ' +
+        'Tip: write in ENGLISH — OpenAI models follow English steering far better than Spanish.',
+      )
+      .addTextArea((text) => {
+        text.inputEl.rows = 6;
+        text.inputEl.style.width = '100%';
+        text
+          .setValue(this.plugin.settings.voiceTts.instructions)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceTts.instructions = value;
+            await this.plugin.saveSettings();
+          });
+      })
+      .addExtraButton((btn) => {
+        btn
+          .setIcon('reset')
+          .setTooltip('Reset to recommended English instructions')
+          .onClick(async () => {
+            this.plugin.settings.voiceTts.instructions = DEFAULT_VOICE_INSTRUCTIONS;
+            await this.plugin.saveSettings();
+            this.display();
+            new Notice('Instructions reset to default.');
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('LLM preprocessing for multilingual cards')
+      .setDesc(
+        'Run each card through the configured LLM (uses your existing LLM API key) before TTS — adds Spanish cues like "La palabra inglesa: …" so TTS-1 reads each language with its native accent. Cached per card.',
+      )
+      .addToggle((toggle) => {
+        toggle
+          .setValue(this.plugin.settings.voiceTts.llmPreprocess)
+          .onChange(async (value) => {
+            this.plugin.settings.voiceTts.llmPreprocess = value;
+            await this.plugin.saveSettings();
+          });
+      });
+
+    // Container for the rewrite preview (filled by Test LLM button below)
+    const llmTestOutput = containerEl.createDiv({ cls: 'recall-llm-test-output' });
+    llmTestOutput.style.padding = '8px 12px';
+    llmTestOutput.style.margin = '0 0 12px 0';
+    llmTestOutput.style.background = 'var(--background-secondary)';
+    llmTestOutput.style.borderRadius = '6px';
+    llmTestOutput.style.fontSize = '0.9em';
+    llmTestOutput.style.fontFamily = 'var(--font-monospace)';
+    llmTestOutput.style.whiteSpace = 'pre-wrap';
+    llmTestOutput.style.display = 'none';
+
+    new Setting(containerEl)
+      .setName('Test LLM')
+      .setDesc(
+        'Send a sample multilingual card to the LLM with the rewriter prompt and show the result.',
+      )
+      .addButton((btn) => {
+        btn
+          .setButtonText('Test')
+          .onClick(async () => {
+            btn.setButtonText('Testing…');
+            btn.setDisabled(true);
+            llmTestOutput.style.display = 'block';
+            llmTestOutput.setText('Working…');
+            try {
+              const result = await this.plugin.testLlm();
+              if (result.ok) {
+                btn.setButtonText('✓ OK');
+                llmTestOutput.setText(
+                  `Original:\n  ${result.original}\n\nRewritten:\n  ${result.rewritten}`,
+                );
+              } else {
+                btn.setButtonText('✗ Failed');
+                llmTestOutput.setText(`Error: ${result.error}`);
+              }
+            } finally {
+              setTimeout(() => {
+                btn.setButtonText('Test');
+                btn.setDisabled(false);
+              }, 3000);
+            }
+          });
+      });
+
+    new Setting(containerEl)
+      .setName('Test TTS')
+      .setDesc('Synthesize a short sentence and report success or the error.')
+      .addButton((btn) => {
+        btn
+          .setButtonText('Test')
+          .onClick(async () => {
+            btn.setButtonText('Testing…');
+            btn.setDisabled(true);
+            try {
+              const result = await this.plugin.testTts();
+              btn.setButtonText(result === null ? '✓ OK' : '✗ Failed');
+              if (result !== null) new Notice(`TTS: ${result}`);
+            } finally {
+              setTimeout(() => {
+                btn.setButtonText('Test');
+                btn.setDisabled(false);
+              }, 3000);
+            }
+          });
+      });
   }
 
   /**

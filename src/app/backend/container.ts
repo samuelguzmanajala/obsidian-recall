@@ -44,6 +44,8 @@ import { RecallSettings } from './settings';
 import type { VaultSync } from './vault-sync';
 import { LlmClient } from '@context/shared/domain/llm-client';
 import { HttpLlmClient } from '@context/shared/infrastructure/llm-adapters';
+import { TtsClient } from '@context/shared/domain/tts-client';
+import { OpenAiTtsClient } from '@context/shared/infrastructure/openai-tts-client';
 
 export interface StorageFiles {
   concepts: JsonFileStorage;
@@ -75,6 +77,9 @@ export class Container {
   // LLM client
   readonly llmClient: LlmClient;
 
+  // TTS client (cloud)
+  readonly ttsClient: TtsClient;
+
   // Infrastructure
   readonly scheduler: FsrsScheduler;
   readonly parser: MarkdownParser;
@@ -105,7 +110,10 @@ export class Container {
   readonly importSrData: ImportSrData;
   readonly replayReviews: ReplayReviews;
 
-  constructor(files: StorageFiles) {
+  constructor(
+    files: StorageFiles,
+    private readonly ttsFetch: typeof fetch = fetch,
+  ) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
@@ -122,7 +130,11 @@ export class Container {
     this.updateConcept = new UpdateConcept(this.conceptRepository);
     this.removeConcept = new RemoveConcept(this.conceptRepository);
 
-    this.createStudyItem = new CreateStudyItem(this.studyItemRepository);
+    this.createStudyItem = new CreateStudyItem(
+      this.studyItemRepository,
+      this.reviewLog,
+      this.scheduler,
+    );
     this.removeStudyItem = new RemoveStudyItem(this.studyItemRepository);
     this.reviewStudyItem = new ReviewStudyItem(
       this.studyItemRepository,
@@ -137,12 +149,18 @@ export class Container {
     this.removeStudyItemFromDeck = new RemoveStudyItemFromDeck(this.deckRepository);
 
     // Queries
-    this.getDueStudyItems = new GetDueStudyItems(this.studyItemRepository, this.conceptRepository, this.reviewLog);
+    this.getDueStudyItems = new GetDueStudyItems(
+      this.studyItemRepository,
+      this.conceptRepository,
+      this.reviewLog,
+      this.scheduler,
+    );
     this.getDueStudyItemsByDeck = new GetDueStudyItemsByDeck(
       this.studyItemRepository,
       this.conceptRepository,
       this.deckRepository,
       this.reviewLog,
+      this.scheduler,
     );
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
@@ -154,6 +172,14 @@ export class Container {
     this.llmClient = new HttpLlmClient(
       () => this.settings?.llmProvider ?? 'none',
       () => this.settings?.llmApiKey ?? '',
+      () => this.settings?.llmModel ?? '',
+    );
+
+    // TTS (cloud, OpenAI). Reads its own key — independent from LLM provider.
+    // ttsFetch is wired by the plugin layer (obsidianFetch) to bypass renderer CORS.
+    this.ttsClient = new OpenAiTtsClient(
+      () => this.settings?.voiceTts.apiKey ?? '',
+      this.ttsFetch,
     );
   }
 }

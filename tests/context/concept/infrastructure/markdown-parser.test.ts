@@ -350,4 +350,63 @@ describe('MarkdownParser', () => {
       expect(cards[0].sideA).toBe('What is DDD?');
     });
   });
+
+  describe('alternative separators (SR plugin compatibility)', () => {
+    const parser = new MarkdownParser();
+
+    it('parses >: as unidirectional separator', () => {
+      const cards = parser.parse('- articulo Abend>:der', 'test.md');
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('articulo Abend');
+      expect(cards[0].sideB).toBe('der');
+      expect(cards[0].directionality).toBe(Directionality.Unidirectional);
+    });
+
+    it('parses >: with SR scheduling comment', () => {
+      const cards = parser.parse(
+        '- plural de Adresse>:Adressen <!--SR:!2026-03-13,2,188-->',
+        'test.md',
+      );
+      expect(cards).toHaveLength(1);
+      expect(cards[0].sideA).toBe('plural de Adresse');
+      expect(cards[0].sideB).toBe('Adressen');
+      expect(cards[0].schedulingMetadata).toBeDefined();
+    });
+
+    it('keeps ::: precedence over >: when both could match', () => {
+      const cards = parser.parse('- Abend:::tarde-noche', 'test.md');
+      expect(cards).toHaveLength(1);
+      expect(cards[0].directionality).toBe(Directionality.Bidirectional);
+    });
+
+    it('parses ?? as multiline bidirectional separator', () => {
+      const content = ['Was bedeutet das?', '??', 'pregunta-respuesta'].join('\n');
+      const cards = parser.parse(content, 'test.md');
+      expect(cards).toHaveLength(1);
+      expect(cards[0].directionality).toBe(Directionality.Bidirectional);
+    });
+
+    it('still parses ? as multiline unidirectional', () => {
+      const content = ['Question', '?', 'Answer'].join('\n');
+      const cards = parser.parse(content, 'test.md');
+      expect(cards).toHaveLength(1);
+      expect(cards[0].directionality).toBe(Directionality.Unidirectional);
+    });
+
+    it('mixes :::, >:, and ?? in the same file', () => {
+      const content = [
+        '- Aber:::Pero',
+        '- articulo Abend>:der',
+        '',
+        'Was ist X?',
+        '??',
+        'Y',
+      ].join('\n');
+      const cards = parser.parse(content, 'test.md');
+      expect(cards).toHaveLength(3);
+      expect(cards[0].directionality).toBe(Directionality.Bidirectional);
+      expect(cards[1].directionality).toBe(Directionality.Unidirectional);
+      expect(cards[2].directionality).toBe(Directionality.Bidirectional);
+    });
+  });
 });

@@ -1,5 +1,12 @@
 import { Direction } from '../domain/direction';
 
+export interface SchedulePreviewView {
+  againDays: number;
+  hardDays: number;
+  goodDays: number;
+  easyDays: number;
+}
+
 export interface DueStudyItemView {
   studyItemId: string;
   conceptId: string;
@@ -12,4 +19,6 @@ export interface DueStudyItemView {
   stability: number;
   difficulty: number;
   lastReview: Date | null;
+  /** Optional — populated when the use case has a Scheduler available. */
+  preview?: SchedulePreviewView;
 }

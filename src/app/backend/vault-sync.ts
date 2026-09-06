@@ -6,7 +6,10 @@ import { FrontmatterParser } from '@context/concept/infrastructure/frontmatter-p
 import { Directionality } from '@context/concept/domain/directionality';
 import { Direction } from '@context/study/domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
+import { StudyItemId } from '@context/study/domain/study-item-id';
+import { DeckId } from '@context/deck/domain/deck-id';
 import { SerializedSyncState } from '@context/shared/infrastructure/json-storage';
+import { SyncLogger } from './sync-logger';
 
 /**
  * Tracks which concepts came from which file, so we can
@@ -32,6 +35,7 @@ export class VaultSync {
   private static readonly UNTAGGED_DECK_TAG = '__untagged__';
 
   private batchMode = false;
+  private syncStateDirty = false;
 
   /** Tags the user configured in settings. Empty = allow all. */
   private allowedTags: string[] = [];
@@ -44,8 +48,13 @@ export class VaultSync {
   } | null = null;
 
   private reviewLogRef: MultiDeviceReviewLog | null = null;
+  private logger: SyncLogger | null = null;
 
   constructor(private readonly container: Container) {}
+
+  setLogger(logger: SyncLogger): void {
+    this.logger = logger;
+  }
 
   setReviewLog(reviewLog: MultiDeviceReviewLog): void {
     this.reviewLogRef = reviewLog;
@@ -185,10 +194,21 @@ export class VaultSync {
   async syncFile(filePath: string, content: string): Promise<boolean> {
     const parsedCards = this.container.parser.parse(content, filePath);
     const tags = this.frontmatterParser.extractTags(content);
+    const previousIndex = this.fileIndices.get(filePath);
+
+    this.logger?.info(
+      `syncFile START  file="${filePath}"  parsed=${parsedCards.length}  ` +
+      `tags=[${tags.join(',')}]  previousCards=${previousIndex?.cardKeys.size ?? 0}`,
+    );
 
     // If tag filter is active and note doesn't match, treat as removal
     if (!this.matchesTagFilter(tags)) {
       if (this.fileIndices.has(filePath)) {
+        this.logger?.warn(
+          `syncFile REMOVE-FILE (tags don't match filter) file="${filePath}" ` +
+          `tags=[${tags.join(',')}] allowed=[${this.allowedTags.join(',')}] ` +
+          `cardsAboutToDie=${previousIndex?.cardKeys.size ?? 0}`,
+        );
         await this.removeFile(filePath);
       }
       return false;
@@ -197,12 +217,16 @@ export class VaultSync {
     if (parsedCards.length === 0) {
       // Matching tags but no cards — remove if previously indexed
       if (this.fileIndices.has(filePath)) {
+        this.logger?.warn(
+          `syncFile REMOVE-FILE (parser returned 0 cards) file="${filePath}" ` +
+          `cardsAboutToDie=${previousIndex?.cardKeys.size ?? 0}  ` +
+          `contentLength=${content.length}`,
+        );
         await this.removeFile(filePath);
       }
       return false;
     }
 
-    const previousIndex = this.fileIndices.get(filePath);
     const newIndex: FileIndex = { cardKeys: new Map(), conceptLines: new Map(), studyItemIds: [], deckIds: [] };
 
     const previousKeys = new Set(previousIndex?.cardKeys.keys() ?? []);
@@ -271,6 +295,19 @@ export class VaultSync {
         newIndex.conceptLines.set(conceptId, card.lineNumber);
         newIndex.studyItemIds.push(...studyItemIds);
 
+        // Diagnostic: were there pre-existing reviews for these brand new IDs?
+        // If yes → the same content existed before under another path, the
+        // auto-replay in CreateStudyItem should have restored its state.
+        if (this.reviewLogRef) {
+          for (const siId of studyItemIds) {
+            const prior = await this.reviewLogRef.findByStudyItemId(new StudyItemId(siId));
+            this.logger?.info(
+              `syncFile NEW-CARD  file="${filePath}"  cardKey=${key}  ` +
+              `studyItemId=${siId.slice(0, 8)}  priorReviews=${prior.length}`,
+            );
+          }
+        }
+
         // Assign study items to leaf decks
         for (const deckId of leafDeckIds) {
           for (const siId of studyItemIds) {
@@ -286,11 +323,20 @@ export class VaultSync {
     // Remove cards that no longer exist in the file
     for (const removedKey of previousKeys) {
       const conceptId = previousIndex!.cardKeys.get(removedKey)!;
+      this.logger?.warn(
+        `syncFile REMOVE-CARD  file="${filePath}"  cardKey=${removedKey}  ` +
+        `conceptId=${conceptId.slice(0, 8)}  reason=cardKey-not-in-new-parse`,
+      );
       await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds);
     }
 
     this.fileIndices.set(filePath, newIndex);
     await this.persistState();
+    this.logger?.info(
+      `syncFile DONE  file="${filePath}"  kept=${parsedCards.length - (previousKeys.size === 0 ? parsedCards.length : 0)} ` +
+      `created=${parsedCards.length - (previousIndex?.cardKeys.size ?? parsedCards.length) + previousKeys.size}  ` +
+      `removed=${previousKeys.size}`,
+    );
     return true;
   }
 
@@ -306,6 +352,10 @@ export class VaultSync {
   async removeFile(filePath: string): Promise<void> {
     const index = this.fileIndices.get(filePath);
     if (!index) return;
+
+    this.logger?.warn(
+      `removeFile  file="${filePath}"  conceptsAboutToDie=${index.cardKeys.size}`,
+    );
 
     for (const conceptId of index.cardKeys.values()) {
       await this.removeConceptWithStudyItems(conceptId, index.deckIds);
@@ -334,25 +384,27 @@ export class VaultSync {
           ? VaultSync.UNTAGGED_DECK_TAG
           : parts.slice(0, i + 1).join('/');
 
-        if (!this.tagToDeckId.has(fullTag)) {
-          const deckId = await this.computeDeterministicId(`deck:${fullTag}`);
+        let deckId = this.tagToDeckId.get(fullTag);
+        if (!deckId) {
+          deckId = await this.computeDeterministicId(`deck:${fullTag}`);
           this.tagToDeckId.set(fullTag, deckId);
+        }
 
+        const existingDeck = await this.container.deckRepository.findById(new DeckId(deckId));
+        if (!existingDeck) {
           await this.container.createDeck.execute({
             id: deckId,
             name: parts[i],
-            parentId: null,
+            parentId,
           });
-
-          if (parentId) {
-            await this.container.nestDeck.execute({
-              deckId,
-              parentId,
-            });
-          }
+        } else if (parentId && existingDeck.parentId?.value !== parentId) {
+          await this.container.nestDeck.execute({
+            deckId,
+            parentId,
+          });
         }
 
-        parentId = this.tagToDeckId.get(fullTag)!;
+        parentId = deckId;
       }
 
       // The last segment is the leaf
@@ -465,6 +517,10 @@ export class VaultSync {
   async endBatch(): Promise<void> {
     if (!this.cachedPorts) throw new Error('CachedPorts not set');
     this.batchMode = false;
+    if (this.syncStateDirty) {
+      await this.persistState();
+      this.syncStateDirty = false;
+    }
     await this.cachedPorts.concepts.flush();
     await this.cachedPorts.studyItems.flush();
     await this.cachedPorts.decks.flush();
@@ -472,7 +528,10 @@ export class VaultSync {
   }
 
   private async persistState(): Promise<void> {
-    if (this.batchMode) return;
+    if (this.batchMode) {
+      this.syncStateDirty = true;
+      return;
+    }
     const state: SerializedSyncState = {
       fileIndices: {},
       tagToDeckId: Object.fromEntries(this.tagToDeckId),

@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Container } from '@app/backend/container';
 import { VaultSync } from '@app/backend/vault-sync';
-import { createTestStorageFiles, InMemoryJsonFile } from '../../context/shared/infrastructure/in-memory-json-storage';
-import { StorageFiles } from '@app/backend/container';
+import { CachedJsonFileStorage } from '@app/backend/cached-json-file-storage';
+import { createTestStorageFiles } from '../../context/shared/infrastructure/in-memory-json-storage';
+import { DeckId } from '@context/deck/domain/deck-id';
 
 describe('VaultSync', () => {
   let container: Container;
@@ -147,6 +148,38 @@ tags:
   });
 
   describe('sync state persistence', () => {
+    it('should persist sync state after batch rebuild', async () => {
+      const storageFiles = createTestStorageFiles();
+      const container = new Container(storageFiles);
+      const sync = new VaultSync(container);
+      sync.setCachedPorts({
+        concepts: new CachedJsonFileStorage(storageFiles.concepts),
+        studyItems: new CachedJsonFileStorage(storageFiles.studyItems),
+        decks: new CachedJsonFileStorage(storageFiles.decks),
+        syncState: new CachedJsonFileStorage(storageFiles.syncState),
+      });
+
+      const content = `---
+tags:
+  - German/vocabulary
+---
+- Aber:::Pero`;
+
+      await sync.beginBatch();
+      await sync.syncFile('vocab.md', content);
+      await sync.endBatch();
+
+      const state = await storageFiles.syncState.read<{
+        fileIndices: Record<string, unknown>;
+        tagToDeckId: Record<string, string>;
+      }>();
+
+      expect(state).not.toBeNull();
+      expect(Object.keys(state!.fileIndices)).toEqual(['vocab.md']);
+      expect(state!.tagToDeckId).toHaveProperty('German');
+      expect(state!.tagToDeckId).toHaveProperty('German/vocabulary');
+    });
+
     it('should not duplicate data after simulated restart', async () => {
       const storageFiles = createTestStorageFiles();
       const container1 = new Container(storageFiles);
@@ -300,6 +333,28 @@ tags:
       // Old deck should be empty
       const vocabDeckAfter = decks.find(d => d.name === 'vocabulary')!;
       expect(vocabDeckAfter.studyItemIds).toHaveLength(0);
+    });
+  });
+
+  describe('deck hierarchy repair', () => {
+    it('should recreate a missing parent deck when a child still points to it', async () => {
+      const content = `---
+tags:
+  - German/grammar
+---
+- Aber:::Pero`;
+
+      await sync.syncFile('grammar.md', content);
+
+      const germanId = await sync.computeDeterministicId('deck:German');
+      await container.deckRepository.remove(new DeckId(germanId));
+
+      await sync.syncFile('grammar.md', content);
+
+      const german = await container.deckRepository.findById(new DeckId(germanId));
+      expect(german).not.toBeNull();
+      expect(german!.name).toBe('German');
+      expect(german!.parentId).toBeNull();
     });
   });
 });

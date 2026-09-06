@@ -1,6 +1,8 @@
 import { App } from 'obsidian';
 import { JsonFileStorage, SerializedReview } from '@context/shared/infrastructure/json-storage';
 import { ReviewDeviceStorage } from '@context/study/infrastructure/json-review-log';
+import { BinaryFileStorage } from './voice-api/tts-cache';
+import { TextFileStorage } from './voice-api/llm-rewriter';
 
 const RECALL_DATA_DIR = 'recall-data';
 const DEVICE_ID_PATH = '.obsidian/plugins/obsidian-recall/device-id';
@@ -30,6 +32,56 @@ export function createJsonFileStorage(app: App, filename: string): JsonFileStora
         // dir already exists
       }
       await app.vault.adapter.write(path, JSON.stringify(data));
+    },
+  };
+}
+
+/**
+ * Vault-backed text storage for small cached strings (LLM rewrites, etc.).
+ */
+export function createTextFileStorage(app: App): TextFileStorage {
+  return {
+    async read(path: string): Promise<string | null> {
+      try {
+        return await app.vault.adapter.read(path);
+      } catch {
+        return null;
+      }
+    },
+    async write(path: string, data: string): Promise<void> {
+      const slash = path.lastIndexOf('/');
+      if (slash > 0) {
+        const dir = path.slice(0, slash);
+        try { await app.vault.adapter.mkdir(dir); } catch { /* exists */ }
+      }
+      await app.vault.adapter.write(path, data);
+    },
+  };
+}
+
+/**
+ * Vault-backed binary storage for files like cached TTS audio.
+ * Creates parent directories on write. Returns null on missing read.
+ */
+export function createBinaryFileStorage(app: App): BinaryFileStorage {
+  return {
+    async read(path: string): Promise<Buffer | null> {
+      try {
+        const data = await app.vault.adapter.readBinary(path);
+        return Buffer.from(data);
+      } catch {
+        return null;
+      }
+    },
+
+    async write(path: string, data: Buffer): Promise<void> {
+      const slash = path.lastIndexOf('/');
+      if (slash > 0) {
+        const dir = path.slice(0, slash);
+        try { await app.vault.adapter.mkdir(dir); } catch { /* exists */ }
+      }
+      const ab = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
+      await app.vault.adapter.writeBinary(path, ab);
     },
   };
 }

@@ -14,7 +14,17 @@ export interface ParsedSchedulingMetadata {
 }
 
 const BIDIRECTIONAL_SEPARATOR = ':::';
-const UNIDIRECTIONAL_SEPARATOR = '::';
+/**
+ * Inline unidirectional separators. Multiple variants supported because users
+ * coming from the original "Spaced Repetition" Obsidian plugin may have
+ * customized the separator to ">:" (a common alternative). Both work.
+ * Checked in order — first match wins.
+ */
+const UNIDIRECTIONAL_SEPARATORS = ['::', '>:'];
+/** Multiline separator that produces a bidirectional card (both directions studied). */
+const MULTILINE_BIDIRECTIONAL_MARKER = '??';
+/** Multiline separator that produces a unidirectional card (Q → A only). */
+const MULTILINE_UNIDIRECTIONAL_MARKER = '?';
 const SR_COMMENT_REGEX = /<!--SR:(.*?)-->/;
 const SR_SCHEDULE_REGEX = /!(\d{4}-\d{2}-\d{2}),(\d+),(\d+)/g;
 
@@ -70,9 +80,9 @@ export class MarkdownParser {
       }
 
       // Try multiline card: scan ahead for a `?` separator line
-      const separatorIdx = this.findSeparatorLine(lines, i + 1);
-      if (separatorIdx !== -1) {
-        const result = this.parseMultilineCard(lines, i, separatorIdx);
+      const separatorMatch = this.findSeparatorLine(lines, i + 1);
+      if (separatorMatch) {
+        const result = this.parseMultilineCard(lines, i, separatorMatch.index, separatorMatch.directionality);
         if (result) {
           cards.push(result.card);
           i = result.nextIndex;
@@ -99,6 +109,7 @@ export class MarkdownParser {
     lines: string[],
     questionStart: number,
     separatorIndex: number,
+    directionality: Directionality,
   ): { card: ParsedCard; nextIndex: number } | null {
     // Collect question lines (from questionStart to separatorIndex - 1)
     const questionLines: string[] = [];
@@ -152,7 +163,7 @@ export class MarkdownParser {
       card: {
         sideA,
         sideB,
-        directionality: Directionality.Unidirectional,
+        directionality,
         lineNumber: questionStart + 1,
         schedulingMetadata,
       },
@@ -161,19 +172,27 @@ export class MarkdownParser {
   }
 
   /**
-   * Scan forward from `from` looking for a line that is just `?`.
+   * Scan forward from `from` looking for a line that is exactly `?` or `??`.
+   * `??` indicates a bidirectional multiline card (both directions studied).
    * Stops at empty lines, headings, or code blocks.
-   * Returns the index of the `?` line, or -1 if not found.
    */
-  private findSeparatorLine(lines: string[], from: number): number {
+  private findSeparatorLine(
+    lines: string[],
+    from: number,
+  ): { index: number; directionality: Directionality } | null {
     for (let j = from; j < lines.length; j++) {
       const trimmed = lines[j].trim();
-      if (trimmed === '?') return j;
-      if (trimmed === '') return -1;        // empty line = stop
-      if (trimmed.startsWith('#')) return -1; // heading = stop
-      if (trimmed.startsWith('```')) return -1; // code block = stop
+      if (trimmed === MULTILINE_BIDIRECTIONAL_MARKER) {
+        return { index: j, directionality: Directionality.Bidirectional };
+      }
+      if (trimmed === MULTILINE_UNIDIRECTIONAL_MARKER) {
+        return { index: j, directionality: Directionality.Unidirectional };
+      }
+      if (trimmed === '') return null;
+      if (trimmed.startsWith('#')) return null;
+      if (trimmed.startsWith('```')) return null;
     }
-    return -1;
+    return null;
   }
 
   private parseInlineLine(line: string, lineNumber: number): ParsedCard | null {
@@ -198,10 +217,11 @@ export class MarkdownParser {
       }
     }
 
-    if (content.includes(UNIDIRECTIONAL_SEPARATOR)) {
-      const separatorIndex = content.indexOf(UNIDIRECTIONAL_SEPARATOR);
+    for (const sep of UNIDIRECTIONAL_SEPARATORS) {
+      if (!content.includes(sep)) continue;
+      const separatorIndex = content.indexOf(sep);
       const sideA = content.substring(0, separatorIndex).trim();
-      const sideB = content.substring(separatorIndex + UNIDIRECTIONAL_SEPARATOR.length).trim();
+      const sideB = content.substring(separatorIndex + sep.length).trim();
 
       if (sideA && sideB) {
         return {

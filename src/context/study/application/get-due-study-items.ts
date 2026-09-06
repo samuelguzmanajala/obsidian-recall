@@ -1,13 +1,16 @@
 import { StudyItemRepository } from '../domain/study-item-repository';
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
 import { ReviewLog } from '../domain/review-log';
-import { DueStudyItemView } from './study-item-view';
+import { Scheduler } from '../domain/scheduler';
+import { Rating } from '../domain/rating';
+import { DueStudyItemView, SchedulePreviewView } from './study-item-view';
 
 export class GetDueStudyItems {
   constructor(
     private readonly studyItemRepository: StudyItemRepository,
     private readonly conceptRepository: ConceptRepository,
     private readonly reviewLog: ReviewLog,
+    private readonly scheduler: Scheduler | null = null,
   ) {}
 
   async execute(
@@ -33,11 +36,47 @@ export class GetDueStudyItems {
         stability: item.memoryState.stability,
         difficulty: item.memoryState.difficulty,
         lastReview: item.memoryState.lastReview,
+        preview: this.scheduler ? buildPreview(this.scheduler, item.memoryState, now) : undefined,
       });
     }
 
     const deduped = await this.deduplicateSiblings(views, now);
-    return this.applyLimits(deduped, limits);
+    const adjustedLimits = await this.adjustForIntroducedToday(limits, now);
+    return this.applyLimits(deduped, adjustedLimits);
+  }
+
+  /**
+   * Subtract from `maxNew` the number of study items that had their FIRST
+   * review today. Without this, the cap is enforced only per /due call —
+   * a user doing several sessions a day (or whose buffer refills mid-session)
+   * would be served fresh batches of "new" cards each time, busting the
+   * intended daily ceiling.
+   */
+  private async adjustForIntroducedToday(
+    limits: { maxNew: number; maxReview: number } | undefined,
+    now: Date,
+  ): Promise<{ maxNew: number; maxReview: number } | undefined> {
+    if (!limits || limits.maxNew === 0) return limits;
+
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const all = await this.reviewLog.findAll();
+    const earliestByItem = new Map<string, Date>();
+    for (const r of all) {
+      const cur = earliestByItem.get(r.studyItemId.value);
+      if (!cur || r.timestamp < cur) earliestByItem.set(r.studyItemId.value, r.timestamp);
+    }
+
+    let introducedToday = 0;
+    for (const earliest of earliestByItem.values()) {
+      if (earliest >= startOfDay) introducedToday++;
+    }
+
+    return {
+      maxNew: Math.max(0, limits.maxNew - introducedToday),
+      maxReview: limits.maxReview,
+    };
   }
 
   private applyLimits(
@@ -146,4 +185,17 @@ export class GetDueStudyItems {
 
     return final;
   }
+}
+
+import type { MemoryState } from '../domain/memory-state';
+
+export function buildPreview(scheduler: Scheduler, state: MemoryState, now: Date): SchedulePreviewView {
+  const previews = scheduler.previewAll(state, now);
+  const byRating = (r: Rating) => previews.find((p) => p.rating === r)?.intervalDays ?? 0;
+  return {
+    againDays: byRating(Rating.Again),
+    hardDays: byRating(Rating.Hard),
+    goodDays: byRating(Rating.Good),
+    easyDays: byRating(Rating.Easy),
+  };
 }

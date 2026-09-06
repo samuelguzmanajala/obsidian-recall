@@ -10,6 +10,12 @@ import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from '@app/frontend/constant
 import { RecallSettings, DEFAULT_SETTINGS, RecallSettingTab } from './settings';
 import { Direction } from '@context/study/domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
+import { VoiceApiServer } from './voice-api/voice-api-server';
+import { TtsCache } from './voice-api/tts-cache';
+import { LlmRewriter, REWRITER_SYSTEM_PROMPT } from './voice-api/llm-rewriter';
+import { createBinaryFileStorage, createTextFileStorage } from './obsidian-storage';
+import { obsidianFetch } from './obsidian-fetch';
+import { SyncLogger } from './sync-logger';
 
 export default class RecallPlugin extends Plugin {
   container!: Container;
@@ -25,6 +31,10 @@ export default class RecallPlugin extends Plugin {
   };
   private reviewLogImpl!: MultiDeviceReviewLog;
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private voiceApiServer: VoiceApiServer | null = null;
+  private ttsCache: TtsCache | null = null;
+  private previousVoiceApiKey = '';
+  private previousVoiceTtsKey = '';
   private static readonly DEBOUNCE_MS = 500;
 
   async onload(): Promise<void> {
@@ -54,7 +64,7 @@ export default class RecallPlugin extends Plugin {
       decks: this.cachedPorts.decks,
       reviewLog: this.reviewLogImpl,
       syncState: this.cachedPorts.syncState,
-    });
+    }, obsidianFetch);
     this.container.settings = this.settings;
     this.container.saveSettingsQuiet = async () => {
       await this.saveData(this.settings);
@@ -62,6 +72,7 @@ export default class RecallPlugin extends Plugin {
     this.vaultSync = new VaultSync(this.container);
     this.vaultSync.setCachedPorts(this.cachedPorts);
     this.vaultSync.setReviewLog(this.reviewLogImpl);
+    this.vaultSync.setLogger(new SyncLogger(this.app));
     this.container.vaultSync = this.vaultSync;
 
     // Register views
@@ -118,6 +129,12 @@ export default class RecallPlugin extends Plugin {
 
     // Wait for vault to be ready before loading
     this.app.workspace.onLayoutReady(async () => {
+      // Detach any duplicate views Obsidian may have restored from a saved
+      // layout (occasionally the deck browser ends up registered twice in
+      // the sidebar after a reload). Keep the first leaf, drop the rest.
+      this.detachDuplicateLeaves(VIEW_TYPE_DECK_BROWSER);
+      this.detachDuplicateLeaves(VIEW_TYPE_REVIEW);
+
       const hasData = await this.hasRecallData();
       if (!hasData) {
         // No recall-data/ directory — waiting for Sync or first setup
@@ -167,6 +184,121 @@ export default class RecallPlugin extends Plugin {
         }
       }),
     );
+
+    this.previousVoiceApiKey = this.voiceApiKey();
+    this.previousVoiceTtsKey = this.voiceTtsKey();
+    await this.startVoiceApiIfEnabled();
+  }
+
+  private voiceApiKey(): string {
+    const v = this.settings.voiceApi;
+    return `${v.enabled}|${v.port}|${v.bindAddress}|${v.token}`;
+  }
+
+  private voiceTtsKey(): string {
+    const v = this.settings.voiceTts;
+    return `${v.enabled}|${v.voice}|${v.model}|${v.instructions}|${v.llmPreprocess}|${v.apiKey ? 'set' : ''}`;
+  }
+
+  private buildTtsCache(): TtsCache | null {
+    if (!this.settings.voiceTts.enabled) return null;
+    const storage = createBinaryFileStorage(this.app);
+    const cfg = this.settings.voiceTts;
+    return new TtsCache(
+      storage,
+      this.container.ttsClient,
+      'recall-data/voice-cache',
+      cfg.voice,
+      cfg.model || 'gpt-4o-mini-tts',
+      cfg.instructions || '',
+    );
+  }
+
+  private buildRewriter(): LlmRewriter | null {
+    if (!this.settings.voiceTts.llmPreprocess) return null;
+    if (!this.container.llmClient.isConfigured()) return null;
+    const storage = createTextFileStorage(this.app);
+    return new LlmRewriter(this.container.llmClient, storage);
+  }
+
+  private async startVoiceApiIfEnabled(): Promise<void> {
+    if (!this.settings.voiceApi.enabled) return;
+    if (!this.settings.voiceApi.token) {
+      console.warn('[Recall API] enabled but no token set — server not started.');
+      return;
+    }
+    try {
+      this.ttsCache = this.buildTtsCache();
+      const rewriter = this.buildRewriter();
+      this.voiceApiServer = new VoiceApiServer(this.container, this.settings, {
+        ttsCache: this.ttsCache,
+        rewriter,
+        isTtsConfigured: () =>
+          this.settings.voiceTts.enabled && this.container.ttsClient.isConfigured(),
+      });
+      await this.voiceApiServer.start();
+    } catch (err) {
+      console.error('[Recall API] failed to start:', err);
+      this.voiceApiServer = null;
+    }
+  }
+
+  /**
+   * Sanity-check the configured LLM by running the rewriter prompt against
+   * a sample multilingual card. Returns the rewritten text on success, or
+   * a string starting with "Error:" on failure.
+   */
+  async testLlm(): Promise<{ ok: true; original: string; rewritten: string } | { ok: false; error: string }> {
+    if (!this.container.llmClient.isConfigured()) {
+      return { ok: false, error: 'LLM provider or API key not set in AI Integration.' };
+    }
+    const original = 'neglect (No ___ tu salud)';
+    try {
+      const response = await this.container.llmClient.complete([
+        { role: 'system', content: REWRITER_SYSTEM_PROMPT },
+        { role: 'user', content: original },
+      ]);
+      const rewritten = response.content.trim();
+      if (!rewritten) return { ok: false, error: 'LLM returned an empty response.' };
+      return { ok: true, original, rewritten };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
+  /**
+   * Synthesize a short test phrase. Returns null on success, or a human
+   * readable error message on failure. Used by the "Test TTS" button.
+   */
+  async testTts(): Promise<string | null> {
+    if (!this.container.ttsClient.isConfigured()) {
+      return 'API key not set';
+    }
+    try {
+      const cfg = this.settings.voiceTts;
+      const audio = await this.container.ttsClient.synthesize({
+        text: 'Hola, esto es una prueba de Recall en español, English, und Deutsch.',
+        voice: cfg.voice || 'alloy',
+        model: cfg.model || 'gpt-4o-mini-tts',
+        instructions: cfg.instructions || undefined,
+        format: 'mp3',
+      });
+      return audio.length > 0 ? null : 'empty audio response';
+    } catch (err) {
+      return (err as Error).message;
+    }
+  }
+
+  /** Stop and re-start the voice API server (used by settings UI). */
+  async restartVoiceApi(): Promise<void> {
+    if (this.voiceApiServer) {
+      await this.voiceApiServer.stop();
+      this.voiceApiServer = null;
+    }
+    this.ttsCache = null;
+    await this.startVoiceApiIfEnabled();
+    this.previousVoiceApiKey = this.voiceApiKey();
+    this.previousVoiceTtsKey = this.voiceTtsKey();
   }
 
   async loadSettings(): Promise<void> {
@@ -188,6 +320,18 @@ export default class RecallPlugin extends Plugin {
       await this.vaultSync.resetKeepReviews();
       await this.initialSync();
       await this.container.replayReviews.execute();
+    }
+
+    // Restart voice API if its config OR TTS config changed
+    const newVoiceApiKey = this.voiceApiKey();
+    const newVoiceTtsKey = this.voiceTtsKey();
+    if (
+      newVoiceApiKey !== this.previousVoiceApiKey ||
+      newVoiceTtsKey !== this.previousVoiceTtsKey
+    ) {
+      this.previousVoiceApiKey = newVoiceApiKey;
+      this.previousVoiceTtsKey = newVoiceTtsKey;
+      await this.restartVoiceApi();
     }
 
     // Refresh deck browser if open
@@ -359,6 +503,18 @@ export default class RecallPlugin extends Plugin {
     }
   }
 
+  /**
+   * Drop all but the first leaf of [viewType]. Obsidian sometimes restores
+   * the saved layout with two copies of a single-instance view after a
+   * reload, which leads to duplicated content stacked in the same panel.
+   */
+  private detachDuplicateLeaves(viewType: string): void {
+    const leaves = this.app.workspace.getLeavesOfType(viewType);
+    for (let i = 1; i < leaves.length; i++) {
+      leaves[i].detach();
+    }
+  }
+
   private async activateDeckBrowser(): Promise<void> {
     const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_DECK_BROWSER);
     if (existing.length > 0) {
@@ -386,6 +542,10 @@ export default class RecallPlugin extends Plugin {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    if (this.voiceApiServer) {
+      void this.voiceApiServer.stop();
+      this.voiceApiServer = null;
+    }
   }
 
   private async initialSync(): Promise<void> {
@@ -395,8 +555,8 @@ export default class RecallPlugin extends Plugin {
       try {
         const content = await this.app.vault.cachedRead(file);
         await this.vaultSync.syncFile(file.path, content);
-      } catch {
-        // Skip files that fail to sync
+      } catch (err) {
+        console.error('[Recall] initial sync failed for file:', file.path, err);
       }
     }
     await this.vaultSync.endBatch();

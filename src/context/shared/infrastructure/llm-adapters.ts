@@ -38,12 +38,20 @@ const PROVIDERS: Record<string, ProviderConfig> = {
     extractContent: (json) => json.choices?.[0]?.message?.content ?? '',
     extractTokens: (json) => json.usage?.total_tokens,
   },
+  deepseek: {
+    baseUrl: 'https://api.deepseek.com/chat/completions',
+    defaultModel: 'deepseek-chat',
+    authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
+    extractContent: (json) => json.choices?.[0]?.message?.content ?? '',
+    extractTokens: (json) => json.usage?.total_tokens,
+  },
 };
 
 export class HttpLlmClient implements LlmClient {
   constructor(
     private readonly getProvider: () => string,
     private readonly getApiKey: () => string,
+    private readonly getModel: () => string = () => '',
   ) {}
 
   isConfigured(): boolean {
@@ -61,10 +69,11 @@ export class HttpLlmClient implements LlmClient {
     }
 
     const config = PROVIDERS[provider];
+    const model = this.getModel().trim() || config.defaultModel;
 
     const body = provider === 'anthropic'
-      ? this.buildAnthropicBody(messages, config.defaultModel)
-      : this.buildOpenAiBody(messages, config.defaultModel);
+      ? this.buildAnthropicBody(messages, model)
+      : this.buildOpenAiBody(messages, model);
 
     const response = await fetch(config.baseUrl, {
       method: 'POST',

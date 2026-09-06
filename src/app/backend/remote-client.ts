@@ -8,6 +8,8 @@ export class RemoteError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 export interface RemoteNote { path: string; revision: number; deleted: boolean; hash: string | null }
+export type PendingReview = { studyItemId: string; operationId: string; expectedRevision: number; rating: ReviewStudyItemCommand['rating'] };
+export interface ReviewJournal { load(): PendingReview[]; save(commands: PendingReview[]): void }
 type WireItem = Omit<DueStudyItemView, 'due' | 'lastReview'> & {
   due: string; lastReview: string | null; revision: number;
   source: { filePath: string; line: number } | null;
@@ -16,9 +18,11 @@ export class RemoteClient implements StudyClient {
   readonly remote = true;
   saveSettingsQuiet: (() => Promise<void>) | null = null;
   private revisions = new Map<string, number>();
-  private pending = new Map<string, { studyItemId: string; operationId: string; expectedRevision: number; rating: ReviewStudyItemCommand['rating'] }>();
+  private pending = new Map<string, PendingReview>();
   private sources = new Map<string, { filePath: string; line: number }>();
   private listeners = new Set<() => void>();
+  private closed = false;
+  close(): void { this.closed = true; this.listeners.clear(); }
   onChange = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
@@ -32,8 +36,19 @@ export class RemoteClient implements StudyClient {
   retryPendingReviews = async (): Promise<void> => {
     for (const command of [...this.pending.values()]) await this.reviewStudyItem.execute(command);
   };
-  constructor(public settings: RecallSettings, private transport: typeof fetch = fetch) {}
+  constructor(public settings: RecallSettings, private transport: typeof fetch = fetch, private journal?: ReviewJournal) {
+    for (const command of journal?.load() ?? []) {
+      if (!command.operationId || !command.studyItemId || !Number.isInteger(command.expectedRevision)
+        || !['again', 'hard', 'good', 'easy'].includes(command.rating)) throw new Error('Invalid pending review journal; restore it before continuing');
+      this.pending.set(`${command.studyItemId}:${command.expectedRevision}`, command);
+    }
+  }
+  private savePending(): void {
+    if (this.closed) throw new Error('Recall client closed; journal retained for recovery');
+    this.journal?.save([...this.pending.values()]);
+  }
   async request<T>(path: string, body?: unknown): Promise<T> {
+    if (this.closed) throw new Error('Recall client closed; pending operations will resume on reload');
     const config = this.settings.backend;
     if (!config?.url || !config.token) throw new Error('Configure the Recall backend URL and token');
     const base = config.url.replace(/\/+$/, '');
@@ -55,6 +70,7 @@ export class RemoteClient implements StudyClient {
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       }), timedOut]);
       const result = await Promise.race([response.json(), timedOut]);
+      if (this.closed) throw new Error('Recall client closed; acknowledgement retained for recovery');
       if (!response.ok) throw new RemoteError(response.status, result.error ?? `HTTP ${response.status}`);
       return result as T;
     } finally { clearTimeout(timeout!); }
@@ -92,15 +108,18 @@ export class RemoteClient implements StudyClient {
       this.pending.set(pendingKey, pending);
     }
     // If an acknowledgement was lost, retry the SAME decision, not a new rating.
+    this.savePending(); // Storage failure must prevent sending an unjournaled command.
     const result = await this.request<{ applied: number; errors: { reason: string; status: number }[] }>('/reviews', {
       reviews: [pending],
     });
     if (result.errors.length) {
       this.pending.delete(pendingKey);
+      this.savePending();
       throw new RemoteError(result.errors[0].status, result.errors[0].reason);
     }
     if (result.applied !== 1) throw new Error('Backend did not acknowledge the review');
     this.pending.delete(pendingKey);
+    this.savePending();
     this.notifyChanged();
   } };
   // Remote refresh uses a new server queue, never client-side domain reconstruction.

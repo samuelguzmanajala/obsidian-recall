@@ -78,11 +78,14 @@ fun DeckBrowserScreen(
   api: RecallApi,
   onOpenSettings: () -> Unit,
   onStartSession: (deckId: String?) -> Unit,
+  recoverReviews: suspend () -> Unit = {},
+  rejectedReviewCount: () -> Int = { 0 },
 ) {
   var loading by remember { mutableStateOf(true) }
   var error by remember { mutableStateOf<String?>(null) }
   var decks by remember { mutableStateOf<List<DeckTreeNode>>(emptyList()) }
   var refreshTick by remember { mutableStateOf(0) }
+  var rejected by remember { mutableStateOf(0) }
 
   // Collapse state — tracks which deck IDs are currently collapsed.
   // First time we see a deck with children, we add it to `collapsed` so the
@@ -96,6 +99,7 @@ fun DeckBrowserScreen(
       while (true) {
         loading = decks.isEmpty()
         try {
+          recoverReviews()
           val updated = api.getDecks()
           decks = updated
           error = null
@@ -105,7 +109,7 @@ fun DeckBrowserScreen(
           seen.value = seen.value + allCollapsibles
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) { error = failure.message ?: "Network error" }
-        finally { loading = false }
+        finally { loading = false; rejected = runCatching { rejectedReviewCount() }.getOrDefault(rejected) }
         delay(10_000)
       }
     }
@@ -116,6 +120,7 @@ fun DeckBrowserScreen(
       onOpenSettings = onOpenSettings,
       onRefresh = { refreshTick++ },
     )
+    if (rejected > 0) Text("$rejected repasos rechazados por el servidor, no aplicados. Sus decisiones se conservan en el registro local.", modifier = Modifier.padding(16.dp))
     if (error != null && decks.isNotEmpty()) {
       Text("Sin conexión: los datos pueden estar desactualizados. Usa Refresh para reintentar.",
         modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)

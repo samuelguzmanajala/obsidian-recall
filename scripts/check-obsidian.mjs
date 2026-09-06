@@ -4,6 +4,7 @@ const targets = await (await fetch('http://127.0.0.1:9223/json/list')).json();
 const target = targets.find(t => t.type === 'page' && t.url === 'app://obsidian.md/index.html');
 if (!target) throw new Error('Obsidian page not found');
 const expressions = {
+  recovery: `(await new Promise(r=>setTimeout(r,3000)), await app.commands.commands['obsidian-recall:retry-pending'].callback(), {pendingNotes:p.remoteSync.pendingCount,conflict:p.remoteSync.conflictPath,pendingReviews:p.remoteClient.hasPendingReview(),knownNotes:p.remoteSync.knownPaths.length,resolveCommand:!!app.commands.commands['obsidian-recall:resolve-note-conflict'],status:[...document.querySelectorAll('.status-bar-item')].map(e=>e.textContent).filter(t=>t.startsWith('Recall:')),stats:await p.remoteClient.getStudyStats.execute()})`,
   inspect: `({remote:p.isRemoteMode(), localContainerAbsent:!p.container, localVaultSyncAbsent:!p.vaultSync, publisher:!!p.remoteSync, notes:app.vault.getMarkdownFiles().length, command:!!app.commands.commands['obsidian-recall:publish-notes'], stats:await p.remoteClient.getStudyStats.execute()})`,
   publish: `(await app.commands.commands['obsidian-recall:publish-notes'].callback(), {published:true,notes:app.vault.getMarkdownFiles().length,stats:await p.remoteClient.getStudyStats.execute()})`,
   view: `(await app.commands.commands['obsidian-recall:open-deck-browser'].callback(), {opened:true})`,

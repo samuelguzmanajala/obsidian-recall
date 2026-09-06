@@ -37,6 +37,100 @@ async function serve(service: RecallService, audio?: ServerAudio) {
 }
 
 describe('standalone backend', () => {
+  it('keeps an explicit deletion durable until acknowledgement', async () => {
+    const service = setup(); const { client } = await serve(service);
+    let state: any = {}; let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    const persist = (next: any) => { state = structuredClone(next); };
+    const sync = new RemoteNoteSync(client, state, persist, journal);
+    await sync.publish('Removed.md', 'Q::A');
+    sync.stageDelete('Removed.md'); sync.close();
+    expect(stored).toHaveLength(1);
+    await new RemoteNoteSync(client, state, persist, journal).retry();
+    expect((await service.notes()).notes[0].deleted).toBe(true);
+    expect(stored).toHaveLength(0);
+  });
+  it('does not clear a durable review after its client was unloaded mid-request', async () => {
+    const service = setup(); await seed(service); const { client: original } = await serve(service);
+    let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    let release!: () => void; let started!: () => void;
+    const arrived = new Promise<void>(r => { started = r; });
+    const gate = new Promise<void>(r => { release = r; });
+    const client = new RemoteClient(original.settings, async (...args) => {
+      const result = await fetch(...args); started(); await gate; return result;
+    }, journal);
+    const [item] = await original.getDueStudyItems.execute();
+    const sending = expect(client.reviewStudyItem.execute({ studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision })).rejects.toThrow('closed');
+    await arrived; client.close(); release(); await sending;
+    expect(stored).toHaveLength(1);
+    await new RemoteClient(original.settings, fetch, journal).retryPendingReviews();
+    expect(await service.query(c => c.reviewLog.findAll())).toHaveLength(1);
+  });
+  it('recovers a review across client reconstruction with the original operation ID', async () => {
+    const service = setup(); await seed(service);
+    const { client: original } = await serve(service);
+    let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    const lost: typeof fetch = async (...args) => { await fetch(...args); throw new Error('Lost receipt'); };
+    const client = new RemoteClient(original.settings, lost, journal);
+    const [item] = await original.getDueStudyItems.execute();
+    await expect(client.reviewStudyItem.execute({ studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision })).rejects.toThrow();
+    expect(stored).toHaveLength(1);
+    await new RemoteClient(original.settings, fetch, journal).retryPendingReviews();
+    expect(stored).toHaveLength(0);
+    expect(await service.query(c => c.reviewLog.findAll())).toHaveLength(1);
+  });
+  it('does not send a review when its journal cannot be saved', async () => {
+    const service = setup(); await seed(service); const { client: original } = await serve(service);
+    const client = new RemoteClient(original.settings, fetch, { load: () => [], save: () => { throw new Error('Disk full'); } });
+    const [item] = await original.getDueStudyItems.execute();
+    await expect(client.reviewStudyItem.execute({ studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision })).rejects.toThrow('Disk full');
+    expect(await service.query(c => c.reviewLog.findAll())).toHaveLength(0);
+  });
+  it('recovers a rename receipt after client restart without renaming twice', async () => {
+    const service = setup(); const { client } = await serve(service);
+    let state: any = {}; let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    const persist = (next: any) => { state = structuredClone(next); };
+    const sync = new RemoteNoteSync(client, state, persist, journal);
+    await sync.publish('Old.md', 'Q::A');
+    const proxy = client as unknown as { transport: typeof fetch }; const original = proxy.transport;
+    proxy.transport = async (...args) => { const result = await original(...args); if (String(args[0]).endsWith('/notes/rename')) throw new Error('Lost rename receipt'); return result; };
+    await expect(sync.rename('Old.md', 'New.md')).rejects.toThrow();
+    proxy.transport = original;
+    await new RemoteNoteSync(client, state, persist, journal).retry();
+    expect(stored).toHaveLength(0);
+    expect((await service.notes()).notes.filter(note => !note.deleted).map(note => note.path)).toEqual(['New.md']);
+  });
+  it('recovers the latest note edits after an offline restart', async () => {
+    const service = setup(); const { client } = await serve(service);
+    let state: any = {}; let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    const persist = (next: any) => { state = structuredClone(next); };
+    const sync = new RemoteNoteSync(client, state, persist, journal);
+    await sync.publish('Test.md', 'Q::Before');
+    const proxy = client as unknown as { transport: typeof fetch }; const original = proxy.transport;
+    proxy.transport = async () => { throw new Error('Offline'); };
+    await expect(sync.publish('Test.md', 'Q::First edit')).rejects.toThrow();
+    await sync.stageCurrent('Test.md', 'Q::Latest edit');
+    proxy.transport = original;
+    await new RemoteNoteSync(client, state, persist, journal).retry();
+    expect(stored).toHaveLength(0);
+    expect((await service.due()).items[0].sideB).toBe('Latest edit');
+  });
+  it('requires an explicit decision to replace a conflicting remote note', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('Test.md', 'Q::Initial');
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Other device', expectedRevision: 1 });
+    await expect(sync.publish('Test.md', 'Q::Local edit')).rejects.toMatchObject({ status: 409 });
+    expect(sync.pendingCount).toBe(1);
+    expect((await service.due()).items[0].sideB).toBe('Other device');
+    await sync.resolveWithLocal('Q::Explicit choice');
+    expect((await service.due()).items[0].sideB).toBe('Explicit choice');
+    expect(sync.pendingCount).toBe(0);
+  });
   it('runs the real Obsidian HTTP client without Obsidian or vault storage', async () => {
     const service = setup();
     await seed(service);

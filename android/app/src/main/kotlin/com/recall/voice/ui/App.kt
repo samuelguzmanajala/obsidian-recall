@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.recall.voice.api.RecallApi
 import com.recall.voice.session.SessionViewModel
+import com.recall.voice.session.ReviewOutbox
 import com.recall.voice.settings.AppConfig
 import com.recall.voice.settings.AppSettings
 import com.recall.voice.voice.RemoteAudioPlayer
@@ -62,8 +63,11 @@ fun App() {
   when (val r = route) {
     Route.Home -> {
       val api = remember(config.baseUrl, config.token) { RecallApi(config.baseUrl, config.token) }
+      val outbox = remember(config.baseUrl) { ReviewOutbox(context.filesDir, config.baseUrl) }
       DeckBrowserScreen(
         api = api,
+        recoverReviews = { outbox.recover(api::postReviews) },
+        rejectedReviewCount = outbox::rejectedCount,
         onOpenSettings = { route = Route.Settings },
         onStartSession = { deckId ->
           if (micGranted) route = Route.Session(deckId)
@@ -104,9 +108,9 @@ private fun SessionRoute(config: AppConfig, deckId: String?, onExit: () -> Unit)
       tts = tts,
       stt = stt,
       locale = Locale.forLanguageTag(config.locale.ifBlank { "es-ES" }),
-      defaultRatingOnTimeout = config.defaultRatingOnTimeout,
       remotePlayer = remote,
       deckId = deckId,
+      outbox = ReviewOutbox(context.filesDir, config.baseUrl),
     )
   }
   DisposableEffect(vm) {
@@ -119,6 +123,7 @@ private fun SessionRoute(config: AppConfig, deckId: String?, onExit: () -> Unit)
     state = state,
     onManualRating = vm::submitManual,
     onSkipToAnswer = vm::skipToAnswerNow,
+    onResumeVoice = vm::resumeVoice,
     onExit = { vm.stop(); onExit() },
   )
 }

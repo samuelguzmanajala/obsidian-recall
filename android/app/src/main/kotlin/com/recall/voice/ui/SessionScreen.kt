@@ -35,14 +35,18 @@ fun SessionScreen(
   onManualRating: (Rating) -> Unit,
   onSkipToAnswer: () -> Unit,
   onExit: () -> Unit,
+  onResumeVoice: () -> Unit = {},
 ) {
-  KeepScreenOn(active = state !is SessionState.Idle && state !is SessionState.Done && state !is SessionState.Error)
+  KeepScreenOn(active = state !is SessionState.Idle && state !is SessionState.Done && state !is SessionState.Error && state !is SessionState.AwaitingConfirmation)
 
   Column(
     modifier = Modifier.fillMaxSize().padding(20.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Header(state = state, onExit = onExit)
+    if (state is SessionState.AwaitingConfirmation) {
+      Button(onClick = onResumeVoice) { Text("Reanudar escucha") }
+    }
 
     Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
       when (state) {
@@ -57,6 +61,7 @@ fun SessionScreen(
     val item = state.currentItem
     val canSkipToAnswer = state is SessionState.ReadingQuestion || state is SessionState.ListeningReveal
     val canRate = state is SessionState.ReadingAnswer ||
+      state is SessionState.AwaitingConfirmation ||
       state is SessionState.ListeningRating ||
       state is SessionState.Submitting
 
@@ -108,6 +113,7 @@ private fun Header(state: SessionState, onExit: () -> Unit) {
 private fun CardArea(state: SessionState) {
   val item: DueItem = state.currentItem ?: return
   val showAnswer = state is SessionState.ReadingAnswer ||
+    state is SessionState.AwaitingConfirmation ||
     state is SessionState.ListeningRating ||
     state is SessionState.Submitting
 
@@ -194,6 +200,7 @@ private fun progress(state: SessionState): Pair<Int, Int> = when (state) {
   is SessionState.ListeningReveal -> state.index to state.total
   is SessionState.ReadingAnswer -> state.index to state.total
   is SessionState.ListeningRating -> state.index to state.total
+  is SessionState.AwaitingConfirmation -> state.index to state.total
   is SessionState.Submitting -> state.index to state.total
   else -> 0 to 0
 }
@@ -205,6 +212,7 @@ private fun stateLabel(state: SessionState): String = when (state) {
   is SessionState.ListeningReveal -> "🎤 Habla para ver respuesta"
   is SessionState.ReadingAnswer -> "📢 Respuesta"
   is SessionState.ListeningRating -> "🎤 ¿1, 2, 3 o 4?"
+  is SessionState.AwaitingConfirmation -> "En pausa: elige una valoracion. Nada se ha enviado."
   is SessionState.Submitting -> "Enviando…"
   is SessionState.Done -> "Hecho"
   is SessionState.Error -> "Error"

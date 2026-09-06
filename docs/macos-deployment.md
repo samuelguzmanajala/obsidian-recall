@@ -126,16 +126,54 @@ otra copia de los datos privados y el APK en su propia carpeta fechada.
   si no han cambiado; retira las ya repasadas o invalidadas y oculta respuestas modificadas.
 - Las peticiones de refresco se agrupan; respuestas anteriores a una valoracion o al cierre
   de la vista se descartan. Una respuesta HTTP perdida se reconcilia con el mismo ID de
-  operacion mientras el cliente siga abierto, sin duplicar la valoracion.
+  operacion, tambien tras cerrar y volver a abrir el cliente, sin duplicar la valoracion.
 - Android actualiza mazos cada 10 segundos en primer plano y al volver a la app. Tras
   cada repaso confirmado reconstruye la cola con el backend, retirando tarjetas hermanas.
-- Los fallos de conexion son visibles. Sigue siendo un sistema de estudio online: no hay
-  una cola duradera de operaciones offline, ni actualizacion instantanea por WebSocket.
+- Los fallos de conexion son visibles. Hay diarios duraderos de publicaciones y valoraciones
+  pendientes, pero no descarga completa de mazos para estudiar offline ni WebSocket.
 
-Verificacion: 221 pruebas TypeScript y 18 Android; compilaciones de ambos clientes.
+Verificacion del refresco: 221 pruebas TypeScript y 18 Android; compilaciones de ambos clientes.
 En Obsidian real se observo una consulta automatica, DOM intacto sin cambios y conservacion
 de tarjeta/respuesta al refrescar. No se introdujeron repasos para hacer estas pruebas.
 Respaldo del plugin anterior al cambio: `backups/plugin-refresh-2026-09-06T12-05-32-131Z`.
+
+## Recuperacion de interrupciones
+
+Actualizacion posterior: 228 pruebas TypeScript y 25 Android.
+
+- Obsidian guarda los diarios por vault y URL del backend en almacenamiento local del
+  dispositivo (`recall-pending-notes` y `recall-pending-reviews`). No forman parte de Sync
+  ni del `data.json` del plugin. Contienen contenido pendiente de notas, pero no tokens.
+  No borres el perfil local de Obsidian si hay operaciones por confirmar.
+- Android guarda `pending-reviews-<hash-backend>.json` en los archivos privados de la app.
+  El instalador respalda estos archivos. Un fallo de escritura impide enviar la valoracion.
+- El ID y el contenido de cada operacion enviada se conservan al reintentar. Si el servidor
+  ya la habia guardado, devuelve el resultado anterior sin aplicar un segundo repaso.
+- Obsidian revisa las notas al arrancar y recupera pendientes cada 30 segundos, al recuperar
+  conexion/foco y con `Recall: Retry pending notes and reviews`.
+- Los renombrados y borrados observados se registran explicitamente. Una ausencia detectada
+  al arrancar NO se convierte en borrado automatico: podria faltar sincronizacion del vault.
+- Un conflicto detiene la cola de publicaciones. La barra de estado indica pendientes y
+  su detalle. `Recall: Resolve note conflict using this vault version` pide confirmacion
+  antes de publicar la version local. Si la version remota es la correcta, cancela y
+  reconcilia las notas primero. Conflictos de rutas requieren reconciliacion manual.
+- Android recupera valoraciones antes de cargar mazos o empezar una sesion. Los rechazos
+  definitivos se archivan en `rejected-reviews-<hash-backend>.json`, no se fuerzan con una
+  revision nueva y quedan senalados en la pantalla de mazos.
+- El silencio o un reconocimiento fallido ya NO producen Again/Good por defecto. Tras
+  agotar la escucha de valoracion, queda en pausa. Puedes pulsar una valoracion o
+  `Reanudar escucha`; salir sin valorar no registra un repaso.
+
+Pruebas nuevas: reconstruccion de clientes con respuestas perdidas, fallo de almacenamiento,
+borrado y renombrado pendientes, ediciones offline, conflicto entre dispositivos, cierre
+con peticion en curso, separacion de servidores, diario corrupto y silencio sin valoracion.
+Las pruebas que escriben repasos utilizan bases temporales, no la base personal.
+
+Copias previas de esta fase, dentro de Recall Backend:
+
+- `backups/recall-2026-09-06T12-14-16-418Z.sqlite` (14.602 eventos; integridad verificada).
+- `backups/plugin-refresh-2026-09-06T12-26-50-354Z`.
+- `backups/android-2026-09-06T12-26-50-463Z`.
 
 ## Actualizaciones
 

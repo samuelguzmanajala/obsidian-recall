@@ -1,4 +1,4 @@
-import { Plugin, TFile, WorkspaceLeaf, Notice } from 'obsidian';
+import { Plugin, TFile, WorkspaceLeaf, Notice, Modal } from 'obsidian';
 import { RemoteClient } from './remote-client';
 import { RemoteNoteSync } from './remote-note-sync';
 import { Container } from './container';
@@ -44,7 +44,12 @@ export default class RecallPlugin extends Plugin {
 
   private async loadRemote(): Promise<void> {
     // Capture connection settings until reload so a pending command cannot switch servers.
-    const client = new RemoteClient(structuredClone(this.settings), obsidianFetch);
+    const scope = `${this.app.vault.getName()}:${this.settings.backend!.url}`;
+    const reviewKey = `recall-pending-reviews:${scope}`;
+    const client = new RemoteClient(structuredClone(this.settings), obsidianFetch, {
+      load: () => JSON.parse(localStorage.getItem(reviewKey) ?? '[]'),
+      save: commands => localStorage.setItem(reviewKey, JSON.stringify(commands)),
+    });
     this.remoteClient = client;
     client.saveSettingsQuiet = async () => {
       this.settings.expandedDeckIds = client.settings.expandedDeckIds;
@@ -56,12 +61,59 @@ export default class RecallPlugin extends Plugin {
     this.addCommand({ id: 'open-deck-browser', name: 'Open deck browser', callback: () => this.activateDeckBrowser() });
     this.addCommand({ id: 'start-review', name: 'Start review', callback: () => this.openReview() });
     this.addSettingTab(new RecallSettingTab(this.app, this));
+    const status = this.addStatusBarItem();
+    let recovering: Promise<void> | null = null;
+    let disposed = false;
+    const recover = (): Promise<void> => {
+      if (disposed) return Promise.resolve();
+      if (recovering) return recovering;
+      recovering = (async () => {
+        const results = await Promise.allSettled([
+          client.retryPendingReviews(), this.remoteSync?.retry() ?? Promise.resolve(),
+        ]);
+        if (disposed) return;
+        const failure = results.find(r => r.status === 'rejected');
+        const pending = this.remoteSync?.pendingCount ?? 0;
+        status.setText(failure ? `Recall: pendiente de sincronizar (${pending} notas)` : 'Recall: sin operaciones pendientes');
+        status.setAttribute('title', failure?.status === 'rejected' ? String(failure.reason.message) : `Ultima revision de pendientes: ${new Date().toLocaleTimeString()}`);
+        if (!failure) client.notifyChanged();
+      })().finally(() => { recovering = null; });
+      return recovering;
+    };
+    this.registerInterval(window.setInterval(() => void recover(), 30_000));
+    this.registerDomEvent(window, 'online', () => void recover());
+    this.registerDomEvent(window, 'focus', () => void recover());
+    this.register(() => { disposed = true; this.remoteSync?.close(); client.close(); });
+    this.addCommand({ id: 'retry-pending', name: 'Retry pending notes and reviews', callback: () => recover() });
+    void recover();
     if (!client.settings.backend?.syncNotes) return;
 
     const key = `recall-note-cursors:${this.app.vault.getName()}:${client.settings.backend.url}`;
     let state = {};
     try { state = JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { /* first run */ }
-    this.remoteSync = new RemoteNoteSync(client, state, value => localStorage.setItem(key, JSON.stringify(value)));
+    const journalKey = `recall-pending-notes:${scope}`;
+    this.remoteSync = new RemoteNoteSync(client, state, value => localStorage.setItem(key, JSON.stringify(value)), {
+      load: () => JSON.parse(localStorage.getItem(journalKey) ?? '[]'),
+      save: jobs => localStorage.setItem(journalKey, JSON.stringify(jobs)),
+    });
+    this.addCommand({ id: 'resolve-note-conflict', name: 'Resolve note conflict using this vault version', callback: () => {
+      const path = this.remoteSync?.conflictPath;
+      if (!path) { new Notice('Recall: no hay un conflicto de contenido detectado. Reintenta la sincronizacion primero.'); return; }
+      const dialog = new Modal(this.app);
+      dialog.contentEl.createEl('h3', { text: 'Resolver conflicto de Recall' });
+      dialog.contentEl.createEl('p', { text: `Publicar la version actual de ${path} sustituira su version en el backend. No modifica la nota del vault. Si el cambio remoto es el correcto, cancela y reconcilia primero las notas.` });
+      dialog.contentEl.createEl('button', { text: 'Cancelar' }).onclick = () => dialog.close();
+      dialog.contentEl.createEl('button', { text: 'Publicar version local' }).onclick = async () => {
+        dialog.close();
+        try {
+          const file = this.app.vault.getAbstractFileByPath(path);
+          if (!(file instanceof TFile)) throw new Error('La nota local no esta disponible');
+          await this.remoteSync!.resolveWithLocal(await this.app.vault.read(file));
+          await recover();
+        } catch (error) { new Notice(`Recall: ${(error as Error).message}`, 15000); }
+      };
+      dialog.open();
+    } });
     // Serialize file reads with rename/delete events, not just their HTTP requests.
     let publicationTail = Promise.resolve();
     let notificationTimer: ReturnType<typeof setTimeout> | undefined;
@@ -87,22 +139,41 @@ export default class RecallPlugin extends Plugin {
     this.registerEvent(this.app.vault.on('delete', file => {
       if (file instanceof TFile && file.extension === 'md') {
         const path = file.path;
-        void enqueue(() => this.remoteSync!.publish(path, null));
+        this.remoteSync!.stageDelete(path);
+        void enqueue(() => this.remoteSync!.retry());
       }
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-      if (file instanceof TFile && file.extension === 'md') {
+      if (file instanceof TFile && oldPath.endsWith('.md') && file.extension !== 'md') {
+        this.remoteSync!.stageDelete(oldPath);
+        void enqueue(() => this.remoteSync!.retry());
+      } else if (file instanceof TFile && file.extension === 'md' && !oldPath.endsWith('.md')) {
+        void publish(file);
+      } else if (file instanceof TFile && file.extension === 'md') {
         const path = file.path;
+        this.remoteSync!.stageRename(oldPath, path);
         void enqueue(async () => {
-          await this.remoteSync!.rename(oldPath, path);
+          await this.remoteSync!.retry();
           await publishNow(file, path);
         });
       }
     }));
     this.addCommand({ id: 'publish-notes', name: 'Publish notes to backend', callback: async () => {
-      for (const file of this.app.vault.getMarkdownFiles()) await publish(file);
-      new Notice('Recall: publishing finished. Any conflicts were reported; no local notes were modified.');
+      await reconcile();
     } });
+    const reconcile = () => enqueue(async () => {
+      const files = this.app.vault.getMarkdownFiles();
+      for (const file of files) {
+        const path = file.path;
+        const content = await this.app.vault.read(file);
+        if (path === file.path) await this.remoteSync!.stageCurrent(path, content);
+      }
+      const localPaths = new Set(files.map(file => file.path));
+      const missing = this.remoteSync!.knownPaths.filter(path => !localPaths.has(path));
+      if (missing.length) new Notice(`Recall: ${missing.length} notas conocidas no estan presentes. No se han borrado sus tarjetas; revisa la sincronizacion del vault.`, 15000);
+      await recover();
+    });
+    this.app.workspace.onLayoutReady(() => { if (!disposed) void reconcile(); });
   }
 
   async onload(): Promise<void> {

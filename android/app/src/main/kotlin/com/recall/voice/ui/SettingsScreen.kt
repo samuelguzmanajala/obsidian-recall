@@ -110,14 +110,7 @@ fun SettingsScreen(
       FilterChip(selected = locale == "en-US", onClick = { hasEdited = true; locale = "en-US" }, label = { Text("English") })
     }
 
-    Text(
-      "Rating por defecto si STT no entiende",
-      style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      FilterChip(selected = defaultRating == Rating.Again, onClick = { hasEdited = true; defaultRating = Rating.Again }, label = { Text("Again") })
-      FilterChip(selected = defaultRating == Rating.Good, onClick = { hasEdited = true; defaultRating = Rating.Good }, label = { Text("Good") })
-    }
+    Text("Si no se reconoce una valoracion, la sesion se pausa sin enviar nada. Puedes reanudar la escucha o elegir una valoracion.")
 
     Text(
       "TTS de la nube (multilingüe)",

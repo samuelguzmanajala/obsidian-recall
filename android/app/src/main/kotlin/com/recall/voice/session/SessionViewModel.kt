@@ -44,9 +44,9 @@ class SessionViewModel(
   private val tts: TtsEngine,
   private val stt: SttEngine,
   private val locale: Locale,
-  private val defaultRatingOnTimeout: Rating,
   private val remotePlayer: RemoteAudioPlayer? = null,
   private val deckId: String? = null,
+  private val outbox: ReviewOutbox? = null,
 ) : ViewModel() {
 
   private val _state = MutableStateFlow<SessionState>(SessionState.Idle)
@@ -57,6 +57,8 @@ class SessionViewModel(
   private var manualRating: CompletableDeferred<Rating>? = null
   /** Active during Q-reading + reveal-listen. Tap "show answer" to skip ahead. */
   private var skipToAnswer: CompletableDeferred<Unit>? = null
+  private var resumeListening: CompletableDeferred<Unit>? = null
+  fun resumeVoice() { resumeListening?.complete(Unit) }
   private val prefetched = mutableSetOf<String>()
 
   fun start() {
@@ -106,6 +108,7 @@ class SessionViewModel(
       prefetched.clear()
 
       _state.value = SessionState.Fetching
+      outbox?.recover(api::postReviews)
       val buffer = api.getDue(deckId = deckId, limit = FETCH_BATCH).toMutableList()
       if (buffer.isEmpty()) {
         _state.value = SessionState.Done(totalReviewed = 0)
@@ -133,9 +136,12 @@ class SessionViewModel(
         var acknowledged = false
         for (attempt in 0..2) {
           try {
-            val result = api.postReviews(listOf(command))
-            if (result.errors.isNotEmpty()) throw IllegalStateException(result.errors.first().reason)
-            check(result.applied == 1) { "Backend did not acknowledge the review" }
+            if (outbox != null) outbox.send(command, api::postReviews)
+            else {
+              val result = api.postReviews(listOf(command))
+              if (result.errors.isNotEmpty()) throw IllegalStateException(result.errors.first().reason)
+              check(result.applied == 1) { "Backend did not acknowledge the review" }
+            }
             acknowledged = true
             break
           } catch (e: java.io.IOException) {
@@ -199,8 +205,19 @@ class SessionViewModel(
         _state.value = SessionState.ReadingAnswer(item, index, total)
         speak(item, AudioSide.Answer, item.voiceAnswer)
         _state.value = SessionState.ListeningRating(item, index, total)
-        val r = listenForRatingViaStt() ?: defaultRatingOnTimeout
-        if (!ratingDeferred.isCompleted) ratingDeferred.complete(r)
+        val result = awaitVoiceDecision(
+          listen = {
+            _state.value = SessionState.ListeningRating(item, index, total)
+            listenForRatingViaStt()
+          },
+          awaitResume = {
+            val resume = CompletableDeferred<Unit>()
+            resumeListening = resume
+            _state.value = SessionState.AwaitingConfirmation(item, index, total)
+            resume.await()
+          },
+        )
+        if (!ratingDeferred.isCompleted) ratingDeferred.complete(result)
       }
       val r = ratingDeferred.await()
       phase2.cancel()
@@ -208,6 +225,7 @@ class SessionViewModel(
     } finally {
       manualRating = null
       skipToAnswer = null
+      resumeListening = null
     }
   }
 

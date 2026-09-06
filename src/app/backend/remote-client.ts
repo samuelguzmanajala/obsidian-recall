@@ -16,8 +16,22 @@ export class RemoteClient implements StudyClient {
   readonly remote = true;
   saveSettingsQuiet: (() => Promise<void>) | null = null;
   private revisions = new Map<string, number>();
-  private pending = new Map<string, { operationId: string; expectedRevision: number; rating: string }>();
+  private pending = new Map<string, { studyItemId: string; operationId: string; expectedRevision: number; rating: ReviewStudyItemCommand['rating'] }>();
   private sources = new Map<string, { filePath: string; line: number }>();
+  private listeners = new Set<() => void>();
+  onChange = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+  notifyChanged(): void {
+    for (const listener of this.listeners) {
+      try { listener(); } catch { console.warn('Recall: a view could not refresh'); }
+    }
+  }
+  hasPendingReview = (): boolean => this.pending.size > 0;
+  retryPendingReviews = async (): Promise<void> => {
+    for (const command of [...this.pending.values()]) await this.reviewStudyItem.execute(command);
+  };
   constructor(public settings: RecallSettings, private transport: typeof fetch = fetch) {}
   async request<T>(path: string, body?: unknown): Promise<T> {
     const config = this.settings.backend;
@@ -25,14 +39,25 @@ export class RemoteClient implements StudyClient {
     const base = config.url.replace(/\/+$/, '');
     const parsed = new URL(base);
     if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid backend URL');
-    const response = await this.transport(`${base}/api/v1${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    const controller = new AbortController();
+    let timeout: ReturnType<typeof setTimeout>;
+    const timedOut = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        controller.abort();
+        reject(new Error('Backend connection timed out. Retry to confirm the result.'));
+      }, 15_000);
     });
-    const result = await response.json();
-    if (!response.ok) throw new RemoteError(response.status, result.error ?? `HTTP ${response.status}`);
-    return result as T;
+    try {
+      const response = await Promise.race([this.transport(`${base}/api/v1${path}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }), timedOut]);
+      const result = await Promise.race([response.json(), timedOut]);
+      if (!response.ok) throw new RemoteError(response.status, result.error ?? `HTTP ${response.status}`);
+      return result as T;
+    } finally { clearTimeout(timeout!); }
   }
   private async due(deckId?: string): Promise<DueStudyItemView[]> {
     const result = await this.request<{ items: WireItem[] }>(`/due?limit=10000${deckId ? `&deckId=${encodeURIComponent(deckId)}` : ''}`);
@@ -63,12 +88,12 @@ export class RemoteClient implements StudyClient {
     const pendingKey = `${command.studyItemId}:${expectedRevision}`;
     let pending = this.pending.get(pendingKey);
     if (!pending) {
-      pending = { operationId: crypto.randomUUID(), expectedRevision, rating: command.rating };
+      pending = { studyItemId: command.studyItemId, operationId: crypto.randomUUID(), expectedRevision, rating: command.rating };
       this.pending.set(pendingKey, pending);
     }
     // If an acknowledgement was lost, retry the SAME decision, not a new rating.
     const result = await this.request<{ applied: number; errors: { reason: string; status: number }[] }>('/reviews', {
-      reviews: [{ studyItemId: command.studyItemId, ...pending }],
+      reviews: [pending],
     });
     if (result.errors.length) {
       this.pending.delete(pendingKey);
@@ -76,6 +101,7 @@ export class RemoteClient implements StudyClient {
     }
     if (result.applied !== 1) throw new Error('Backend did not acknowledge the review');
     this.pending.delete(pendingKey);
+    this.notifyChanged();
   } };
   // Remote refresh uses a new server queue, never client-side domain reconstruction.
   studyItemRepository = { findById: async () => null };

@@ -11,6 +11,31 @@ const expressions = {
   review: `(await app.commands.commands['obsidian-recall:start-review'].callback(), {opened:true})`,
   'review-check': `({views:app.workspace.getLeavesOfType('recall-review').length,questions:document.querySelectorAll('.recall-card-section').length,revealButton:!!document.querySelector('.recall-reveal-btn'),errors:[...document.querySelectorAll('.notice')].map(e=>e.textContent).filter(t=>t.includes('Recall')),reviewsToday:(await p.remoteClient.getStudyStats.execute()).reviewsToday})`,
   finish: `(app.workspace.getLeavesOfType('recall-review').at(-1)?.detach(), await app.commands.commands['obsidian-recall:open-deck-browser'].callback(), {testViewClosed:true})`,
+  'live-refresh': `(await (async()=>{
+    await app.commands.commands['obsidian-recall:open-deck-browser'].callback();
+    const v=app.workspace.getLeavesOfType('recall-deck-browser')[0].view;
+    await v.refresh();
+    const header=v.contentEl.querySelector('.recall-header');
+    const transport=p.remoteClient.transport;
+    let statsRequests=0;
+    p.remoteClient.transport=async(...args)=>{if(String(args[0]).endsWith('/stats'))statsRequests++;return transport(...args);};
+    try {
+      await new Promise(r=>setTimeout(r,11000));
+      return {automaticStatsRequests:statsRequests,unchangedDomPreserved:header===v.contentEl.querySelector('.recall-header'),connectionError:!!v.contentEl.querySelector('.recall-connection-error'),reviewsToday:(await p.remoteClient.getStudyStats.execute()).reviewsToday};
+    } finally {p.remoteClient.transport=transport;}
+  })())`,
+  'review-refresh': `(await (async()=>{
+    const v=app.workspace.getLeavesOfType('recall-review').at(-1)?.view;
+    if(!v)throw new Error('Open test review first');
+    await v.loadItems();
+    const original=v.items[v.currentIndex];
+    v.answerRevealed=true;await v.render();
+    await v.live.request();
+    const sameId=original?.studyItemId===v.items[v.currentIndex]?.studyItemId;
+    const revealed=v.answerRevealed;
+    v.answerRevealed=false;await v.render();
+    return {sameCard:sameId,revealedAnswerPreserved:revealed,pollingEnabled:!!v.refreshTimer,loadError:v.loadError,reviewsToday:(await p.remoteClient.getStudyStats.execute()).reviewsToday};
+  })())`,
 };
 if (!expressions[action]) throw new Error(`Expected one of: ${Object.keys(expressions).join(', ')}`);
 const socket = new WebSocket(target.webSocketDebuggerUrl);

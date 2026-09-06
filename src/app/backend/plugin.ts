@@ -64,8 +64,14 @@ export default class RecallPlugin extends Plugin {
     this.remoteSync = new RemoteNoteSync(client, state, value => localStorage.setItem(key, JSON.stringify(value)));
     // Serialize file reads with rename/delete events, not just their HTTP requests.
     let publicationTail = Promise.resolve();
+    let notificationTimer: ReturnType<typeof setTimeout> | undefined;
+    const notifyPublished = () => {
+      clearTimeout(notificationTimer);
+      notificationTimer = setTimeout(() => client.notifyChanged(), 250);
+    };
+    this.register(() => clearTimeout(notificationTimer));
     const enqueue = (work: () => Promise<void>) => {
-      publicationTail = publicationTail.then(work).catch(error => new Notice(`Recall sync: ${error.message}`, 10000)).then(() => {});
+      publicationTail = publicationTail.then(work).then(notifyPublished).catch(error => new Notice(`Recall sync: ${error.message}`, 10000)).then(() => {});
       return publicationTail;
     };
     const publishNow = async (file: TFile, path: string) => {

@@ -24,7 +24,6 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 private const val FETCH_BATCH = 20
-private const val REFILL_THRESHOLD = 5
 private const val PREFETCH_AHEAD = 3
 
 /** Hard ceiling on each listening phase (reveal + rating). */
@@ -147,13 +146,15 @@ class SessionViewModel(
         check(acknowledged) { "Review not saved; reconnect before continuing" }
         reviewed++
 
-        if (buffer.size < REFILL_THRESHOLD) {
-          runCatching {
-            val more = api.getDue(deckId = deckId, limit = FETCH_BATCH)
-              .filter { extra -> buffer.none { it.studyItemId == extra.studyItemId } }
-            buffer.addAll(more)
-          }
-        }
+        // Reconcile with the authority after every acknowledged review: remove
+        // buried siblings and cards reviewed on another device, not just append.
+        val fresh = api.getDue(deckId = deckId, limit = FETCH_BATCH)
+        val byId = fresh.associateBy { it.studyItemId }
+        val retained = buffer.mapNotNull { byId[it.studyItemId] }
+        val retainedIds = retained.map { it.studyItemId }.toSet()
+        buffer.clear()
+        buffer.addAll(retained)
+        buffer.addAll(fresh.filter { it.studyItemId !in retainedIds })
       }
       _state.value = SessionState.Done(totalReviewed = reviewed)
     } catch (e: kotlinx.coroutines.CancellationException) {

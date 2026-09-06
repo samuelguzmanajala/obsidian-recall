@@ -39,11 +39,13 @@ fun SettingsScreen(
   onRequestMic: () -> Unit,
   onBack: () -> Unit,
 ) {
-  var baseUrl by remember(config.baseUrl) { mutableStateOf(config.baseUrl) }
-  var token by remember(config.token) { mutableStateOf(config.token) }
-  var locale by remember(config.locale) { mutableStateOf(config.locale) }
-  var defaultRating by remember(config.defaultRatingOnTimeout) { mutableStateOf(config.defaultRatingOnTimeout) }
-  var useRemoteTts by remember(config.useRemoteTts) { mutableStateOf(config.useRemoteTts) }
+  // The loaded config seeds the editor once. Asynchronous persistence must not
+  // overwrite a newer keystroke with an older DataStore emission.
+  var baseUrl by remember { mutableStateOf(config.baseUrl) }
+  var token by remember { mutableStateOf(config.token) }
+  var locale by remember { mutableStateOf(config.locale) }
+  var defaultRating by remember { mutableStateOf(config.defaultRatingOnTimeout) }
+  var useRemoteTts by remember { mutableStateOf(config.useRemoteTts) }
   var tokenVisible by remember { mutableStateOf(false) }
   var testStatus by remember { mutableStateOf<String?>(null) }
   val scope = rememberCoroutineScope()

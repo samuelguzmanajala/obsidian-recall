@@ -42,6 +42,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.recall.voice.api.DeckTreeNode
 import com.recall.voice.api.RecallApi
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 
 private data class DeckRow(val node: DeckTreeNode, val depth: Int)
 
@@ -85,19 +90,25 @@ fun DeckBrowserScreen(
   val collapsed = remember { mutableStateOf<Set<String>>(emptySet()) }
   val seen = remember { mutableStateOf<Set<String>>(emptySet()) }
 
-  LaunchedEffect(refreshTick) {
-    loading = true
-    error = null
-    runCatching { api.getDecks() }
-      .onSuccess {
-        decks = it
-        loading = false
-        val allCollapsibles = collapsibleIds(it)
-        val newOnes = allCollapsibles - seen.value
-        collapsed.value = collapsed.value + newOnes
-        seen.value = seen.value + allCollapsibles
+  val lifecycleOwner = LocalLifecycleOwner.current
+  LaunchedEffect(api, refreshTick, lifecycleOwner) {
+    lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+      while (true) {
+        loading = decks.isEmpty()
+        try {
+          val updated = api.getDecks()
+          decks = updated
+          error = null
+          val allCollapsibles = collapsibleIds(updated)
+          val newOnes = allCollapsibles - seen.value
+          collapsed.value = collapsed.value + newOnes
+          seen.value = seen.value + allCollapsibles
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { error = failure.message ?: "Network error" }
+        finally { loading = false }
+        delay(10_000)
       }
-      .onFailure { error = it.message ?: "Network error"; loading = false }
+    }
   }
 
   Column(modifier = Modifier.fillMaxSize()) {
@@ -105,10 +116,14 @@ fun DeckBrowserScreen(
       onOpenSettings = onOpenSettings,
       onRefresh = { refreshTick++ },
     )
+    if (error != null && decks.isNotEmpty()) {
+      Text("Sin conexión: los datos pueden estar desactualizados. Usa Refresh para reintentar.",
+        modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
+    }
 
     when {
       loading -> CenteredLoading()
-      error != null -> CenteredError(error!!, onRetry = { refreshTick++ })
+      error != null && decks.isEmpty() -> CenteredError(error!!, onRetry = { refreshTick++ })
       decks.isEmpty() -> CenteredEmpty()
       else -> DeckList(
         decks = decks,

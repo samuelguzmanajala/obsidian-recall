@@ -3,6 +3,9 @@ import type { Container } from './container';
 /** UI port. Both the legacy local adapter and HTTP client implement it. */
 export interface StudyClient {
   remote?: boolean;
+  onChange?: (listener: () => void) => () => void;
+  hasPendingReview?: () => boolean;
+  retryPendingReviews?: () => Promise<void>;
   settings: Container['settings'];
   saveSettingsQuiet: Container['saveSettingsQuiet'];
   getDueStudyItems: Pick<Container['getDueStudyItems'], 'execute'>;

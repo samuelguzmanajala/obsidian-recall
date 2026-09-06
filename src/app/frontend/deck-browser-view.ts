@@ -4,12 +4,15 @@ import { DeckTreeNode } from '@context/deck/application/get-deck-tree';
 import { LeechView } from '@context/study/application/get-leeches';
 import { Direction } from '@context/study/domain/direction';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
+import { LiveRefresh } from './live-refresh';
 
 export class DeckBrowserView extends ItemView {
   private container: StudyClient;
   private lastHash = '';
   private leechesExpanded = false;
   private dueCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private forceRender = false;
+  private live = new LiveRefresh(current => this.update(current));
 
   constructor(leaf: WorkspaceLeaf, container: StudyClient) {
     super(leaf);
@@ -30,11 +33,19 @@ export class DeckBrowserView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
-    // Check every 60s for cards that became due (time-based, not event-based)
-    this.dueCheckInterval = setInterval(() => this.refresh(), 60_000);
+    if (this.live.stopped) return;
+    const refreshVisible = () => {
+      if (!this.contentEl.ownerDocument.hidden && this.contentEl.getClientRects().length) void this.refresh();
+    };
+    this.dueCheckInterval = setInterval(refreshVisible, this.container.remote ? 10_000 : 60_000);
+    this.registerDomEvent(this.contentEl.ownerDocument, 'visibilitychange', refreshVisible);
+    this.registerDomEvent(this.contentEl.ownerDocument.defaultView!, 'focus', refreshVisible);
+    this.registerEvent(this.app.workspace.on('active-leaf-change', refreshVisible));
+    if (this.container.onChange) this.register(this.container.onChange(refreshVisible));
   }
 
   async onClose(): Promise<void> {
+    this.live.close();
     if (this.dueCheckInterval) {
       clearInterval(this.dueCheckInterval);
       this.dueCheckInterval = null;
@@ -43,35 +54,47 @@ export class DeckBrowserView extends ItemView {
 
   /** Called externally when data changes (Sync, review, settings) */
   async refresh(): Promise<void> {
-    try {
-      const stats = await this.container.getStudyStats.execute();
-      const hash = `${stats.dueNow}:${stats.newItems}:${stats.totalItems}:${stats.reviewsToday}`;
-      if (hash !== this.lastHash) {
-        await this.render();
-      }
-    } catch {
-      // Ignore errors during refresh
-    }
+    await this.live.request();
   }
 
   async render(): Promise<void> {
-    try { await this.renderContent(); }
+    this.forceRender = true;
+    await this.live.request();
+  }
+
+  private async update(isCurrent: () => boolean): Promise<void> {
+    try {
+      const [tree, stats, leeches] = await Promise.all([
+        this.container.getDeckTree.execute(),
+        this.container.getStudyStats.execute(),
+        this.container.getLeeches.execute(this.container.settings?.leechThreshold ?? 8),
+      ]);
+      if (!isCurrent()) return;
+      const hash = JSON.stringify([tree, stats, leeches]);
+      this.contentEl.querySelector('.recall-connection-error')?.remove();
+      if (hash === this.lastHash && !this.forceRender) return;
+      const scrollTop = this.contentEl.scrollTop;
+      this.renderContent(tree, stats, leeches);
+      this.contentEl.scrollTop = scrollTop;
+      this.lastHash = hash;
+      this.forceRender = false;
+    }
     catch (error) {
-      this.contentEl.empty();
-      this.contentEl.createEl('p', { text: `Cannot load Recall: ${(error as Error).message}` });
-      this.contentEl.createEl('button', { text: 'Retry connection' }).addEventListener('click', () => void this.render());
+      if (!isCurrent()) return;
+      if (!this.contentEl.querySelector('.recall-connection-error')) {
+        const warning = this.contentEl.createDiv({ cls: 'recall-connection-error' });
+        warning.setAttribute('role', 'status');
+        warning.createEl('p', { text: `Recall is offline; displayed counts may be outdated. ${(error as Error).message}` });
+        warning.createEl('button', { text: 'Retry connection' }).addEventListener('click', () => void this.refresh());
+        this.contentEl.prepend(warning);
+      }
     }
   }
 
-  private async renderContent(): Promise<void> {
+  private renderContent(tree: DeckTreeNode[], stats: Awaited<ReturnType<StudyClient['getStudyStats']['execute']>>, leeches: LeechView[]): void {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-deck-browser');
-
-    const tree = await this.container.getDeckTree.execute();
-    const stats = await this.container.getStudyStats.execute();
-
-    this.lastHash = `${stats.dueNow}:${stats.newItems}:${stats.totalItems}:${stats.reviewsToday}`;
 
     // Header
     const header = el.createDiv({ cls: 'recall-header' });
@@ -109,7 +132,6 @@ export class DeckBrowserView extends ItemView {
     // Leeches section
     const threshold = this.container.settings?.leechThreshold ?? 8;
     if (threshold > 0) {
-      const leeches = await this.container.getLeeches.execute(threshold);
       if (leeches.length > 0) {
         this.renderLeechSection(el, leeches);
       }

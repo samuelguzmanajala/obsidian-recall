@@ -4,6 +4,7 @@ import path from 'path';
 export default defineConfig({
   resolve: {
     alias: {
+      'obsidian': path.resolve(__dirname, 'tests/fixtures/obsidian.ts'),
       '@context': path.resolve(__dirname, 'src/context'),
       '@app': path.resolve(__dirname, 'src/app'),
       '@backend': path.resolve(__dirname, 'src/app/backend'),

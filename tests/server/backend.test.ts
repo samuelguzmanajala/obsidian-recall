@@ -138,10 +138,31 @@ describe('standalone backend', () => {
     };
     const cmd = { studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision };
     await expect(client.reviewStudyItem.execute(cmd)).rejects.toThrow('Connection lost');
+    expect(client.hasPendingReview()).toBe(true);
     await client.reviewStudyItem.execute({ ...cmd, rating: Rating.Easy });
     const reviews = await service.query(c => c.reviewLog.findAll());
     expect(reviews).toHaveLength(1);
     expect(reviews[0].rating).toBe(Rating.Good);
+    expect(client.hasPendingReview()).toBe(false);
+  });
+  it('reconciles an unresolved receipt after the original view has closed', async () => {
+    const service = setup(); await seed(service);
+    const { client } = await serve(service);
+    const [item] = await client.getDueStudyItems.execute();
+    const transport = client as unknown as { transport: typeof fetch };
+    const original = transport.transport;
+    transport.transport = async (...args) => {
+      const result = await original(...args);
+      if (args[1]?.method === 'POST') throw new Error('Lost acknowledgement');
+      return result;
+    };
+    await expect(client.reviewStudyItem.execute({ studyItemId: item.studyItemId, expectedRevision: item.revision, rating: Rating.Good })).rejects.toThrow();
+    transport.transport = original;
+    const listener = () => { throw new Error('Closed UI'); };
+    const unsubscribe = client.onChange(listener); unsubscribe();
+    await client.retryPendingReviews();
+    expect(client.hasPendingReview()).toBe(false);
+    expect(await service.query(c => c.reviewLog.findAll())).toHaveLength(1);
   });
   it('requires auth and validates requests without exposing internal errors', async () => {
     const { url, token } = await serve(setup());

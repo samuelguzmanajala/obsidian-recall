@@ -90,11 +90,16 @@ originales `recall-data` tambien siguen en el vault, sin cambios. Si ya has repa
 backend, volver simplemente al plugin antiguo perderia los repasos posteriores: antes hay
 que preservar/exportar el estado nuevo. No actives ambos motores como autoridades paralelas.
 
-## Android: necesita acceso al telefono
+## Android: instalado y conectado
 
 El APK actualizado esta en `android/app/build/outputs/apk/debug/app-debug.apk`.
-No se ha podido instalar ni probar en el Pixel porque no estaba conectado/autorizado por USB
-y figuraba desconectado de Tailscale.
+Instalado en el Pixel 9a por USB, sin desinstalar ni borrar sus ajustes. Tailscale conectado,
+URL HTTPS configurada y token original conservado. La prueba de conexion muestra
+`Conectado ✓` y el navegador carga los cuatro grupos y las 4.291 tarjetas.
+
+Se probo una pregunta hasta la fase de escucha y se comprobaron MP3 descargados en el
+telefono. Se detuvo sin valorar; el contador permanecio en 5 repasos durante la prueba.
+Esos 5 ya existian al empezar la comprobacion (14.602 eventos historicos en el respaldo).
 
 Con el telefono conectado, autorizado y sin una sesion de repaso en marcha:
 
@@ -106,8 +111,31 @@ node scripts/install-android.mjs --apply
 El instalador guarda los datos privados y el APK anterior antes de actualizar, sin desinstalar.
 Si no puede respaldar los datos, se detiene. Despues conecta Tailscale y configura Server URL
 con la direccion HTTPS indicada arriba. El token anterior se conserva y sigue siendo valido.
-Queda pendiente comprobar desde el telefono la lista de mazos, la voz y un repaso elegido
-por el usuario; no se registra un repaso real solo para probar la instalacion.
+La prueba no incluye valorar una tarjeta real: esa decision queda para el usuario.
+La primera copia completa de Android esta en `backups/android-2026-09-06T09-30-11-706Z`
+dentro del directorio interno de Recall Backend; las actualizaciones siguientes guardan
+otra copia de los datos privados y el APK en su propia carpeta fechada.
+
+## Refresco entre dispositivos
+
+- Obsidian consulta mientras la vista esta visible cada 10 segundos y al recuperar el foco.
+  Publicar notas o confirmar un repaso tambien notifica a las vistas del mismo cliente.
+- El navegador compara mazos, estadisticas y leeches completos, no solo totales globales.
+  Conserva el desplazamiento y no reconstruye el DOM cuando nada ha cambiado.
+- La sesion reconcilia tarjetas con el backend: conserva la actual y su respuesta visible
+  si no han cambiado; retira las ya repasadas o invalidadas y oculta respuestas modificadas.
+- Las peticiones de refresco se agrupan; respuestas anteriores a una valoracion o al cierre
+  de la vista se descartan. Una respuesta HTTP perdida se reconcilia con el mismo ID de
+  operacion mientras el cliente siga abierto, sin duplicar la valoracion.
+- Android actualiza mazos cada 10 segundos en primer plano y al volver a la app. Tras
+  cada repaso confirmado reconstruye la cola con el backend, retirando tarjetas hermanas.
+- Los fallos de conexion son visibles. Sigue siendo un sistema de estudio online: no hay
+  una cola duradera de operaciones offline, ni actualizacion instantanea por WebSocket.
+
+Verificacion: 221 pruebas TypeScript y 18 Android; compilaciones de ambos clientes.
+En Obsidian real se observo una consulta automatica, DOM intacto sin cambios y conservacion
+de tarjeta/respuesta al refrescar. No se introdujeron repasos para hacer estas pruebas.
+Respaldo del plugin anterior al cambio: `backups/plugin-refresh-2026-09-06T12-05-32-131Z`.
 
 ## Actualizaciones
 

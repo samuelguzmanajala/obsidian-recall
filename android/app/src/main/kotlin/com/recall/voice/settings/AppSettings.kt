@@ -50,6 +50,7 @@ class AppSettings(private val context: Context) {
         defaultRatingOnTimeout = runCatching {
           Rating.valueOf(prefs[KEY_DEFAULT_RATING] ?: Rating.Again.name)
         }.getOrDefault(Rating.Again),
+        useRemoteTts = prefs[KEY_USE_REMOTE_TTS] ?: true,
       )
       val next = transform(current)
       prefs[KEY_BASE_URL] = next.baseUrl

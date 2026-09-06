@@ -9,6 +9,7 @@ import { Direction } from '@context/study/domain/direction';
 import { MemoryState } from '@context/study/domain/memory-state';
 import { VIEW_TYPE_REVIEW, RATING_LABELS, RATING_COLORS } from './constants';
 import { formatInterval } from './format-interval';
+import { LiveRefresh } from './live-refresh';
 
 interface ReviewState extends Record<string, unknown> {
   deckId: string | null;
@@ -24,6 +25,10 @@ export class ReviewView extends ItemView {
   private answerRevealed = false;
   private deckId: string | null = null;
   private deckName = '';
+  private reviewedCount = 0;
+  private renderGeneration = 0;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private live = new LiveRefresh(current => this.refreshRemote(current));
 
   constructor(leaf: WorkspaceLeaf, container: StudyClient) {
     super(leaf);
@@ -43,7 +48,14 @@ export class ReviewView extends ItemView {
   }
 
   async setState(state: ReviewState): Promise<void> {
+    if (this.submitting || this.container.hasPendingReview?.()) {
+      new Notice('Confirm the pending review before changing decks.');
+      return;
+    }
+    this.live.invalidate();
     this.deckId = state.deckId ?? null;
+    this.items = [];
+    this.reviewedCount = 0;
     await this.loadItems();
     this.render();
   }
@@ -60,11 +72,22 @@ export class ReviewView extends ItemView {
     await this.loadItems();
     this.render();
 
+    if (this.live.stopped) return;
+    if (this.container.remote) {
+      const refreshVisible = () => {
+        if (!this.contentEl.ownerDocument.hidden && this.contentEl.getClientRects().length) void this.live.request();
+      };
+      this.refreshTimer = setInterval(refreshVisible, 10_000);
+      this.registerDomEvent(this.contentEl.ownerDocument, 'visibilitychange', refreshVisible);
+      this.registerDomEvent(this.contentEl.ownerDocument.defaultView!, 'focus', refreshVisible);
+      if (this.container.onChange) this.register(this.container.onChange(refreshVisible));
+    }
+
     // Re-render current card when switching back to this tab (after editing note)
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
-          setTimeout(() => this.refreshCurrentCard(), 600);
+          void this.refreshCurrentCard();
         }
       }),
     );
@@ -108,7 +131,7 @@ export class ReviewView extends ItemView {
    * (in case the user edited the source note).
    */
   private async refreshCurrentCard(): Promise<void> {
-    if (this.container.remote) return;
+    if (this.container.remote) { await this.live.request(); return; }
     if (this.items.length === 0 || this.currentIndex >= this.items.length) return;
 
     const item = this.items[this.currentIndex];
@@ -165,9 +188,61 @@ export class ReviewView extends ItemView {
   }
 
   private async loadItems(): Promise<void> {
+    if (this.container.remote) { await this.live.request(); return; }
     this.loadError = null;
     try { await this.loadItemsFromClient(); }
     catch (error) { this.loadError = (error as Error).message; this.items = []; }
+  }
+
+  async onClose(): Promise<void> {
+    this.live.close();
+    this.renderGeneration++;
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+  }
+
+  private async refreshRemote(isCurrent: () => boolean): Promise<void> {
+    // A lost acknowledgement must be resolved with the same operation ID before
+    // replacing the displayed card or its revision.
+    if (this.submitting) return;
+    const deckId = this.deckId;
+    try {
+      if (this.container.hasPendingReview?.()) {
+        if (!this.container.retryPendingReviews) return;
+        await this.container.retryPendingReviews();
+        if (!isCurrent() || this.submitting) return;
+      }
+      const [fresh, tree] = await Promise.all([
+        deckId ? this.container.getDueStudyItemsByDeck.execute(deckId) : this.container.getDueStudyItems.execute(),
+        deckId ? this.container.getDeckTree.execute() : Promise.resolve([]),
+      ]);
+      if (!isCurrent() || this.submitting || this.container.hasPendingReview?.()) return;
+      const previous = this.items[this.currentIndex];
+      const freshById = new Map(fresh.map(item => [item.studyItemId, item]));
+      const ordered = this.items.map(item => freshById.get(item.studyItemId)).filter((item): item is DueStudyItemView => !!item);
+      const known = new Set(ordered.map(item => item.studyItemId));
+      const added = fresh.filter(item => !known.has(item.studyItemId));
+      if (this.container.settings?.shuffleReviews !== false) this.shuffleArray(added);
+      const next = [...ordered, ...added];
+      const nextIndex = previous ? next.findIndex(item => item.studyItemId === previous.studyItemId) : 0;
+      const current = next[Math.max(0, nextIndex)];
+      const sameCard = !!previous && !!current && previous.studyItemId === current.studyItemId
+        && previous.revision === current.revision && previous.sideA === current.sideA && previous.sideB === current.sideB;
+      const deckName = deckId ? this.findDeckName(tree, deckId) ?? 'Deck' : 'All decks';
+      const changed = this.loadError !== null || deckName !== this.deckName || JSON.stringify(next) !== JSON.stringify(this.items);
+      // Keep object identities captured by visible rating buttons if unchanged.
+      if (!changed) return;
+      this.items = next;
+      this.currentIndex = Math.max(0, nextIndex);
+      this.totalCount = this.reviewedCount + next.length;
+      this.deckName = deckName;
+      this.loadError = null;
+      if (!sameCard) this.answerRevealed = false;
+      if (changed) await this.render();
+    } catch (error) {
+      if (!isCurrent() || this.submitting) return;
+      this.loadError = (error as Error).message;
+      await this.render();
+    }
   }
 
   private async loadItemsFromClient(): Promise<void> {
@@ -206,6 +281,7 @@ export class ReviewView extends ItemView {
   }
 
   private async render(): Promise<void> {
+    const generation = ++this.renderGeneration;
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-review');
@@ -241,12 +317,12 @@ export class ReviewView extends ItemView {
     const progressWrap = header.createDiv({ cls: 'recall-progress-wrap' });
     const bar = progressWrap.createDiv({ cls: 'recall-progress-bar' });
     const progress = this.totalCount > 0
-      ? ((this.totalCount - this.items.length + this.currentIndex) / this.totalCount) * 100
+      ? (this.reviewedCount / this.totalCount) * 100
       : 0;
     bar.style.width = `${progress}%`;
 
     header.createSpan({
-      text: `${this.totalCount - this.items.length + this.currentIndex + 1}/${this.totalCount}`,
+      text: `${this.reviewedCount} reviewed · ${this.items.length} remaining`,
       cls: 'recall-progress-text',
     });
 
@@ -267,6 +343,7 @@ export class ReviewView extends ItemView {
     questionSection.createDiv({ text: 'Q', cls: 'recall-card-label' });
     const questionText = questionSection.createDiv({ cls: 'recall-card-text' });
     await MarkdownRenderer.render(this.app, question, questionText, '', this);
+    if (generation !== this.renderGeneration) return;
 
     if (this.answerRevealed) {
       // Divider
@@ -277,6 +354,7 @@ export class ReviewView extends ItemView {
       answerSection.createDiv({ text: 'A', cls: 'recall-card-label recall-label-answer' });
       const answerText = answerSection.createDiv({ cls: 'recall-card-text recall-text-answer' });
       await MarkdownRenderer.render(this.app, answer, answerText, '', this);
+      if (generation !== this.renderGeneration) return;
 
       // Rating buttons
       this.renderRatingButtons(el, item);
@@ -330,8 +408,10 @@ export class ReviewView extends ItemView {
   }
 
   private async submitRating(item: DueStudyItemView, rating: Rating): Promise<void> {
-    if (this.submitting) return;
+    if (this.submitting || item !== this.items[this.currentIndex]) return;
+    this.live.invalidate();
     this.submitting = true;
+    this.contentEl.setAttribute('aria-busy', 'true');
     try {
       await this.container.reviewStudyItem.execute({
         studyItemId: item.studyItemId,
@@ -341,15 +421,18 @@ export class ReviewView extends ItemView {
     } catch (error) {
       new Notice(`Recall: ${error instanceof Error ? error.message : 'Review not saved'}`);
       if (error instanceof RemoteError && (error.status === 409 || error.status === 404)) {
+        this.submitting = false;
         await this.loadItems();
         await this.render();
       }
       return;
     } finally {
       this.submitting = false;
+      this.contentEl.removeAttribute('aria-busy');
     }
 
     // Remove this card and any sibling (other direction of same concept)
+    this.reviewedCount++;
     const reviewedConceptId = item.conceptId;
     this.items = this.items.filter((v, idx) => {
       if (idx === this.currentIndex) return false; // remove current
@@ -361,6 +444,7 @@ export class ReviewView extends ItemView {
     }
     this.answerRevealed = false;
     this.render();
+    if (this.container.remote) await this.live.request();
   }
 
   private renderComplete(el: HTMLElement): void {
@@ -368,7 +452,7 @@ export class ReviewView extends ItemView {
     done.createDiv({ text: '✓', cls: 'recall-complete-icon' });
     done.createDiv({ text: 'All done!', cls: 'recall-complete-title' });
     done.createDiv({
-      text: `${this.totalCount} cards reviewed`,
+      text: `${this.reviewedCount} cards reviewed in this session`,
       cls: 'recall-complete-subtitle',
     });
 

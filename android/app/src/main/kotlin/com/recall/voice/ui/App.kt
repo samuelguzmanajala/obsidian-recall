@@ -35,7 +35,8 @@ private sealed interface Route {
 fun App() {
   val context = LocalContext.current
   val settingsRepo = remember { AppSettings(context) }
-  val config by settingsRepo.config.collectAsState(initial = AppConfig())
+  val loadedConfig by settingsRepo.config.collectAsState(initial = null)
+  val config = loadedConfig ?: return
   val scope = rememberCoroutineScope()
 
   var micGranted by remember {
@@ -54,7 +55,7 @@ fun App() {
 
   // Initial route: Home if config is set, otherwise force Settings.
   val configured = config.baseUrl.isNotBlank() && config.token.isNotBlank()
-  var route by remember(configured) {
+  var route by remember {
     mutableStateOf<Route>(if (configured) Route.Home else Route.Settings)
   }
 

@@ -15,7 +15,7 @@ Do not run local and remote scheduling as parallel authorities.
 
 The verified installation on Samuel's Mac is documented in
 [macOS deployment and recovery](docs/macos-deployment.md), including backup locations
-and the remaining Android-device setup.
+and the verified Pixel installation, backups, and cross-device refresh behavior.
 
 ```sh
 npm ci

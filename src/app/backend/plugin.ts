@@ -1,4 +1,6 @@
-import { Plugin, TFile, WorkspaceLeaf } from 'obsidian';
+import { Plugin, TFile, WorkspaceLeaf, Notice } from 'obsidian';
+import { RemoteClient } from './remote-client';
+import { RemoteNoteSync } from './remote-note-sync';
 import { Container } from './container';
 import { createJsonFileStorage, createReviewDeviceStorage, getDeviceId } from './obsidian-storage';
 import { CachedJsonFileStorage } from './cached-json-file-storage';
@@ -18,6 +20,9 @@ import { obsidianFetch } from './obsidian-fetch';
 import { SyncLogger } from './sync-logger';
 
 export default class RecallPlugin extends Plugin {
+  private remoteClient: RemoteClient | null = null;
+  private remoteSync: RemoteNoteSync | null = null;
+  isRemoteMode(): boolean { return this.remoteClient !== null; }
   container!: Container;
   vaultSync!: VaultSync;
   settings!: RecallSettings;
@@ -37,8 +42,69 @@ export default class RecallPlugin extends Plugin {
   private previousVoiceTtsKey = '';
   private static readonly DEBOUNCE_MS = 500;
 
+  private async loadRemote(): Promise<void> {
+    // Capture connection settings until reload so a pending command cannot switch servers.
+    const client = new RemoteClient(structuredClone(this.settings), obsidianFetch);
+    this.remoteClient = client;
+    client.saveSettingsQuiet = async () => {
+      this.settings.expandedDeckIds = client.settings.expandedDeckIds;
+      await this.saveData(this.settings);
+    };
+    this.registerView(VIEW_TYPE_DECK_BROWSER, leaf => new DeckBrowserView(leaf, client));
+    this.registerView(VIEW_TYPE_REVIEW, leaf => new ReviewView(leaf, client));
+    this.addRibbonIcon('brain', 'Recall', () => this.activateDeckBrowser());
+    this.addCommand({ id: 'open-deck-browser', name: 'Open deck browser', callback: () => this.activateDeckBrowser() });
+    this.addCommand({ id: 'start-review', name: 'Start review', callback: () => this.openReview() });
+    this.addSettingTab(new RecallSettingTab(this.app, this));
+    if (!client.settings.backend?.syncNotes) return;
+
+    const key = `recall-note-cursors:${this.app.vault.getName()}:${client.settings.backend.url}`;
+    let state = {};
+    try { state = JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { /* first run */ }
+    this.remoteSync = new RemoteNoteSync(client, state, value => localStorage.setItem(key, JSON.stringify(value)));
+    // Serialize file reads with rename/delete events, not just their HTTP requests.
+    let publicationTail = Promise.resolve();
+    const enqueue = (work: () => Promise<void>) => {
+      publicationTail = publicationTail.then(work).catch(error => new Notice(`Recall sync: ${error.message}`, 10000)).then(() => {});
+      return publicationTail;
+    };
+    const publishNow = async (file: TFile, path: string) => {
+      if (file.extension !== 'md') return;
+      if (file.path !== path) return;
+      const content = await this.app.vault.read(file);
+      if (file.path !== path) return;
+      await this.remoteSync!.publish(path, content);
+    };
+    const publish = (file: TFile) => { const path = file.path; return enqueue(() => publishNow(file, path)); };
+    this.registerEvent(this.app.vault.on('create', file => { if (file instanceof TFile) void publish(file); }));
+    this.registerEvent(this.app.vault.on('modify', file => { if (file instanceof TFile) void publish(file); }));
+    this.registerEvent(this.app.vault.on('delete', file => {
+      if (file instanceof TFile && file.extension === 'md') {
+        const path = file.path;
+        void enqueue(() => this.remoteSync!.publish(path, null));
+      }
+    }));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      if (file instanceof TFile && file.extension === 'md') {
+        const path = file.path;
+        void enqueue(async () => {
+          await this.remoteSync!.rename(oldPath, path);
+          await publishNow(file, path);
+        });
+      }
+    }));
+    this.addCommand({ id: 'publish-notes', name: 'Publish notes to backend', callback: async () => {
+      for (const file of this.app.vault.getMarkdownFiles()) await publish(file);
+      new Notice('Recall: publishing finished. Any conflicts were reported; no local notes were modified.');
+    } });
+  }
+
   async onload(): Promise<void> {
     await this.loadSettings();
+    if (this.settings.backend?.enabled) {
+      await this.loadRemote();
+      return; // No local stores, replay, migrations or embedded server in remote mode.
+    }
 
     // Migrate from old locations if needed
     const hasNewData = await this.hasRecallData();
@@ -310,6 +376,7 @@ export default class RecallPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+    if (this.remoteClient) return;
     this.container.settings = this.settings;
 
     // Only reset + rebuild if tags actually changed

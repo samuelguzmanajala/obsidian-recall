@@ -261,7 +261,11 @@ export class VaultSync {
           const siIds = studyItems.map(si => si.id.value);
 
           // Remove from old decks
+          const retainedDecks = new Set([...this.fileIndices.entries()]
+            .filter(([path, index]) => path !== filePath && [...index.cardKeys.values()].includes(conceptId))
+            .flatMap(([, index]) => index.deckIds));
           for (const oldDeckId of previousIndex!.deckIds) {
+            if (retainedDecks.has(oldDeckId)) continue;
             for (const siId of siIds) {
               await this.container.removeStudyItemFromDeck.execute({
                 deckId: oldDeckId,
@@ -327,7 +331,7 @@ export class VaultSync {
         `syncFile REMOVE-CARD  file="${filePath}"  cardKey=${removedKey}  ` +
         `conceptId=${conceptId.slice(0, 8)}  reason=cardKey-not-in-new-parse`,
       );
-      await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds);
+      await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds, filePath);
     }
 
     this.fileIndices.set(filePath, newIndex);
@@ -358,7 +362,7 @@ export class VaultSync {
     );
 
     for (const conceptId of index.cardKeys.values()) {
-      await this.removeConceptWithStudyItems(conceptId, index.deckIds);
+      await this.removeConceptWithStudyItems(conceptId, index.deckIds, filePath);
     }
 
     this.fileIndices.delete(filePath);
@@ -469,7 +473,11 @@ export class VaultSync {
   private async removeConceptWithStudyItems(
     conceptId: string,
     deckIds: string[],
+    excludingPath: string,
   ): Promise<void> {
+    const otherSources = [...this.fileIndices.entries()]
+      .filter(([path, index]) => path !== excludingPath && [...index.cardKeys.values()].includes(conceptId));
+    const retainedDecks = new Set(otherSources.flatMap(([, index]) => index.deckIds));
     const studyItems = await this.container.studyItemRepository.findByConceptId(
       new ConceptId(conceptId),
     );
@@ -477,15 +485,16 @@ export class VaultSync {
     // Remove study items from all associated decks first
     for (const item of studyItems) {
       for (const deckId of deckIds) {
+        if (retainedDecks.has(deckId)) continue;
         await this.container.removeStudyItemFromDeck.execute({
           deckId,
           studyItemId: item.id.value,
         });
       }
-      await this.container.removeStudyItem.execute({ id: item.id.value });
+      if (otherSources.length === 0) await this.container.removeStudyItem.execute({ id: item.id.value });
     }
 
-    await this.container.removeConcept.execute({ id: conceptId });
+    if (otherSources.length === 0) await this.container.removeConcept.execute({ id: conceptId });
   }
 
   /**

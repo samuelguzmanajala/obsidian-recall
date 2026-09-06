@@ -1,0 +1,15 @@
+services:
+  recall:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      RECALL_HOST: 0.0.0.0
+      RECALL_DB: /data/recall.sqlite
+      RECALL_AUDIO_DIR: /data/audio
+    ports:
+      - "127.0.0.1:27124:27124"
+    volumes:
+      - recall-data:/data
+volumes:
+  recall-data:

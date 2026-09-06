@@ -1,5 +1,25 @@
 # Architecture
 
+## Standalone runtime (remote mode)
+
+`src/server/` is the independent Node runtime: HTTP boundary, transactional SQLite storage,
+application service, optional cloud audio and conservative legacy importer. See
+[backend.md](backend.md) for the protocol, migration and operational guarantees.
+
+`StudyClient` is the UI-facing port. `RemoteClient` implements it over HTTP; the legacy
+`Container` still implements it locally for installations that have not migrated. Remote
+plugin startup returns before any local storage, replay or embedded API setup. Markdown
+publication is a separate opt-in adapter (`RemoteNoteSync`); it never computes FSRS state.
+
+The portable kernel remains in `src/context/`. The server reuses its use cases and parser
+orchestration, wiring the old JSON repository ports to transaction-scoped SQLite documents.
+All server operations are serialized, and each command atomically commits its receipt and
+domain changes. Card and note revisions protect against stale clients. This is a single-user,
+single-primary deployment, not a distributed database or offline merge protocol.
+
+The sections below describe the original domain structure; references to vault JSON storage
+apply to legacy local mode, not the standalone runtime.
+
 ## Principles
 
 - **DDD** — Domain-Driven Design with aggregates, value objects, and ports

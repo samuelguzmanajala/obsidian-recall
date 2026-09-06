@@ -1,17 +1,17 @@
 import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
-import { Container } from '@app/backend/container';
+import type { StudyClient } from '@app/backend/study-client';
 import { DeckTreeNode } from '@context/deck/application/get-deck-tree';
 import { LeechView } from '@context/study/application/get-leeches';
 import { Direction } from '@context/study/domain/direction';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
 
 export class DeckBrowserView extends ItemView {
-  private container: Container;
+  private container: StudyClient;
   private lastHash = '';
   private leechesExpanded = false;
   private dueCheckInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(leaf: WorkspaceLeaf, container: Container) {
+  constructor(leaf: WorkspaceLeaf, container: StudyClient) {
     super(leaf);
     this.container = container;
   }
@@ -55,6 +55,15 @@ export class DeckBrowserView extends ItemView {
   }
 
   async render(): Promise<void> {
+    try { await this.renderContent(); }
+    catch (error) {
+      this.contentEl.empty();
+      this.contentEl.createEl('p', { text: `Cannot load Recall: ${(error as Error).message}` });
+      this.contentEl.createEl('button', { text: 'Retry connection' }).addEventListener('click', () => void this.render());
+    }
+  }
+
+  private async renderContent(): Promise<void> {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-deck-browser');

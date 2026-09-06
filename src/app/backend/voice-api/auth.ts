@@ -32,5 +32,5 @@ export function checkAuth(req: IncomingMessage, expectedToken: string): boolean 
 
   const a = Buffer.from(presented);
   const b = Buffer.from(expectedToken);
-  return timingSafeEqual(a, b);
+  return a.length === b.length && timingSafeEqual(a, b);
 }

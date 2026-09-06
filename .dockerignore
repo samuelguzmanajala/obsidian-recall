@@ -1,0 +1,8 @@
+.git
+node_modules
+dist
+android
+data
+.env
+*.apk
+*.sqlite*

@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "node esbuild.config.mjs --watch",
     "build": "node esbuild.config.mjs",
+    "build:server": "node server.build.mjs",
+    "start:server": "node dist/server/main.cjs",
+    "migrate:server": "node dist/server/migrate.cjs",
+    "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run"
   },

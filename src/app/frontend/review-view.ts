@@ -1,5 +1,6 @@
-import { ItemView, MarkdownRenderer, WorkspaceLeaf } from 'obsidian';
-import { Container } from '@app/backend/container';
+import { ItemView, MarkdownRenderer, WorkspaceLeaf, Notice } from 'obsidian';
+import type { StudyClient } from '@app/backend/study-client';
+import { RemoteError } from '@app/backend/remote-client';
 import { ConceptId } from '@context/concept/domain/concept-id';
 import { StudyItemId } from '@context/study/domain/study-item-id';
 import { DueStudyItemView } from '@context/study/application/study-item-view';
@@ -14,7 +15,9 @@ interface ReviewState extends Record<string, unknown> {
 }
 
 export class ReviewView extends ItemView {
-  private container: Container;
+  private container: StudyClient;
+  private submitting = false;
+  private loadError: string | null = null;
   private items: DueStudyItemView[] = [];
   private currentIndex = 0;
   private totalCount = 0;
@@ -22,7 +25,7 @@ export class ReviewView extends ItemView {
   private deckId: string | null = null;
   private deckName = '';
 
-  constructor(leaf: WorkspaceLeaf, container: Container) {
+  constructor(leaf: WorkspaceLeaf, container: StudyClient) {
     super(leaf);
     this.container = container;
   }
@@ -105,6 +108,7 @@ export class ReviewView extends ItemView {
    * (in case the user edited the source note).
    */
   private async refreshCurrentCard(): Promise<void> {
+    if (this.container.remote) return;
     if (this.items.length === 0 || this.currentIndex >= this.items.length) return;
 
     const item = this.items[this.currentIndex];
@@ -161,6 +165,12 @@ export class ReviewView extends ItemView {
   }
 
   private async loadItems(): Promise<void> {
+    this.loadError = null;
+    try { await this.loadItemsFromClient(); }
+    catch (error) { this.loadError = (error as Error).message; this.items = []; }
+  }
+
+  private async loadItemsFromClient(): Promise<void> {
     const limits = this.getLimits();
     if (this.deckId) {
       this.items = await this.container.getDueStudyItemsByDeck.execute(this.deckId, new Date(), limits);
@@ -200,6 +210,14 @@ export class ReviewView extends ItemView {
     el.empty();
     el.addClass('recall-review');
     el.focus();
+
+    if (this.loadError) {
+      el.createEl('p', { text: `Cannot load reviews: ${this.loadError}` });
+      el.createEl('button', { text: 'Retry connection' }).addEventListener('click', async () => {
+        await this.loadItems(); await this.render();
+      });
+      return;
+    }
 
     if (this.items.length === 0) {
       this.renderComplete(el);
@@ -289,11 +307,13 @@ export class ReviewView extends ItemView {
       item.lapses,
       item.lastReview,
     );
-    const previews = this.container.scheduler.previewAll(currentState, new Date());
+    const previews = item.preview
+      ? [item.preview.againDays, item.preview.hardDays, item.preview.goodDays, item.preview.easyDays].map(intervalDays => ({ intervalDays }))
+      : this.container.scheduler?.previewAll(currentState, new Date());
 
     for (let i = 0; i < ratings.length; i++) {
       const rating = ratings[i];
-      const preview = previews[i];
+      const preview = previews?.[i];
 
       const shortcutKey = String(i + 1);
 
@@ -302,7 +322,7 @@ export class ReviewView extends ItemView {
       });
 
       btn.createSpan({ text: RATING_LABELS[rating], cls: 'recall-rating-label' });
-      btn.createSpan({ text: formatInterval(preview.intervalDays), cls: 'recall-rating-interval' });
+      btn.createSpan({ text: preview ? formatInterval(preview.intervalDays) : '', cls: 'recall-rating-interval' });
       btn.createSpan({ text: shortcutKey, cls: 'recall-rating-shortcut' });
 
       btn.addEventListener('click', () => this.submitRating(item, rating));
@@ -310,13 +330,23 @@ export class ReviewView extends ItemView {
   }
 
   private async submitRating(item: DueStudyItemView, rating: Rating): Promise<void> {
+    if (this.submitting) return;
+    this.submitting = true;
     try {
       await this.container.reviewStudyItem.execute({
         studyItemId: item.studyItemId,
+        expectedRevision: item.revision,
         rating,
       });
-    } catch {
-      // StudyItem may have been replaced (card edited) — skip
+    } catch (error) {
+      new Notice(`Recall: ${error instanceof Error ? error.message : 'Review not saved'}`);
+      if (error instanceof RemoteError && (error.status === 409 || error.status === 404)) {
+        await this.loadItems();
+        await this.render();
+      }
+      return;
+    } finally {
+      this.submitting = false;
     }
 
     // Remove this card and any sibling (other direction of same concept)

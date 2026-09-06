@@ -8,6 +8,8 @@ export interface SchedulePreviewView {
 }
 
 export interface DueStudyItemView {
+  /** Server concurrency token. Never infer it from reps or timestamps. */
+  revision?: number;
   studyItemId: string;
   conceptId: string;
   sideA: string;

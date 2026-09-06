@@ -40,7 +40,7 @@ import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { GetLeeches } from '@context/study/application/get-leeches';
 import { ImportSrData } from '@context/study/application/import-sr-data';
 import { ReplayReviews } from '@context/study/application/replay-reviews';
-import { RecallSettings } from './settings';
+import type { RecallSettings } from './recall-settings';
 import type { VaultSync } from './vault-sync';
 import { LlmClient } from '@context/shared/domain/llm-client';
 import { HttpLlmClient } from '@context/shared/infrastructure/llm-adapters';

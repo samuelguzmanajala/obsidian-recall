@@ -128,9 +128,23 @@ class SessionViewModel(
         val rating = playCardWithControls(item, index, total)
 
         _state.value = SessionState.Submitting(item, rating, index, total)
-        runCatching {
-          api.postReviews(listOf(ReviewSubmit(item.studyItemId, rating)))
+        val command = ReviewSubmit(item.studyItemId, rating, expectedRevision = item.revision)
+        // Retry only transport failures, with the same operation ID and decision.
+        // Never count/advance a card whose submission was rejected or unacknowledged.
+        var acknowledged = false
+        for (attempt in 0..2) {
+          try {
+            val result = api.postReviews(listOf(command))
+            if (result.errors.isNotEmpty()) throw IllegalStateException(result.errors.first().reason)
+            check(result.applied == 1) { "Backend did not acknowledge the review" }
+            acknowledged = true
+            break
+          } catch (e: java.io.IOException) {
+            if (attempt == 2) throw e
+            kotlinx.coroutines.delay(1000L * (attempt + 1))
+          }
         }
+        check(acknowledged) { "Review not saved; reconnect before continuing" }
         reviewed++
 
         if (buffer.size < REFILL_THRESHOLD) {

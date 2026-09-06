@@ -27,6 +27,7 @@ data class DueItem(
   val voiceQuestion: String,
   val voiceAnswer: String,
   val preview: PreviewIntervals? = null,
+  val revision: Int? = null,
 )
 
 @Serializable
@@ -51,13 +52,15 @@ data class DeckTreeNode(
 data class ReviewSubmit(
   val studyItemId: String,
   val rating: Rating,
+  val operationId: String = java.util.UUID.randomUUID().toString(),
+  val expectedRevision: Int? = null,
 )
 
 @Serializable
 internal data class ReviewsRequest(val reviews: List<ReviewSubmit>)
 
 @Serializable
-data class ReviewError(val idx: Int, val reason: String)
+data class ReviewError(val idx: Int, val reason: String, val status: Int? = null)
 
 @Serializable
 data class ReviewResult(val applied: Int, val errors: List<ReviewError>)

@@ -3,3 +3,8 @@ main.js
 *.js.map
 .DS_Store
 dist/
+data/
+.env
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

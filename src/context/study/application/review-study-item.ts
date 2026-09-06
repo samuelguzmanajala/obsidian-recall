@@ -6,6 +6,7 @@ import { ReviewLog } from '../domain/review-log';
 import { Review } from '../domain/review';
 
 export interface ReviewStudyItemCommand {
+  expectedRevision?: number;
   studyItemId: string;
   rating: Rating;
 }

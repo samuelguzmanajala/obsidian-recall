@@ -25,9 +25,9 @@ class DtoTest {
   }
 
   @Test fun `ReviewsRequest matches the server contract`() {
-    val req = ReviewsRequest(listOf(ReviewSubmit("id-1", Rating.Again)))
+    val req = ReviewsRequest(listOf(ReviewSubmit("id-1", Rating.Again, "op-1", 4)))
     val text = json.encodeToString(req)
-    assertEquals("""{"reviews":[{"studyItemId":"id-1","rating":"again"}]}""", text)
+    assertEquals("""{"reviews":[{"studyItemId":"id-1","rating":"again","operationId":"op-1","expectedRevision":4}]}""", text)
   }
 
   @Test fun `DueItem can deserialize a real server payload`() {

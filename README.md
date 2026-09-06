@@ -13,6 +13,10 @@ See **[Backend setup, safe migration and protocol](docs/backend.md)** before ena
 remote mode. Existing installations stay in legacy local mode until explicitly switched.
 Do not run local and remote scheduling as parallel authorities.
 
+The verified installation on Samuel's Mac is documented in
+[macOS deployment and recovery](docs/macos-deployment.md), including backup locations
+and the remaining Android-device setup.
+
 ```sh
 npm ci
 npm run build:server

@@ -19,6 +19,8 @@ const service = new RecallService(db, {
   flashcardTags: (process.env.RECALL_TAGS ?? '').split(',').map(t => t.trim()).filter(Boolean),
   dailyNewLimit: nonnegative('RECALL_DAILY_NEW', 20),
   dailyReviewLimit: nonnegative('RECALL_DAILY_REVIEW', 0),
+  leechThreshold: nonnegative('RECALL_LEECH_THRESHOLD', 8),
+  shuffleReviews: process.env.RECALL_SHUFFLE !== 'false',
 });
 const server = createRecallServer(service, token, configureAudio());
 service.reindexIfTagsChanged().then(() => {

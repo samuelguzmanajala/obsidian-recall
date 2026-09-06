@@ -3,7 +3,7 @@ import { Container } from '../app/backend/container';
 import { VaultSync } from '../app/backend/vault-sync';
 import { DEFAULT_SETTINGS, type RecallSettings } from '../app/backend/recall-settings';
 import { MultiDeviceReviewLog } from '../context/study/infrastructure/json-review-log';
-import type { SerializedReview } from '../context/shared/infrastructure/json-storage';
+import type { SerializedReview, SerializedSyncState } from '../context/shared/infrastructure/json-storage';
 import { StudyItemId } from '../context/study/domain/study-item-id';
 import { Rating } from '../context/study/domain/rating';
 import { Direction } from '../context/study/domain/direction';
@@ -164,14 +164,13 @@ export class RecallService {
       if (old && old.content === content) return { path, revision: current };
       if (current !== expectedRevision) throw new ApiError(409, 'Note changed on another device; resolve content before publishing');
       const c = await this.context();
-      const affected = new Set((await c.studyItemRepository.findAll())
-        .filter(i => c.vaultSync!.findFileByConceptId(i.conceptId.value)?.filePath === path).map(i => i.id.value));
+      const before = await c.syncStateFile.read<SerializedSyncState>();
+      const affected = new Set(before?.fileIndices[path]?.studyItemIds ?? []);
       if (content === null) await c.vaultSync!.removeFile(path);
       else await c.vaultSync!.syncFile(path, content);
       // Invalidate queued reviews when note contents change, including remove/recreate of stable IDs.
-      for (const item of await c.studyItemRepository.findAll()) {
-        if (c.vaultSync!.findFileByConceptId(item.conceptId.value)?.filePath === path) affected.add(item.id.value);
-      }
+      const after = await c.syncStateFile.read<SerializedSyncState>();
+      for (const id of after?.fileIndices[path]?.studyItemIds ?? []) affected.add(id);
       for (const id of affected) await this.db.document(`revision:${id}`).write(this.itemRevision(id) + 1);
       this.db.sql.prepare('INSERT INTO notes VALUES (?,?,?) ON CONFLICT(path) DO UPDATE SET content=excluded.content,revision=excluded.revision')
         .run(path, content as string | null, current + 1);

@@ -153,10 +153,19 @@ Actualizacion posterior: 228 pruebas TypeScript y 25 Android.
   conexion/foco y con `Recall: Retry pending notes and reviews`.
 - Los renombrados y borrados observados se registran explicitamente. Una ausencia detectada
   al arrancar NO se convierte en borrado automatico: podria faltar sincronizacion del vault.
-- Un conflicto detiene la cola de publicaciones. La barra de estado indica pendientes y
-  su detalle. `Recall: Resolve note conflict using this vault version` pide confirmacion
+- Un conflicto bloquea solo su nota y los renombrados dependientes; las notas independientes
+  siguen publicandose. Una cola antigua cuya version final ya coincide con el backend se
+  reconoce sin sobrescribir contenido. Un cambio de revision solo se reintenta automaticamente
+  con una operacion nueva si el contenido de la version base sigue intacto.
+  La barra de estado indica pendientes y su detalle.
+  `Recall: Resolve note conflict using this vault version` pide confirmacion
   antes de publicar la version local. Si la version remota es la correcta, cancela y
   reconcilia las notas primero. Conflictos de rutas requieren reconciliacion manual.
+- Las colas y versiones de referencia estan separadas por URL. Cambiar entre la direccion
+  local y HTTPS no migra automaticamente las colas, aunque ambas apunten al mismo proceso.
+  No mezclar diarios de servidores distintos. La recuperacion local del 9 de septiembre
+  comprobo primero que ambos manifiestos coincidieran y proceso la cola antigua contra su
+  endpoint original, manteniendo las comprobaciones de revision y sin forzar conflictos.
 - Android recupera valoraciones antes de cargar mazos o empezar una sesion. Los rechazos
   definitivos se archivan en `rejected-reviews-<hash-backend>.json`, no se fuerzan con una
   revision nueva y quedan senalados en la pantalla de mazos.
@@ -184,6 +193,31 @@ Copias previas de esta fase, dentro de Recall Backend:
 - `backups/android-2026-09-06T12-26-50-463Z`.
 
 ## Actualizaciones
+
+### Correccion de publicaciones (2026-09-09)
+
+Se recuperaron las seis operaciones de la cola local anterior y la cola HTTPS quedo
+tambien vacia, sin conflictos ni repasos pendientes. La nota diaria siguio en revision 26;
+Diagrama de caja, Diagrama de densidad y Exploracion visual de una distribucion pasaron
+a revision 2, con contenido identico al vault. La nota de entrenamiento se publico en
+revision 1. No se modificaron los Markdown del vault ni se forzaron versiones remotas.
+
+Las 234 pruebas TypeScript, el chequeo de tipos y la compilacion pasaron. El bundle
+instalado coincide con el compilado. Se verifico el refresco automatico de mazos sin
+reemplazar el DOM cuando no hay cambios. Los 14.648 eventos de repaso de la copia inicial
+siguen presentes sin modificaciones; hay diez repasos adicionales anteriores a instalar
+el plugin, no generados por las pruebas.
+
+Copias previas dentro de Recall Backend:
+
+- `backups/recall-2026-09-09T19-15-18-561Z.sqlite` (integridad verificada y copia en Disk2).
+- `backups/sync-conflict-2026-09-09T19-19-51-643Z` (perfil local y plugin; 13 archivos verificados).
+- `backups/plugin-refresh-2026-09-09T19-19-51-694Z` (plugin previo).
+
+`node scripts/backup-sync-state.mjs` respalda diarios, cursores y plugin con Obsidian
+cerrado. Estas copias contienen datos privados y configuracion; no publicarlas.
+
+### Procedimiento
 
 Modificar el repositorio no modifica automaticamente el servidor activo. Ejecuta pruebas y
 `npm run build:server`, haz una copia, detiene el servicio y sustituye los bundles de `server/`;

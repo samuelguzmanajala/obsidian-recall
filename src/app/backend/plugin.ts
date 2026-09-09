@@ -108,7 +108,7 @@ export default class RecallPlugin extends Plugin {
         try {
           const file = this.app.vault.getAbstractFileByPath(path);
           if (!(file instanceof TFile)) throw new Error('La nota local no esta disponible');
-          await this.remoteSync!.resolveWithLocal(await this.app.vault.read(file));
+          await this.remoteSync!.resolveWithLocal(await this.app.vault.read(file), path);
           await recover();
         } catch (error) { new Notice(`Recall: ${(error as Error).message}`, 15000); }
       };

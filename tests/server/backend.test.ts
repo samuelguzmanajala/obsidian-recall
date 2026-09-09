@@ -37,6 +37,95 @@ async function serve(service: RecallService, audio?: ServerAudio) {
 }
 
 describe('standalone backend', () => {
+  it('preserves an edit appended while checking an already-applied queued prefix', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('Test.md', 'Q::Base');
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Remote', expectedRevision: 1 });
+    await expect(sync.publish('Test.md', 'Q::Stale')).rejects.toThrow();
+    await sync.stageCurrent('Test.md', 'Q::Remote');
+    const request = client.request.bind(client);
+    let injected = false;
+    client.request = async <T>(path: string, body?: unknown): Promise<T> => {
+      const result = await request<T>(path, body);
+      if (path === '/notes' && body === undefined && !injected) {
+        injected = true;
+        // Mutates the unprepared last job while reconcileConflict awaits metadata.
+        await sync.stageCurrent('Test.md', 'Q::Newest local');
+      }
+      return result;
+    };
+    await expect(sync.retry()).rejects.toThrow();
+    expect(sync.pendingCount).toBe(2);
+    expect((await service.due()).items[0].sideB).toBe('Remote');
+    await sync.resolveWithLocal('Q::Newest local', 'Test.md');
+    expect((await service.due()).items[0].sideB).toBe('Newest local');
+    expect(sync.pendingCount).toBe(0);
+  });
+  it('retires a stale queued prefix when its final content is already remote, without overwriting it', async () => {
+    const service = setup(); const { client } = await serve(service);
+    let state: any = {}; let stored: any[] = [];
+    const journal = { load: () => structuredClone(stored), save: (jobs: any[]) => { stored = structuredClone(jobs); } };
+    const persist = (next: any) => { state = structuredClone(next); };
+    const sync = new RemoteNoteSync(client, state, persist, journal);
+    await sync.publish('Daily.md', 'Q::Initial');
+    await service.note({ operationId: randomUUID(), path: 'Daily.md', content: 'Q::Latest', expectedRevision: 1 });
+    await expect(sync.publish('Daily.md', 'Q::Old queued edit')).rejects.toMatchObject({ status: 409 });
+    await sync.stageCurrent('Daily.md', 'Q::Latest');
+    const recovered = new RemoteNoteSync(client, state, persist, journal);
+    await recovered.retry();
+    expect(recovered.pendingCount).toBe(0); expect(stored).toEqual([]);
+    expect(state['Daily.md'].revision).toBe(2);
+    expect((await service.notes()).notes[0].revision).toBe(2);
+    await recovered.publish('Daily.md', 'Q::Next normal edit');
+    expect((await service.due()).items[0].sideB).toBe('Next normal edit');
+  });
+  it('publishes independent notes while retaining a genuine conflict and its error', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('Daily.md', 'Q::Initial');
+    await service.note({ operationId: randomUUID(), path: 'Daily.md', content: 'Q::Remote change', expectedRevision: 1 });
+    await expect(sync.publish('Daily.md', 'Q::Local change')).rejects.toThrow('Daily.md');
+    await expect(sync.publish('Science.md', 'Science::Published')).resolves.toBeUndefined();
+    expect(sync.pendingCount).toBe(1); expect(sync.conflictPath).toBe('Daily.md');
+    expect((await service.due()).items.map(i => i.sideB)).toContain('Published');
+    await expect(sync.retry()).rejects.toMatchObject({ status: 409 });
+    expect((await service.due()).items.map(i => i.sideB)).toContain('Remote change');
+  });
+  it('propagates a conflict through a rename chain but not to unrelated paths', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('A.md', 'Q::Initial');
+    await service.note({ operationId: randomUUID(), path: 'A.md', content: 'Q::Remote', expectedRevision: 1 });
+    await expect(sync.publish('A.md', 'Q::Local')).rejects.toThrow();
+    sync.stageRename('A.md', 'B.md'); sync.stageRename('B.md', 'C.md');
+    await sync.stageCurrent('C.md', 'Q::Moved');
+    await sync.publish('Independent.md', 'Other::OK');
+    expect((await service.notes()).notes.map(n => n.path).sort()).toEqual(['A.md', 'Independent.md']);
+    expect(sync.pendingCount).toBe(4);
+  });
+  it('rebases only when the content of the expected base is still identical', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('Test.md', 'Q::Base');
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Temporary', expectedRevision: 1 });
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Base', expectedRevision: 2 });
+    await sync.publish('Test.md', 'Q::New local edit');
+    expect(sync.pendingCount).toBe(0);
+    expect((await service.notes()).notes[0].revision).toBe(4);
+    expect((await service.due()).items[0].sideB).toBe('New local edit');
+  });
+  it('does not compact across a pending deletion even if an older edit matches the server', async () => {
+    const service = setup(); const { client } = await serve(service);
+    const sync = new RemoteNoteSync(client, {}, () => {});
+    await sync.publish('Test.md', 'Q::Initial');
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Remote', expectedRevision: 1 });
+    await expect(sync.publish('Test.md', 'Q::Old')).rejects.toThrow();
+    await sync.stageCurrent('Test.md', 'Q::Remote'); sync.stageDelete('Test.md');
+    await expect(sync.retry()).rejects.toThrow();
+    expect(sync.pendingCount).toBe(3);
+    expect((await service.notes()).notes[0].deleted).toBe(false);
+  });
   it('keeps an explicit deletion durable until acknowledgement', async () => {
     const service = setup(); const { client } = await serve(service);
     let state: any = {}; let stored: any[] = [];

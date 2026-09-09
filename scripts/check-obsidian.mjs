@@ -4,6 +4,27 @@ const targets = await (await fetch('http://127.0.0.1:9223/json/list')).json();
 const target = targets.find(t => t.type === 'page' && t.url === 'app://obsidian.md/index.html');
 if (!target) throw new Error('Obsidian page not found');
 const expressions = {
+  'recover-loopback-journal': `(await (async()=>{
+    const settings=structuredClone(p.remoteClient.settings);settings.backend.url='http://127.0.0.1:27124';
+    const client=new p.remoteClient.constructor(settings,p.remoteClient.transport);
+    const key='recall-note-cursors:SamuelGuzman:'+settings.backend.url;
+    const journalKey='recall-pending-notes:SamuelGuzman:'+settings.backend.url;
+    const sync=new p.remoteSync.constructor(client,JSON.parse(localStorage.getItem(key)??'{}'),v=>localStorage.setItem(key,JSON.stringify(v)),{
+      load:()=>JSON.parse(localStorage.getItem(journalKey)??'[]'),save:v=>localStorage.setItem(journalKey,JSON.stringify(v))});
+    try {
+      const [local,active]=await Promise.all([client.request('/notes'),p.remoteClient.request('/notes')]);
+      if(JSON.stringify(local)!==JSON.stringify(active))throw new Error('Endpoint manifests differ; no recovery attempted');
+      for(const path of new Set(sync.jobs.map(j=>j.path))){
+        const file=app.vault.getAbstractFileByPath(path);if(!file||file.extension!=='md')throw new Error('Missing pending note');
+        if(sync.jobs.some(j=>j.path===path&&(j.newPath||j.content===null)))throw new Error('Path changes require manual review');
+        await sync.stageCurrent(path,await app.vault.read(file));
+      }
+      await sync.retry();
+      return {endpointManifestsMatched:true,oldQueuePending:sync.pendingCount};
+    } finally {sync.close();client.close();}
+  })())`,
+  'sync-storage': `({url:p.remoteClient.settings.backend.url,keys:Object.keys(localStorage).filter(k=>k.startsWith('recall-note-cursors:')||k.startsWith('recall-pending-notes:')).map(k=>({key:k,count:Object.keys(JSON.parse(localStorage.getItem(k))).length})),cursors:Object.entries(p.remoteSync.state).filter(([k])=>/Diagrama de densidad|Exploracion visual|Diagrama de caja/.test(k))})`,
+  'sync-state': `({pendingNotes:p.remoteSync.pendingCount,conflict:p.remoteSync.conflictPath,knownNotes:p.remoteSync.knownPaths.length,jobs:p.remoteSync.jobs.map(j=>({path:j.path,expectedRevision:j.expectedRevision,baseHash:j.baseHash})),status:[...document.querySelectorAll('.status-bar-item')].filter(e=>e.textContent.startsWith('Recall:')).map(e=>({text:e.textContent,title:e.getAttribute('aria-label')??e.title}))})`,
   recovery: `(await new Promise(r=>setTimeout(r,3000)), await app.commands.commands['obsidian-recall:retry-pending'].callback(), {pendingNotes:p.remoteSync.pendingCount,conflict:p.remoteSync.conflictPath,pendingReviews:p.remoteClient.hasPendingReview(),knownNotes:p.remoteSync.knownPaths.length,resolveCommand:!!app.commands.commands['obsidian-recall:resolve-note-conflict'],status:[...document.querySelectorAll('.status-bar-item')].map(e=>e.textContent).filter(t=>t.startsWith('Recall:')),stats:await p.remoteClient.getStudyStats.execute()})`,
   inspect: `({remote:p.isRemoteMode(), localContainerAbsent:!p.container, localVaultSyncAbsent:!p.vaultSync, publisher:!!p.remoteSync, notes:app.vault.getMarkdownFiles().length, command:!!app.commands.commands['obsidian-recall:publish-notes'], stats:await p.remoteClient.getStudyStats.execute()})`,
   publish: `(await app.commands.commands['obsidian-recall:publish-notes'].callback(), {published:true,notes:app.vault.getMarkdownFiles().length,stats:await p.remoteClient.getStudyStats.execute()})`,

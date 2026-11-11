@@ -8,3 +8,9 @@ data/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Local tool configuration and design reference downloads
+.claude/
+.codex/
+.gemini/
+.impeccable/ref/

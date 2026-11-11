@@ -3,6 +3,7 @@ import { RecallDatabase } from './database';
 import { RecallService } from './service';
 import { createRecallServer } from './http';
 import { configureAudio } from './audio/configure-audio';
+import { configureMcp } from './mcp/configure';
 
 const token = process.env.RECALL_TOKEN ?? '';
 process.umask(0o077);
@@ -15,7 +16,8 @@ function nonnegative(name: string, fallback: number) {
   return n;
 }
 const receiptDays = nonnegative('RECALL_RECEIPT_DAYS', 90);
-const db = new RecallDatabase(resolve(process.env.RECALL_DB ?? './data/recall.sqlite'));
+const dbPath = resolve(process.env.RECALL_DB ?? './data/recall.sqlite');
+const db = new RecallDatabase(dbPath);
 const service = new RecallService(db, {
   flashcardTags: (process.env.RECALL_TAGS ?? '').split(',').map(t => t.trim()).filter(Boolean),
   dailyNewLimit: nonnegative('RECALL_DAILY_NEW', 20),
@@ -24,6 +26,7 @@ const service = new RecallService(db, {
   shuffleReviews: process.env.RECALL_SHUFFLE !== 'false',
 });
 const server = createRecallServer(service, token, configureAudio());
+const mcp = configureMcp(process.env, dbPath, service, token);
 const expire = () => service.expireReceipts(receiptDays).catch(error => console.error('Receipt expiry failed:', error));
 void expire();
 const expiry = setInterval(expire, 86_400_000);
@@ -33,6 +36,7 @@ service.reindexIfTagsChanged().then(() => {
   server.listen(port, process.env.RECALL_HOST ?? '127.0.0.1', () => {
     console.log(`Recall backend listening on ${process.env.RECALL_HOST ?? '127.0.0.1'}:${port}`);
   });
+  mcp?.listen();
 }).catch(async error => { console.error('Recall startup failed:', error); clearInterval(expiry); await db.close(); process.exitCode = 1; });
 let stopping = false;
 async function stop() {
@@ -41,6 +45,7 @@ async function stop() {
   clearInterval(expiry);
   server.closeIdleConnections();
   await new Promise<void>(r => server.close(() => r()));
+  await mcp?.close();
   await db.close();
 }
 process.on('SIGINT', () => void stop());

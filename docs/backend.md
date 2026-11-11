@@ -211,6 +211,66 @@ Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para un
 Para renombrar: `{operationId, path, newPath, expectedRevision}`. Las rutas son relativas al
 vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el renombrado.
 
+## Conector MCP para ChatGPT (opcional)
+
+El backend puede ofrecer un servidor MCP remoto (transporte Streamable HTTP) protegido con
+OAuth, para usar Recall desde ChatGPT como conector personalizado. Por ahora tiene una sola
+herramienta de solo lectura, `list_decks`: el árbol de mazos con tarjetas totales, pendientes y
+nuevas, los mismos datos que `GET /api/v1/decks`.
+
+Se sirve en **otro puerto**, pensado para publicarse en Internet con Tailscale Funnel. Ese puerto
+solo atiende `/mcp`, `/oauth/*` y `/.well-known/oauth-*`; **nada de `/api/v1`**, que sigue siendo
+privado en el puerto habitual. Sin estas variables el servidor se comporta exactamente como antes:
+
+| Variable | Función |
+| --- | --- |
+| `RECALL_MCP_PORT` | Puerto del listener público (p. ej. `27125`); distinto de `RECALL_PORT` |
+| `RECALL_MCP_PUBLIC_URL` | Origen HTTPS público, sin ruta (p. ej. `https://mac.tailnet.ts.net:10000`). Es el emisor OAuth; el recurso es `<origen>/mcp` |
+| `RECALL_MCP_HOST` | Interfaz de escucha (por defecto `127.0.0.1`) |
+| `RECALL_MCP_OAUTH_DB` | Base SQLite de OAuth (por defecto `recall-oauth.sqlite` junto a `RECALL_DB`) |
+
+Hay que definir las dos primeras o ninguna; si falta una, el servidor no arranca.
+
+Funcionamiento:
+
+- ChatGPT descubre los metadatos (RFC 9728 y RFC 8414), se registra solo (registro dinámico de
+  clientes, RFC 7591) y abre la página de aprobación `/oauth/authorize`. Ahí escribes tu
+  `RECALL_TOKEN` para aprobarlo. El token nunca sale de esa página ni se entrega al cliente.
+- Código de autorización con PKCE S256, de un solo uso y válido 60 s; redirección solo a URIs
+  registradas exactamente. Respuesta con `iss` (RFC 9207). Los tokens se emiten solo para el recurso
+  `<origen>/mcp`; un token de otro recurso o tu `RECALL_TOKEN` no sirven en `/mcp`.
+- Token de acceso de 1 h y token de refresco de 60 días que rota en cada uso. Reutilizar un token de
+  refresco ya usado, o un código ya canjeado, revoca toda esa autorización: tendrás que volver a
+  conectar.
+- Tras 5 intentos fallidos en 15 minutos, la aprobación se bloquea durante esa ventana (para todos,
+  también para ti). El contador vive en memoria y se reinicia al reiniciar el servidor.
+- `recall-oauth.sqlite` guarda clientes registrados y **solo hashes SHA-256** de los tokens. No
+  forma parte de la base de estudio ni de sus migraciones, y la copia de `scripts/backup-server.mjs`
+  no la incluye: si la pierdes, basta con volver a conectar ChatGPT. Los clientes registrados que
+  nunca se aprobaron se eliminan al cabo de un día. Para revocar todos los accesos, detén el
+  servidor y borra ese archivo (y sus `-wal`/`-shm`).
+
+Pasos para conectar ChatGPT (manual, no se hace automáticamente):
+
+1. Añade al entorno del backend `RECALL_MCP_PORT=27125` y
+   `RECALL_MCP_PUBLIC_URL=https://<tu-máquina>.<tailnet>.ts.net:10000`, y reinicia. Comprueba en
+   local `curl http://127.0.0.1:27125/.well-known/oauth-protected-resource/mcp`.
+2. Publica **solo ese puerto** con Funnel, en un puerto HTTPS que Funnel admita y que no use ya
+   tu `tailscale serve` privado (443, 8443 o 10000), por ejemplo:
+   `tailscale funnel --bg --https=10000 http://127.0.0.1:27125`. **Nunca actives Funnel en el
+   puerto que apunta a `RECALL_PORT`** (en esta instalación, 8443): publicaría `/api/v1` en Internet.
+   Comprueba con `tailscale funnel status` qué se publica.
+3. En ChatGPT, con el modo desarrollador activado, añade un conector o servidor MCP personalizado
+   con la URL `https://<tu-máquina>.<tailnet>.ts.net:10000/mcp` y autenticación OAuth. Si pide un
+   modo de registro, elige el registro dinámico (DCR); este servidor no admite *Client ID Metadata
+   Documents*. ChatGPT abrirá la página de aprobación: escribe tu `RECALL_TOKEN` y pulsa Approve.
+4. Pide en el chat «¿qué mazos tengo en Recall?». Para desconectar, elimina el conector en ChatGPT
+   y desactiva Funnel (`tailscale funnel --https=10000 off`).
+
+ChatGPT envía la lista de mazos a OpenAI al usarla. Las opciones y nombres de la interfaz de
+ChatGPT cambian a menudo; la disponibilidad del modo desarrollador y de conectores en el modo de
+voz depende del plan y no está garantizada.
+
 ## Voz y proveedores
 
 Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Al configurar esa clave se reutilizan

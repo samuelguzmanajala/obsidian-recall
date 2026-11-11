@@ -66,6 +66,7 @@ src/
 │   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
 │   ├── server-settings.ts           # ServerSettings + defaults
 │   ├── auth.ts, send-json.ts        # HTTP helpers
+│   ├── mcp/                         # Optional public listener: MCP tools + single-user OAuth (own SQLite file)
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
 ├── app/                             # Obsidian plugin (backend client only)
 │   ├── backend/

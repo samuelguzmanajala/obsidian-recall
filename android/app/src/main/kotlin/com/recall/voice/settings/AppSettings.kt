@@ -17,7 +17,13 @@ data class AppConfig(
   val defaultRatingOnTimeout: Rating = Rating.Again,
   /** Use the server's cloud TTS endpoint instead of on-device TTS. */
   val useRemoteTts: Boolean = true,
+  /** Playback speed of the spoken card, one of [VOICE_SPEEDS]. */
+  val voiceSpeed: Float = 1f,
 )
+
+val VOICE_SPEEDS = listOf(1f, 1.25f, 1.5f)
+
+private fun parseSpeed(raw: String?): Float = raw?.toFloatOrNull()?.takeIf { it in VOICE_SPEEDS } ?: 1f
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "recall-voice")
 
@@ -26,6 +32,7 @@ private val KEY_TOKEN = stringPreferencesKey("token")
 private val KEY_LOCALE = stringPreferencesKey("locale")
 private val KEY_DEFAULT_RATING = stringPreferencesKey("defaultRating")
 private val KEY_USE_REMOTE_TTS = androidx.datastore.preferences.core.booleanPreferencesKey("useRemoteTts")
+private val KEY_VOICE_SPEED = stringPreferencesKey("voiceSpeed")
 
 class AppSettings(private val context: Context) {
 
@@ -38,6 +45,7 @@ class AppSettings(private val context: Context) {
         Rating.valueOf(prefs[KEY_DEFAULT_RATING] ?: Rating.Again.name)
       }.getOrDefault(Rating.Again),
       useRemoteTts = prefs[KEY_USE_REMOTE_TTS] ?: true,
+      voiceSpeed = parseSpeed(prefs[KEY_VOICE_SPEED]),
     )
   }
 
@@ -51,6 +59,7 @@ class AppSettings(private val context: Context) {
           Rating.valueOf(prefs[KEY_DEFAULT_RATING] ?: Rating.Again.name)
         }.getOrDefault(Rating.Again),
         useRemoteTts = prefs[KEY_USE_REMOTE_TTS] ?: true,
+        voiceSpeed = parseSpeed(prefs[KEY_VOICE_SPEED]),
       )
       val next = transform(current)
       prefs[KEY_BASE_URL] = next.baseUrl
@@ -58,6 +67,7 @@ class AppSettings(private val context: Context) {
       prefs[KEY_LOCALE] = next.locale
       prefs[KEY_DEFAULT_RATING] = next.defaultRatingOnTimeout.name
       prefs[KEY_USE_REMOTE_TTS] = next.useRemoteTts
+      prefs[KEY_VOICE_SPEED] = next.voiceSpeed.toString()
     }
   }
 }

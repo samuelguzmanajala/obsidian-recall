@@ -1,0 +1,215 @@
+package com.recall.voice.ui
+
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.captureRoboImage
+import com.recall.voice.api.DeckTreeNode
+import com.recall.voice.api.DueItem
+import com.recall.voice.api.PreviewIntervals
+import com.recall.voice.api.Rating
+import com.recall.voice.session.SessionState
+import com.recall.voice.session.Station
+import com.recall.voice.session.StationStatus
+import com.recall.voice.settings.AppConfig
+import com.recall.voice.ui.theme.RecallTheme
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.ParameterizedRobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import java.io.File
+
+/**
+ * Renders every screen state to `.impeccable/review/<name>-<dark|light>.png` so the design can be
+ * reviewed without a device. Spanish locale, a 411 x 891 dp phone at xxhdpi.
+ */
+@RunWith(ParameterizedRobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "es-w411dp-h891dp-xxhdpi")
+class ScreenshotTest(private val dark: Boolean) {
+
+  companion object {
+    @JvmStatic
+    @ParameterizedRobolectricTestRunner.Parameters(name = "dark={0}")
+    fun themes(): List<Array<Any>> = listOf(arrayOf(true), arrayOf(false))
+  }
+
+  @get:Rule val compose = createComposeRule()
+
+  private val outDir = File(System.getProperty("recall.review.dir") ?: "build/review").apply { mkdirs() }
+
+  private fun shoot(name: String, content: @Composable () -> Unit) {
+    compose.setContent {
+      RecallTheme(dark = dark) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
+      }
+    }
+    compose.waitForIdle()
+    val file = File(outDir, "$name-${if (dark) "dark" else "light"}.png")
+    compose.onRoot().captureRoboImage(file.absolutePath)
+  }
+
+  // Session
+
+  private val card = DueItem(
+    studyItemId = "s1",
+    conceptId = "c1",
+    sideA = "¿Qué diferencia hay entre `val` y `var` en Kotlin?",
+    sideB = "`val` declara una referencia de solo lectura; `var` permite reasignarla.\n\n" +
+      "- `val` se asigna una sola vez\n" +
+      "- `var` admite nuevas asignaciones\n" +
+      "- Ninguna de las dos hace **inmutable** el objeto",
+    direction = "a-to-b",
+    due = "2026-11-11T08:00:00Z",
+    reps = 4,
+    lapses = 1,
+    stability = 6.2,
+    difficulty = 5.1,
+    voiceQuestion = "¿Qué diferencia hay entre val y var en Kotlin?",
+    voiceAnswer = "val declara una referencia de solo lectura; var permite reasignarla.",
+    preview = PreviewIntervals(againDays = 0, hardDays = 2, goodDays = 6, easyDays = 15),
+  )
+
+  private fun confirmed(vararg ratings: Rating) = ratings.map { Station(it, StationStatus.Confirmed) }
+
+  private val history = confirmed(Rating.Good, Rating.Good, Rating.Again, Rating.Easy, Rating.Hard, Rating.Good)
+
+  private fun session(name: String, state: SessionState, history: List<Station> = this.history) = shoot(name) {
+    SessionScreen(
+      state = state,
+      deckName = "Kotlin",
+      stations = history,
+      onManualRating = {},
+      onSkipToAnswer = {},
+      onResumeVoice = {},
+      onRetry = {},
+      onExit = {},
+    )
+  }
+
+  @Test fun sessionRating() = session("session-rating", SessionState.ListeningRating(card, 7, 23))
+
+  @Test fun sessionQuestion() = session("session-question", SessionState.ListeningReveal(card, 7, 23))
+
+  @Test fun sessionPaused() = session("session-paused", SessionState.AwaitingConfirmation(card, 7, 23))
+
+  @Test fun sessionError() = session(
+    "session-error",
+    SessionState.Error("failed to connect to /192.168.1.10 (port 27124) after 10000ms"),
+  )
+
+  @Test fun sessionDone() = session(
+    "session-done",
+    SessionState.Done(23),
+    history = List(23) { i ->
+      Station(listOf(Rating.Good, Rating.Good, Rating.Easy, Rating.Hard, Rating.Good, Rating.Again)[i % 6], StationStatus.Confirmed)
+    },
+  )
+
+  /** Confirmed, one rejected (fourth), and the last two still being saved. */
+  @Test fun sessionPendingRejected() = session(
+    "session-pending-rejected",
+    SessionState.ListeningReveal(card, 7, 23),
+    history = confirmed(Rating.Good, Rating.Good, Rating.Again) +
+      Station(Rating.Easy, StationStatus.Rejected) +
+      Station(Rating.Hard, StationStatus.Pending) +
+      Station(Rating.Good, StationStatus.Pending),
+  )
+
+  @Test fun sessionPreparingAudio() = session(
+    "session-preparing-audio",
+    SessionState.ReadingQuestion(card, 7, 23, preparingAudio = true),
+  )
+
+  @Test fun sessionNotSaved() = session(
+    "session-not-saved",
+    SessionState.Error("failed to connect to /192.168.1.10 (port 27124)", com.recall.voice.session.ErrorKind.ReviewsNotSaved),
+    history = history + Station(Rating.Good, StationStatus.Pending) + Station(Rating.Easy, StationStatus.Pending),
+  )
+
+  // Home
+
+  private fun deck(id: String, name: String, due: Int, new: Int, vararg children: DeckTreeNode) = DeckTreeNode(
+    id = id,
+    name = name,
+    totalItems = due + new + 20 + children.sumOf { it.totalItems },
+    dueItems = due + children.sumOf { it.dueItems },
+    newItems = new + children.sumOf { it.newItems },
+    children = children.toList(),
+  )
+
+  private val decks = listOf(
+    deck(
+      "filo", "Filosofía", 0, 0,
+      deck("etica", "Ética", 0, 0, deck("kant", "Kant", 3, 0), deck("aristoteles", "Aristóteles", 2, 1)),
+      deck("episte", "Epistemología", 1, 0, deck("hume", "Hume", 4, 1)),
+    ),
+    deck(
+      "prog", "Programación", 0, 0,
+      deck("kotlin", "Kotlin", 2, 0, deck("corrutinas", "Corrutinas y concurrencia estructurada", 4, 2), deck("compose", "Jetpack Compose", 0, 3)),
+      deck("sql", "SQL", 3, 3),
+    ),
+    deck("idiomas", "Idiomas", 0, 0, deck("aleman", "Alemán", 0, 12)),
+    deck("eco", "Economía y teoría monetaria", 2, 0),
+  )
+
+  private fun home(
+    name: String,
+    decks: List<DeckTreeNode> = emptyList(),
+    loading: Boolean = false,
+    error: String? = null,
+    collapsed: Set<String> = emptySet(),
+  ) = shoot(name) {
+    DeckBrowserContent(
+      decks = decks,
+      loading = loading,
+      refreshing = false,
+      error = error,
+      rejected = 0,
+      collapsed = collapsed,
+      onToggle = {},
+      onRefresh = {},
+      onRetry = {},
+      onOpenSettings = {},
+      onStartSession = { _, _ -> },
+    )
+  }
+
+  @Test fun homeDecks() = home("home-decks", decks, error = "timeout", collapsed = setOf("episte", "idiomas"))
+
+  @Test fun homeEmpty() = home("home-empty")
+
+  @Test fun homeError() = home("home-error", error = "failed to connect to /192.168.1.10 (port 27124) after 10000ms")
+
+  @Test fun homeLoading() = home("home-loading", loading = true)
+
+  // Settings
+
+  @Test fun settingsConfigured() = shoot("settings-configured") {
+    SettingsScreen(
+      config = AppConfig(baseUrl = "http://100.79.144.106:27124", token = "s3cr3t-token-value", locale = "es-ES"),
+      micGranted = true,
+      canGoBack = true,
+      onUpdate = {},
+      onRequestMic = {},
+      onBack = {},
+    )
+  }
+
+  @Test fun settingsFirstRun() = shoot("settings-first-run") {
+    SettingsScreen(
+      config = AppConfig(),
+      micGranted = false,
+      canGoBack = false,
+      onUpdate = {},
+      onRequestMic = {},
+      onBack = {},
+    )
+  }
+}

@@ -7,9 +7,18 @@ export interface TtsRequest {
   voice: string;
   /** TTS model — provider-specific. */
   model?: string;
-  /** Optional steering instructions (e.g. accent, tone) — supported by gpt-4o-mini-tts. */
+  /** Optional steering instructions (OpenAI gpt-4o-mini-tts: `instructions`; Gemini: `speech_metadata.style`). */
   instructions?: string;
   format: 'mp3' | 'opus' | 'aac' | 'wav';
+}
+
+/**
+ * The provider's per-day quota is exhausted: retrying today is pointless.
+ * Callers (e.g. batch generation) recognise it by class or by `code`.
+ */
+export class TtsDailyQuotaError extends Error {
+  readonly code = 'TTS_DAILY_QUOTA';
+  constructor(message: string) { super(message); this.name = 'TtsDailyQuotaError'; }
 }
 
 export interface TtsClient {

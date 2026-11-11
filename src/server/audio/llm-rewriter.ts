@@ -6,56 +6,68 @@ export interface TextFileStorage {
   write(path: string, data: string): Promise<void>;
 }
 
-export const REWRITER_SYSTEM_PROMPT = `You are preparing flashcard text for a multilingual text-to-speech (TTS) engine. The text may mix Spanish, English, and German.
+export const REWRITER_SYSTEM_PROMPT = `You prepare flashcard text to be read aloud by a multilingual text-to-speech engine that recognises each language by itself. The text may mix Spanish, English and German. The listener is a Spanish speaker.
 
-Your job: rewrite the input so the TTS reads each language with the correct accent. The user is a native Spanish speaker — frame transitions in Spanish.
-
-Detection step (do this internally, never output it):
-1. Identify the dominant base language (usually Spanish).
-2. For every foreign segment, detect if it's English, German, or another language.
-3. Wrap each foreign segment in DOUBLE QUOTES so the TTS treats it as a verbatim token in that language.
+Your only job is light cleanup so the text sounds natural when read aloud. The output must contain the same words, in the same languages, in the same order.
 
 Rules:
-- Keep meaning and order intact. Do not add, remove, or translate.
-- Before each language switch, insert a brief Spanish framing cue:
-  - English: "La palabra inglesa:" / "La frase en inglés:" / "En inglés:"
-  - German:  "La palabra alemana:" / "La frase en alemán:" / "En alemán:"
-  - Back to Spanish (only if a switch happened mid-card): "En español:"
-- ALWAYS surround foreign segments with double quotes — even single words. This is critical: the quotes are how the TTS knows to switch accent.
-- If the input has a fill-in-the-blank gap (rendered as "…" or sometimes still as "___"), keep it as "…" — that produces a natural pause. NEVER spell it out as "espacio en blanco" or similar.
-- Strip any leftover markdown (asterisks, backticks, brackets, parentheses around the gloss).
-- Preserve sentence-ending punctuation (".", "?", "!").
-- Output ONLY the rewritten text on a single line. No commentary, no labels, no surrounding quotes around the whole thing.
+1. Never translate. Every word stays in the language it is written in: a Spanish gloss stays Spanish, an English term stays English, a German term stays German.
+2. Never drop, add, summarise or explain. Keep every word, every number and every ordinal (1.º, 2.º, 3.ª…), example sentence, name and acronym.
+3. Never announce or label a language: no "En inglés:", "La palabra inglesa:", "En alemán:", "en inglés" or similar, before or after anything, with no exception.
+   Technical terms, product names and acronyms inside a Spanish sentence are read inline, with no notice.
+4. A fill-in-the-blank gap ("___", "..." or "…") stays as "…". Never spell it out.
+5. Remove leftover Markdown and symbols that are not meant to be spoken: asterisks, backticks, brackets, quotes around terms, list markers, arrows, LaTeX. An arrow becomes a comma.
+6. Alternatives separated by "/" become a comma-separated list.
+7. A parenthesised gloss or aside becomes a comma-separated aside: drop the parentheses and keep the words inside exactly as written.
+8. Keep sentence-ending punctuation (".", "?", "!", "…").
+9. Output ONLY the result on a single line: no commentary, no labels, no quotes around it. If nothing needs cleaning, return the input unchanged.
 
 Examples:
 
-Input: neglect (No … tu salud)
-Output: La palabra inglesa: "neglect". La frase en español: "No … tu salud".
+Input: enfermera profesional, usado en Suiza
+Output: enfermera profesional, usado en Suiza
 
-Input: der Hund (el perro)
-Output: La palabra alemana: "der Hund". En español: "el perro".
+Input: Pflegefachfrau
+Output: Pflegefachfrau
 
-Input: acknowledge (Él … su error)
-Output: La palabra inglesa: "acknowledge". En español: "Él … su error".
+Input: Separation of concerns: separar aspectos que nos preocupan al desarrollar funcionalidad.
+Output: Separation of concerns: separar aspectos que nos preocupan al desarrollar funcionalidad.
 
-Input: descuidar
-Output: descuidar.
+Input: Característica, feature. Otros nombres según disciplina: variable predictora, atributo, entrada
+Output: Característica, feature. Otros nombres según disciplina: variable predictora, atributo, entrada
 
-Input: I binge-watched the whole series in one weekend (maratonear de tirón)
-Output: La frase en inglés: "I binge-watched the whole series in one weekend". En español: "maratonear de tirón".
+Input: 1.º localización. 2.º variabilidad. 3.º asimetría, skewness. 4.º curtosis, kurtosis
+Output: 1.º localización. 2.º variabilidad. 3.º asimetría, skewness. 4.º curtosis, kurtosis
 
-Input: aufwachen — despertarse
-Output: La palabra alemana: "aufwachen". En español: "despertarse".`;
+Input: sorprendido, desconcertado, I was … by his rude comment
+Output: sorprendido, desconcertado, I was … by his rude comment
+
+Input: Wir sitzen um den Tisch. um + Akkusativ, der, den
+Output: Wir sitzen um den Tisch. um + Akkusativ, der, den
+
+Input: Ich wohne in…
+Output: Ich wohne in…
+
+Input: der Hund, el perro
+Output: der Hund, el perro
+
+Input: Debe enviar los eventos fallidos a una dead letter queue.
+Output: Debe enviar los eventos fallidos a una dead letter queue.`;
 
 export class LlmRewriter {
   /** In-memory dedup of concurrent requests for the same input. */
   private readonly inFlight = new Map<string, Promise<string>>();
+  /** Part of every cache key: changing the instruction invalidates stored rewrites. */
+  private readonly promptVersion: string;
 
   constructor(
     private readonly llm: LlmClient,
     private readonly storage: TextFileStorage,
     private readonly cacheDir: string = 'recall-data/voice-rewrite-cache',
-  ) {}
+    private readonly systemPrompt: string = REWRITER_SYSTEM_PROMPT,
+  ) {
+    this.promptVersion = createHash('sha256').update(systemPrompt).digest('hex').slice(0, 12);
+  }
 
   /**
    * Rewrite [input] for multilingual TTS. Returns the rewritten string,
@@ -78,10 +90,10 @@ export class LlmRewriter {
     const promise = (async () => {
       try {
         const response = await this.llm.complete([
-          { role: 'system', content: REWRITER_SYSTEM_PROMPT },
+          { role: 'system', content: this.systemPrompt },
           { role: 'user', content: input },
         ]);
-        const out = response.content.trim();
+        const out = response.content.replace(/\s+/g, ' ').trim();
         if (!out) return input;
         await this.storage.write(path, out);
         return out;
@@ -99,7 +111,13 @@ export class LlmRewriter {
     }
   }
 
+  /** What `rewrite` would return without calling the LLM: null when that needs a (paid) call. */
+  async cached(input: string): Promise<string | null> {
+    if (!input.trim() || !this.llm.isConfigured()) return input;
+    return (await this.storage.read(`${this.cacheDir}/${this.hash(input)}.txt`)) || null;
+  }
+
   private hash(text: string): string {
-    return createHash('sha256').update(text).digest('hex').slice(0, 12);
+    return createHash('sha256').update(`${this.promptVersion}:${text}`).digest('hex').slice(0, 12);
   }
 }

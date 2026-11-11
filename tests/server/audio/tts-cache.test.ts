@@ -82,6 +82,21 @@ describe('TtsCache', () => {
     expect(client.synthesize).toHaveBeenCalledOnce();
   });
 
+  it('keeps the legacy OpenAI file name and scopes other providers', async () => {
+    await cache.getOrGenerate('item', 'q', 'hola');
+    // Pinned from the pre-provider code: sha256("alloy:gpt-4o-mini-tts::hola").slice(0, 12).
+    expect(storage.has('recall-data/voice-cache/item-q-1e0107e3e2dc.mp3')).toBe(true);
+    const gemini = new TtsCache(storage, client, 'recall-data/voice-cache', 'alloy', 'gpt-4o-mini-tts', '', 'gemini');
+    await gemini.getOrGenerate('item', 'q', 'hola');
+    expect(client.synthesize).toHaveBeenCalledTimes(2);
+    expect(storage.size()).toBe(2);
+  });
+
+  it('regenerates over an empty cached file', async () => {
+    await storage.write('recall-data/voice-cache/item-q-1e0107e3e2dc.mp3', Buffer.alloc(0));
+    expect(await cache.getOrGenerate('item', 'q', 'hola')).toEqual(Buffer.from([1, 2, 3, 4]));
+  });
+
   it('after a synthesize failure, the next call retries (does not poison cache)', async () => {
     client.synthesize
       .mockRejectedValueOnce(new Error('rate limit'))

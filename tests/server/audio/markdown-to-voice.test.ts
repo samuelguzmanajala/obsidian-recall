@@ -59,6 +59,22 @@ describe('markdownToVoice', () => {
     expect(markdownToVoice('   \n  \n  ')).toBe('');
   });
 
+  it('keeps an ellipsis as "…" instead of shrinking it to ".."', () => {
+    expect(markdownToVoice('Ich wohne in...')).toBe('Ich wohne in…');
+    expect(markdownToVoice('Ich wohne in....')).toBe('Ich wohne in…');
+    expect(markdownToVoice('Vivo en..')).toBe('Vivo en…');
+    expect(markdownToVoice('No … tu salud')).toBe('No … tu salud');
+    expect(markdownToVoice('No ... tu salud')).toBe('No … tu salud');
+    expect(markdownToVoice('¿Y luego...?')).toBe('¿Y luego…?');
+  });
+
+  it('keeps sentence-ending periods and ellipses across line breaks', () => {
+    expect(markdownToVoice('Fin.\nOtra frase.')).toBe('Fin. Otra frase.');
+    expect(markdownToVoice('Espera...\nSigue')).toBe('Espera… Sigue');
+    expect(markdownToVoice('Espera…\n\nSigue.')).toBe('Espera… Sigue.');
+    expect(markdownToVoice('1.º localización. 2.º variabilidad')).toBe('1.º localización. 2.º variabilidad');
+  });
+
   it('does not break on isolated underscores or asterisks', () => {
     expect(markdownToVoice('snake_case y a*b')).toBe('snake_case y a*b');
   });

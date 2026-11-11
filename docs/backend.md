@@ -213,16 +213,194 @@ vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el r
 
 ## Voz y proveedores
 
-Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Al configurar esa clave se reutilizan
-los adaptadores y la caché de audio existentes. Opcionalmente configura `RECALL_LLM_PROVIDER`,
-`RECALL_LLM_KEY` y `RECALL_LLM_MODEL` para la preparación multilingüe previa. Las instrucciones
-de voz conservan el valor anterior y admiten `RECALL_TTS_INSTRUCTIONS`.
+Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Con esa clave el servidor genera el audio
+(siempre MP3, `audio/mpeg`) y lo guarda en la caché de `RECALL_AUDIO_DIR`.
 
-Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS 60 s); un proveedor colgado
-produce un error de audio en lugar de bloquear la petición indefinidamente.
+`RECALL_TTS_PROVIDER` elige el proveedor: `openai` (por defecto, para no cambiar instalaciones
+existentes) o `gemini`. Cualquier otro valor impide arrancar. `RECALL_TTS_KEY`,
+`RECALL_TTS_MODEL`, `RECALL_TTS_VOICE` y `RECALL_TTS_INSTRUCTIONS` valen para ambos:
+
+| | `openai` | `gemini` |
+|---|---|---|
+| Modelo por defecto | `gpt-4o-mini-tts` | `gemini-3.8-flash-tts` |
+| Voz por defecto | `alloy` | `Kore` |
+| Instrucciones | las incorporadas, salvo `RECALL_TTS_INSTRUCTIONS` | ninguna, salvo `RECALL_TTS_INSTRUCTIONS` (va como `speech_metadata.style`) |
+
+OpenAI retira `gpt-4o-mini-tts`, `tts-1` y `tts-1-hd` el 2027-01-06; el proveedor previsto es
+Gemini. Al cambiar de proveedor revisa `RECALL_TTS_VOICE`/`RECALL_TTS_MODEL`: una voz de OpenAI
+no existe en Gemini. Con `RECALL_TTS_PROVIDER=gemini` el servidor (y el comando de pregeneración)
+se niega a arrancar si `RECALL_TTS_VOICE` es una voz de OpenAI (`alloy`, `ash`, `ballad`, `coral`,
+`echo`, `fable`, `nova`, `onyx`, `sage`, `shimmer`, `verse`) o si `RECALL_TTS_MODEL` empieza por
+`gpt-` o `tts-`: borra esas líneas o pon valores de Gemini. Las instrucciones incorporadas están escritas para OpenAI y no se envían a
+Gemini; Google recomienda no dar estilo por defecto y no pedir acentos en él.
+
+Gemini solo devuelve WAV, así que el servidor lo convierte a MP3 (mono, libmp3lame, VBR 4) con
+`ffmpeg`, ejecutado sin shell y por tuberías, sin ficheros temporales. `RECALL_FFMPEG` indica el
+ejecutable (por defecto `ffmpeg` del `PATH`). Con `gemini` el servidor comprueba al arrancar que
+ffmpeg funciona y tiene libmp3lame, y si no, no arranca. Bajo launchd el `PATH` no incluye
+`/opt/homebrew/bin`: usa una ruta absoluta (`RECALL_FFMPEG=/opt/homebrew/bin/ffmpeg`). La imagen
+Docker ya incluye ffmpeg.
+
+Cuotas observadas en Gemini con el nivel por defecto: unas 10 peticiones por minuto y 100 al
+día para `gemini-3.8-flash-tts`, y cada tarjeta nueva consume una por cara. Ante un 429 o un 5xx
+el servidor reintenta respetando el retraso que indica Google (como mucho 3 intentos y 30 s en
+total, para que el móvil no espere más de la cuenta). Si se agota la cuota diaria no reintenta.
+En cualquier fallo la petición responde 502 y Android usa su TTS local; el motivo queda en el
+log del servidor (sin la clave).
+
+La caché de audio distingue el proveedor: los MP3 ya generados con OpenAI conservan su nombre
+y siguen sirviéndose, y los de Gemini se guardan aparte con otro hash. Las escrituras de caché
+son atómicas (fichero temporal y renombrado), así que un fallo no deja audio a medias.
+
+Antes de sintetizar, el servidor limpia la puntuación que no se lee bien con reglas fijas
+(`preprocessForTts` en `src/server/audio/preprocess-text.ts`), iguales para OpenAI y Gemini, para
+`GET /api/v1/audio`, la cola en segundo plano y la pregeneración:
+
+- una barra con espacios a ambos lados separa alternativas y pasa a coma
+  ("sorprendido / desconcertado" → "sorprendido, desconcertado");
+- un paréntesis precedido de espacio (o al principio) pasa a inciso entre comas con las mismas
+  palabras ("Característica (feature). Otros" → "Característica, feature. Otros"); tras un punto,
+  antes de otra puntuación o al final no se añade coma, y "()" desaparece;
+- una flecha con espacios (`→`, `->`, `=>`, `⇒`) pasa a coma ("der → den" → "der, den");
+- se quitan las comillas dobles (rectas, “ ” o „ “) que solo envuelven un término o frase.
+
+No tocan lo que va pegado a una palabra (`km/h`, `TCP/IP`, `1/2`, `and/or`, URLs, fechas,
+`f(x)`, `getUser(id)`, `(re)encolar`, `a->b`), ni paréntesis anidados o sin cerrar, ni apóstrofos
+o comillas simples (`don't`, `l'eau`), ni comillas sueltas (`5"`). Tampoco traducen, reordenan,
+expanden abreviaturas ("Akk."), deletrean símbolos (`+`, `=`, `≥`) ni tocan números u ordinales.
+Nunca dejan comas dobles o colgando, y el hueco "…" y la puntuación final quedan como estaban.
+El marcador de bloque de código "(código)" se lee ahora como inciso (", código,").
+
+El nombre del MP3 depende del texto final: cambiar estas reglas cambia el texto de las caras
+afectadas, que se vuelven a sintetizar con otro nombre; los ficheros anteriores quedan huérfanos
+(lístalos con `--orphans`, ver "Ficheros huérfanos" más abajo).
+
+La reescritura posterior con un LLM es opcional y está desactivada por defecto:
+`RECALL_LLM_PROVIDER` (por defecto `none`), `RECALL_LLM_KEY` y `RECALL_LLM_MODEL`. Con Gemini no se
+recomienda: Gemini detecta los idiomas solo, y en una muestra de 24 caras el LLM tradujo una
+glosa, etiquetó expresiones inglesas sueltas ("en inglés") y dio salidas distintas entre
+ejecuciones, mientras que lo útil que hacía (la puntuación) ya lo hacen las reglas anteriores.
+Si se activa, recibe el texto ya limpio, nunca anuncia ni etiqueta idiomas (sin excepciones),
+mantiene los huecos como "…" y no traduce ni omite nada. La clave de la caché de reescrituras
+incluye un hash de la instrucción: al cambiarla, las reescrituras guardadas dejan de usarse y se
+regeneran (con coste del proveedor LLM). Las antiguas quedan en disco sin uso.
+
+Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS de OpenAI 60 s, TTS de Gemini
+30 s en total con reintentos); un proveedor colgado produce un error de audio en lugar de
+bloquear la petición indefinidamente.
 
 Activar estas opciones envía el texto de la tarjeta al proveedor correspondiente y puede
 generar cargos. Ni las claves ni esas llamadas deben pasar por Obsidian o el móvil.
+
+### Pregenerar el audio
+
+Sin pregenerar, cada cara se sintetiza la primera vez que el móvil la pide. Con la cuota
+interactiva de Gemini (unas 10 peticiones por minuto y **100 al día** para
+`gemini-3.8-flash-tts`) no es posible generar miles de caras así; el comando de pregeneración usa
+la **Batch API** de Gemini, que tiene límites propios (siguió funcionando con la cuota diaria
+interactiva agotada) y cuesta la mitad.
+
+El comando usa las mismas variables `RECALL_*` que el servidor y produce exactamente los
+ficheros que sirve `GET /api/v1/audio` (mismo texto final, misma reescritura, mismo nombre). Abre
+`RECALL_DB` **solo lectura**: puede ejecutarse con el servidor en marcha, nunca escribe en la base
+ni la migra, y se niega a usarla si su versión de esquema no es la actual (arranca antes el
+servidor nuevo una vez). En esta instalación, desde el directorio del backend:
+
+```sh
+node --env-file=/ruta/a/backend.env dist/server/pregenerate.cjs              # simulación
+node --env-file=/ruta/a/backend.env dist/server/pregenerate.cjs --apply --max-usd=5
+```
+
+(`npm run pregenerate:audio -- …` es equivalente si exportas el entorno tú mismo.)
+
+| Opción | Efecto |
+| --- | --- |
+| `--dry-run` | Por defecto. Sin llamadas a TTS ni a LLM: tarjetas, caras, textos distintos, ya en caché, ficheros copiables, pendientes, caracteres, segundos estimados y coste estimado (precio estándar y batch, hoy y desde el 2027-01-01). Con reescritura, cuántas reescrituras faltan: su texto final no se conoce hasta reescribirlas, así que la estimación usa el texto previo. |
+| `--apply` | Genera. Exige `--max-usd`. |
+| `--max-usd=X` | Tope de gasto de esta ejecución (estimado + real, en USD, solo TTS). No envía nada cuya estimación lo supere y se detiene en cuanto el gasto real lo alcanza. |
+| `--mode=batch\|interactive` | Por defecto `batch` con Gemini e `interactive` con OpenAI. |
+| `--limit=N` | Solo los N primeros textos pendientes (pruebas). |
+| `--batch-size=N` | Textos por lote (150). Los resultados llegan dentro de la respuesta (~400 KB de base64 por clip) y no se han probado lotes de más de 11 clips: súbelo con cuidado. |
+| `--concurrency=N` | Llamadas interactivas y reescrituras en paralelo (2). |
+| `--wait-minutes=N` | Espera máxima por lote (60); después deja el lote anotado y termina. |
+| `--discard-unconfirmed` | Olvida un envío interrumpido que el proveedor no lista (ver abajo). |
+| `--orphans` / `--orphans-out=FICHERO` | Lista los MP3 huérfanos (ver abajo). No borra nada. |
+
+Los textos idénticos (mismo proveedor, voz, modelo e instrucciones) se sintetizan una sola vez y
+se escriben en todos los ficheros que los necesitan: el nombre incluye el ID de la tarjeta, así
+que la cara A de una tarjeta `:::` la usan dos elementos de estudio. Si ya existe el fichero de
+otro elemento con el mismo texto, se copia sin coste. Con reescritura configurada, las
+reescrituras pendientes se hacen antes (con su caché y `--concurrency`); una reescritura fallida
+se omite y se reintenta en la siguiente ejecución.
+
+Modo batch: un lote cada vez. El estado vive en `RECALL_AUDIO_DIR/pregenerate-state.json`
+(escritura atómica; `pregenerate.lock` impide dos ejecuciones a la vez). Antes de crear un lote
+se anota el envío ("submitting", con su `displayName` único, textos y ficheros destino) y justo
+después el nombre del trabajo (`batches/…`). Al relanzar el mismo comando:
+
+- primero recoge el lote anotado (si sigue en curso, espera; si se agota `--wait-minutes`, sale con
+  código 3 y basta relanzarlo);
+- si el envío quedó interrumpido sin nombre, busca el lote por `displayName` en la lista de lotes y
+  lo adopta; si no aparece, se detiene y explica qué hacer: comprueba en la consola de Google que
+  no existe y relanza con `--discard-unconfirmed`. Nunca reenvía a ciegas, porque crear un lote no
+  es idempotente;
+- una caída a mitad de la recogida se repara volviendo a leer el lote y escribiendo solo los
+  ficheros que faltan; el gasto se cuenta una vez;
+- después continúa con lo que falta. Los ficheros ya en caché se saltan siempre.
+
+Un error de una petición dentro de un lote se anota en `failures` del fichero de estado y se
+informa; ese texto se reintenta en otro lote como mucho una vez más (2 intentos) y después se
+deja (borra su entrada para reintentarlo). Si Google rechaza crear un lote por cuota o tokens
+encolados, se divide el tamaño a la mitad (mínimo 10) y se reintenta; si aun así no cabe, se
+detiene limpiamente indicando lo que queda.
+
+Modo interactivo: usa el camino normal (`TtsCache`), respeta los retrasos de los 429 (hasta 6
+intentos y 5 min por texto) y se detiene limpiamente si se agota la cuota diaria, indicando lo que
+queda. Con Gemini consume esa cuota de 100 al día: para un lote grande usa batch. El coste se
+estima con la duración medida del audio (la API interactiva no devuelve uso).
+
+El resumen final muestra generados, copiados, saltados, fallidos, segundos de audio, tokens,
+coste real (base batch y base estándar), lo que queda y la ruta del fichero de estado. La clave
+nunca se imprime.
+
+Precios (USD por millón de tokens, nivel de pago; el audio son 25 tokens por segundo; la tabla
+está en `src/server/audio/tts-prices.ts`):
+
+| `gemini-3.8-flash-tts` | Entrada (texto) | Salida (audio) | ≈ 10 s de audio |
+| --- | --- | --- | --- |
+| Estándar hasta 2026-12-31 | 0,50 | 9,00 | 0,00225 |
+| Batch hasta 2026-12-31 | 0,25 | 4,50 | 0,001125 |
+| Estándar desde 2027-01-01 | 1,00 | 18,00 | 0,0045 |
+| Batch desde 2027-01-01 | 0,50 | 9,00 | 0,00225 |
+
+Las estimaciones son deliberadamente altas (1 s + 1 s por cada 10 caracteres). El tope no cubre
+el coste del LLM de reescritura.
+
+### Audio en segundo plano al cambiar notas
+
+Tras confirmar `POST /api/v1/notes` (alta o edición), el servidor encola las dos caras de las
+tarjetas de esa nota en una cola en memoria: fuera de la transacción, sin retrasar la respuesta y
+sin poder hacerla fallar. Procesa una cara cada vez, sin duplicados, por el camino normal
+(reescritura y caché) y solo con audio remoto configurado. Si se agota la cuota diaria descarta lo
+pendiente, escribe una sola línea en el log y no acepta trabajo nuevo durante una hora; esas caras
+las cubren la ruta bajo demanda y la siguiente pregeneración. La cola no es persistente y al
+apagar no se espera por ella (como mucho 2 s). Renombrar una nota no encola nada: los IDs de las
+tarjetas no cambian y el nombre del fichero depende solo del ID y del texto. `GET /audio` sigue
+generando bajo demanda lo que falte.
+
+### Ficheros huérfanos
+
+`--orphans` lista los MP3 de `RECALL_AUDIO_DIR` que ninguna cara actual usaría con la
+configuración actual (tarjetas borradas o editadas, otra voz, otro proveedor: con Gemini, todos
+los MP3 de OpenAI aparecen como huérfanos aunque volverían a servir si regresaras a OpenAI). Las
+caras cuya reescritura aún no está en caché quedan fuera de la lista. **No borra nada.** Para
+borrarlos a mano, con el servidor parado o no (las escrituras son atómicas), revisa la lista y:
+
+```sh
+node --env-file=/ruta/a/backend.env dist/server/pregenerate.cjs --orphans --orphans-out=/tmp/huerfanos.txt
+# revisa /tmp/huerfanos.txt; después:
+tr '\n' '\0' < /tmp/huerfanos.txt | xargs -0 rm --
+```
 
 ## Docker, copias y límites operativos
 

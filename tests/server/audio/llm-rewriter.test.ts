@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LlmRewriter, type TextFileStorage } from '../../../src/server/audio/llm-rewriter';
+import { LlmRewriter, REWRITER_SYSTEM_PROMPT, type TextFileStorage } from '../../../src/server/audio/llm-rewriter';
 import type { LlmClient } from '@context/shared/domain/llm-client';
+import { audioSource } from '../../../src/server/audio/audio-plan';
+import { markdownToVoice } from '../../../src/server/audio/markdown-to-voice';
 
 class InMemoryTextStorage implements TextFileStorage {
   files = new Map<string, string>();
@@ -87,6 +89,43 @@ describe('LlmRewriter', () => {
     expect(r2).toBe('shared output');
     expect(r3).toBe('shared output');
     expect(llm.complete).toHaveBeenCalledOnce();
+  });
+
+  it('changing the instruction invalidates cached rewrites', async () => {
+    await rewriter.rewrite('hola');
+    const other = new LlmRewriter(llm, storage, 'recall-data/voice-rewrite-cache', 'another instruction');
+    await other.rewrite('hola');
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+    expect(storage.files.size).toBe(2);
+    expect(llm.complete.mock.calls[1][0][0].content).toBe('another instruction');
+  });
+
+  it('ignores rewrites cached under the old key (hash of the input only)', async () => {
+    storage.files.set('recall-data/voice-rewrite-cache/b221d9dbb083.txt', 'La palabra española: "hola".');
+    expect(await rewriter.rewrite('hola')).toBe('rewritten output');
+    expect(llm.complete).toHaveBeenCalledOnce();
+  });
+
+  it('flattens a multi-line answer to one line', async () => {
+    llm.complete.mockResolvedValueOnce({ content: 'uno\n dos\n' });
+    expect(await rewriter.rewrite('x')).toBe('uno dos');
+  });
+
+  it('instruction forbids language announcements and keeps the hardening examples', () => {
+    expect(REWRITER_SYSTEM_PROMPT).toMatch(/Never announce or label a language/);
+    expect(REWRITER_SYSTEM_PROMPT).toMatch(/Never translate/);
+    expect(REWRITER_SYSTEM_PROMPT).toContain('Output: enfermera profesional, usado en Suiza');
+    expect(REWRITER_SYSTEM_PROMPT).toContain('Output: Característica, feature.');
+    expect(REWRITER_SYSTEM_PROMPT).toContain('Output: 1.º localización. 2.º variabilidad.');
+    expect(REWRITER_SYSTEM_PROMPT).not.toMatch(/Output: (La palabra|La frase|En inglés|En alemán)/);
+  });
+
+  it('allows no language tag at all, and its examples start from text the rules already cleaned', () => {
+    expect(REWRITER_SYSTEM_PROMPT).toMatch(/with no exception/);
+    expect(REWRITER_SYSTEM_PROMPT).not.toMatch(/neglect|Only exception/);
+    const inputs = [...REWRITER_SYSTEM_PROMPT.matchAll(/^Input: (.*)$/gm)].map(m => m[1]);
+    expect(inputs.length).toBeGreaterThan(5);
+    for (const input of inputs) expect(audioSource(markdownToVoice(input))).toBe(input);
   });
 
   it('sends the system prompt and the user input as messages', async () => {

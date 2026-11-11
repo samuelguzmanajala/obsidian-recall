@@ -15,12 +15,32 @@ const BASE_TABLES = `
   CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, content TEXT, revision INTEGER NOT NULL);
 `;
 
+export const SCHEMA_VERSION = 4;
+
 /** One connection, serialized transactions, durable commits. No network awaits inside transactions. */
 export class RecallDatabase {
   readonly sql: DatabaseSync;
   private tail: Promise<unknown> = Promise.resolve();
   private statements = new Map<string, StatementSync>();
-  constructor(path: string) {
+  private readonly readOnly: boolean;
+  /**
+   * `readOnly`: for tools that run next to a live server. Never writes, never migrates, never changes
+   * the journal mode; refuses any schema version other than the current one. Transactions are plain
+   * (deferred) read transactions, so they never take the write lock.
+   */
+  constructor(path: string, options: { readOnly?: boolean } = {}) {
+    this.readOnly = options.readOnly === true;
+    if (this.readOnly) {
+      this.sql = new DatabaseSync(path, { readOnly: true });
+      const found = Number(this.sql.prepare('PRAGMA user_version').get()?.user_version ?? 0);
+      if (found !== SCHEMA_VERSION) {
+        this.sql.close();
+        throw new Error(`Database schema version is ${found}, this build expects ${SCHEMA_VERSION}. `
+          + 'Start (or update) the server once so it migrates the database; this tool never migrates.');
+      }
+      this.sql.exec('PRAGMA query_only=1; PRAGMA busy_timeout=5000;');
+      return;
+    }
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.sql = new DatabaseSync(path);
     const version = Number(this.sql.prepare('PRAGMA user_version').get()?.user_version ?? 0);
@@ -93,7 +113,7 @@ export class RecallDatabase {
   }
   transaction<T>(work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
-      this.sql.exec('BEGIN IMMEDIATE');
+      this.sql.exec(this.readOnly ? 'BEGIN' : 'BEGIN IMMEDIATE');
       try {
         const value = await work();
         this.sql.exec('COMMIT');

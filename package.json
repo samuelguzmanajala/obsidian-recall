@@ -9,6 +9,7 @@
     "build:server": "node server.build.mjs",
     "start:server": "node dist/server/main.cjs",
     "migrate:server": "node dist/server/migrate.cjs",
+    "pregenerate:audio": "node dist/server/pregenerate.cjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:run": "vitest run"

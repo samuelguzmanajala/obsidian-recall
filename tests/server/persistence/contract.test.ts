@@ -131,6 +131,38 @@ describe.each(backends)('%s', (_, open) => {
       tagToDeckId: { t2: 'd2', t1: 'd1' },
     }));
   });
+
+  it('source index: card lookup across files and durable card aliases, one key per concept', async () => {
+    const { sources } = open();
+    await sources.put('a.md', index([['k1', 'c1']]));
+    await sources.put('b.md', index([['k2', 'c2'], ['k1', 'c9']]));
+    expect(await sources.conceptForCard('k1')).toBe('c1');
+    expect(await sources.conceptForCard('k2')).toBe('c2');
+    expect(await sources.conceptForCard('nope')).toBeNull();
+    await sources.remove('a.md');
+    expect(await sources.conceptForCard('k1')).toBe('c9');
+
+    expect(await sources.aliasFor('k1')).toBeNull();
+    expect(await sources.aliasOwner('c1')).toBeNull();
+    await sources.setAlias('k1', { conceptId: 'c1', aToB: 'i1', bToA: 'j1' });
+    await sources.setAlias('k3', { conceptId: 'c3', aToB: 'i3', bToA: null });
+    expect(await sources.aliasFor('k1')).toEqual({ conceptId: 'c1', aToB: 'i1', bToA: 'j1' });
+    expect(await sources.aliasFor('k3')).toEqual({ conceptId: 'c3', aToB: 'i3', bToA: null });
+    for (const id of ['c1', 'i1', 'j1']) expect(await sources.aliasOwner(id)).toBe('k1');
+    expect(await sources.aliasOwner('i3')).toBe('k3');
+    // The same concept edited again: the alias moves to the new key, the old key loses it
+    await sources.setAlias('k4', { conceptId: 'c1', aToB: 'i1', bToA: 'j1' });
+    expect(await sources.aliasFor('k1')).toBeNull();
+    expect(await sources.aliasOwner('j1')).toBe('k4');
+    // Another concept taking a key replaces that key's alias
+    await sources.setAlias('k4', { conceptId: 'c5', aToB: 'i5', bToA: null });
+    expect(await sources.aliasOwner('c1')).toBeNull();
+    expect(await sources.aliasFor('k4')).toEqual({ conceptId: 'c5', aToB: 'i5', bToA: null });
+    // Aliases are not part of the note index, its snapshot or file operations
+    await sources.remove('b.md');
+    expect(await sources.aliasFor('k3')).toEqual({ conceptId: 'c3', aToB: 'i3', bToA: null });
+    expect(await sources.snapshot()).toEqual({ fileIndices: {}, tagToDeckId: {} });
+  });
 });
 
 it('SQLite adapters refuse access outside a transaction', async () => {

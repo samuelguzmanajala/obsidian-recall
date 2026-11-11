@@ -61,9 +61,9 @@ src/
 │   ├── http.ts                      # Routes, auth, body limits
 │   ├── service.ts                   # RecallService: transactions, receipts, revisions, limits
 │   ├── container.ts                 # Composition root, built once (SQLite adapters, use cases, indexer)
-│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3)
+│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3 → v4)
 │   ├── legacy-documents.ts          # v2 JSON document shapes: import, export, migration verification
-│   ├── persistence/                 # Schema v3 and SQLite adapters of the domain ports
+│   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
 │   ├── server-settings.ts           # ServerSettings + defaults
 │   ├── auth.ts, send-json.ts        # HTTP helpers
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
@@ -90,7 +90,7 @@ tests/                               # Mirrors src/ (tests/context, tests/server
 `RecallService` builds one `Container` at startup. Its adapters
 (`src/server/persistence/`) implement the domain ports — `ConceptRepository`,
 `StudyItemRepository`, `DeckRepository`, `ReviewLog` and the indexer's `SourceIndex` — over
-normalized SQLite tables (schema v3) and keep no state between calls; each call reads or
+normalized SQLite tables (schema v4) and keep no state between calls; each call reads or
 writes only the rows it needs. Every request runs inside `RecallDatabase.transaction()` (a
 serialized queue of `BEGIN IMMEDIATE` transactions); adapters throw if used outside one.
 Commands commit domain changes, item revisions, daily counters and their idempotency receipt
@@ -107,6 +107,27 @@ and read by time, then insertion. Narrow port queries (`countSince`,
 reads and writes the note index through `SourceIndex` (file → card keys, lines, study items,
 leaf decks; tag → deck). Concept, study item and deck IDs are SHA-256 hashes of content and
 tags, so the same card keeps its ID and its history across re-indexing and renames.
+
+Edited cards are the exception. Within one sync of one note, `NoteIndexer.inheritEdits` pairs
+removed cards with added ones: same directionality and either exactly one side unchanged, or
+both sides at least 0.8 similar (`1 − levenshtein / max length` on trimmed, whitespace-collapsed
+text, case and accents significant; `indexing/domain/card-similarity.ts` bounds the work with a
+length-ratio prefilter, a banded distance, a 1000-code-point side limit and a per-sync cell
+budget, and an undecidable comparison blocks instead of pairing). Only one-to-one pairs inherit,
+and not when the old concept is shared by another note or the new content already has an
+identity. The concept keeps its ID with the new sides; its study items, decks and review log
+stay. So IDs are no longer always the hash of the content:
+
+- `SourceIndex` keeps a durable alias, card key → (concept, a→b item, b→a item), for each
+  inherited card (table `card_aliases`, schema v4; at most one key per concept, so a later edit
+  moves it). A card that is new to a note resolves its IDs as: a live card with the same key
+  anywhere (`conceptForCard`), else its alias (a removed edited card comes back with its IDs, and
+  `CreateStudyItem` replays its history), else the content hashes.
+- Hash IDs are skipped when they belong to other content: a live concept with other sides, or
+  another key's alias (typically the pre-edit text). The indexer then salts the hash inputs
+  (`#1`, `#2`, …) until the IDs are free, so that text gets fresh, deterministic IDs.
+- Aliases are not part of `/sources` or of the legacy documents; a migrated or imported
+  database starts with none.
 `GET /sources` returns `SourceIndex.snapshot()` in the historical `sync-state` shape.
 
 The in-memory doubles used by kernel tests live in `tests/context/fakes/`; a shared contract
@@ -152,5 +173,5 @@ Vault file change → plugin → RemoteNoteSync → POST /notes → RecallServic
 | Scheduling authority | Single backend | One review history; clients cannot diverge |
 | Storage | SQLite (`node:sqlite`), normalized tables behind repository ports | Each operation touches only its rows; cost no longer grows with the history |
 | Card data in Markdown | Read-only (ACL parses, never writes scheduling back) | No frontmatter pollution |
-| IDs | Content-derived | Reviews survive re-indexing and renames |
+| IDs | Content-derived; edited cards keep theirs (aliases) | Reviews survive re-indexing, renames and conservative edits |
 | Testing | Vitest | Domain and protocol tested without Obsidian |

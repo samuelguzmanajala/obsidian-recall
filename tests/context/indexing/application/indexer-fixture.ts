@@ -3,6 +3,7 @@ import { MarkdownParser } from '@context/concept/infrastructure/markdown-parser'
 import { FsrsScheduler } from '@context/study/infrastructure/fsrs-scheduler';
 import { CreateConcept } from '@context/concept/application/create-concept';
 import { RemoveConcept } from '@context/concept/application/remove-concept';
+import { UpdateConcept } from '@context/concept/application/update-concept';
 import { CreateStudyItem } from '@context/study/application/create-study-item';
 import { RemoveStudyItem } from '@context/study/application/remove-study-item';
 import { CreateDeck } from '@context/deck/application/create-deck';
@@ -19,7 +20,9 @@ export function createIndexer(stores: Stores = inMemoryStores(), allowedTags: st
     sources: stores.sources,
     studyItemRepository,
     deckRepository,
+    conceptRepository,
     createConcept: new CreateConcept(conceptRepository),
+    updateConcept: new UpdateConcept(conceptRepository),
     removeConcept: new RemoveConcept(conceptRepository),
     createStudyItem: new CreateStudyItem(studyItemRepository, stores.reviews, new FsrsScheduler()),
     removeStudyItem: new RemoveStudyItem(studyItemRepository),

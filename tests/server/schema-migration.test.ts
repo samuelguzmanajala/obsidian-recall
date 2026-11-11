@@ -110,7 +110,7 @@ async function conversation(service: RecallService) {
   return log;
 }
 
-it('migrates a v2 database to v3, verifies it, and serves exactly what a native v3 server serves', async () => {
+it('migrates a v2 database to v4, verifies it, and serves exactly what a native v4 server serves', async () => {
   const dir = await tempDir();
   const native = await nativeState(dir);
   const legacy = asLegacy(native.documents);
@@ -120,7 +120,7 @@ it('migrates a v2 database to v3, verifies it, and serves exactly what a native 
   writeV2(path, legacy, native.notes, native.operations);
 
   const migrated = open(path);
-  expect(version(migrated.db.sql)).toBe(3);
+  expect(version(migrated.db.sql)).toBe(4);
   expect(tables(migrated.db.sql)).not.toContain('documents');
   const exported = exportDocuments(migrated.db.sql);
   expect(exported).toEqual(native.documents); // the v2 view: reviews deduplicated and sorted
@@ -136,7 +136,7 @@ it('migrates a v2 database to v3, verifies it, and serves exactly what a native 
   expect(actual.filter(r => !r.startsWith('200 '))).toEqual([]);
 });
 
-it('chains v1 → v2 → v3', async () => {
+it('chains v1 → v2 → v3 → v4', async () => {
   const dir = await tempDir();
   const native = await nativeState(dir);
   const path = join(dir, 'v1.sqlite');
@@ -150,7 +150,7 @@ it('chains v1 → v2 → v3', async () => {
   db.prepare('INSERT INTO operations VALUES (?,?,?)').run('op', '{"type":"note"}', '{"path":"a.md","revision":1}');
   db.close();
   const service = open(path);
-  expect(version(service.db.sql)).toBe(3);
+  expect(version(service.db.sql)).toBe(4);
   expect(tables(service.db.sql)).not.toContain('documents');
   expect(exportDocuments(service.db.sql)).toEqual(native.documents);
   expect(service.db.sql.prepare('SELECT payload_hash FROM operations').get()!.payload_hash).toBe(payloadHash('{"type":"note"}'));
@@ -181,9 +181,54 @@ it.each([
 });
 
 it('refuses a database from a newer server', async () => {
-  const path = join(await tempDir(), 'v4.sqlite');
+  const path = join(await tempDir(), 'v5.sqlite');
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA user_version=4');
+  db.exec('PRAGMA user_version=5');
   db.close();
   expect(() => new RecallDatabase(path)).toThrow(/newer/);
+});
+
+/** A real database written by this server, rewritten to the v3 layout (no card aliases). */
+async function v3File(dir: string) {
+  const path = join(dir, 'v3.sqlite');
+  const db = new RecallDatabase(path);
+  const service = new RecallService(db, settings);
+  await note(service, 'a.md', a1, 0);
+  const [item] = (await service.due()).items;
+  await service.review({ operationId: `op-${++op}`, studyItemId: item.studyItemId, rating: 'good', expectedRevision: item.revision });
+  await db.close();
+  const v3 = new DatabaseSync(path);
+  v3.exec('DROP TABLE card_aliases; DROP INDEX note_cards_key; PRAGMA user_version=3;');
+  const rows = (table: string) => v3.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+  const state = { documents: exportDocuments(v3), notes: rows('notes'), operations: rows('operations') };
+  v3.close();
+  return { path, state, item };
+}
+
+it('migrates v3 → v4 additively: same data, no aliases, and edits then keep their history', async () => {
+  const { path, state, item } = await v3File(await tempDir());
+  const service = open(path);
+  expect(version(service.db.sql)).toBe(4);
+  expect(tables(service.db.sql)).toContain('card_aliases');
+  expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM card_aliases').get()!.n).toBe(0);
+  expect(exportDocuments(service.db.sql)).toEqual(state.documents);
+  expect(service.db.sql.prepare('SELECT * FROM notes ORDER BY rowid').all()).toEqual(state.notes);
+  expect(service.db.sql.prepare('SELECT * FROM operations ORDER BY rowid').all()).toEqual(state.operations);
+  await note(service, 'a.md', a1.replace('Aber:::Pero', 'Aber:::Pero, aber').replace('Domain-Driven Design', 'Domain-driven design'), 1);
+  const items = await service.query(c => c.studyItemRepository.findAll());
+  expect(items.find(i => i.id.value === item.studyItemId)!.memoryState.reps).toBe(1);
+  expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM card_aliases').get()!.n).toBe(2);
+});
+
+it('leaves a valid v3 database when the v4 migration fails', async () => {
+  const { path, state } = await v3File(await tempDir());
+  const broken = new DatabaseSync(path);
+  broken.exec('CREATE INDEX card_aliases_a_to_b ON notes(path)'); // name clash inside the v4 DDL
+  broken.close();
+  expect(() => new RecallDatabase(path)).toThrow(/already exists/);
+  const check = new DatabaseSync(path);
+  expect(version(check)).toBe(3);
+  expect(tables(check)).not.toContain('card_aliases');
+  expect(exportDocuments(check)).toEqual(state.documents);
+  check.close();
 });

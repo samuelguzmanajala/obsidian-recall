@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { FileIndex, SerializedSyncState, SourceIndex, SourceLocation } from '../../context/indexing/domain/source-index';
+import type { CardAlias, FileIndex, SerializedSyncState, SourceIndex, SourceLocation } from '../../context/indexing/domain/source-index';
 import type { RecallDatabase } from '../database';
 
 /** All files in index order; also used by the legacy export. */
@@ -86,6 +86,25 @@ export class SqliteSourceIndex implements SourceIndex {
 
   async snapshot(): Promise<SerializedSyncState> {
     return readSourcesSnapshot({ prepare: (source: string) => this.db.stmt(source) });
+  }
+
+  async conceptForCard(cardKey: string): Promise<string | null> {
+    return (this.db.stmt(`SELECT c.concept_id FROM note_cards c JOIN note_files f ON f.path=c.path
+      WHERE c.card_key=? ORDER BY f.rowid LIMIT 1`).get(cardKey)?.concept_id as string | undefined) ?? null;
+  }
+
+  async aliasFor(cardKey: string): Promise<CardAlias | null> {
+    const row = this.db.stmt('SELECT concept_id, a_to_b, b_to_a FROM card_aliases WHERE card_key=?').get(cardKey);
+    return row ? { conceptId: row.concept_id as string, aToB: row.a_to_b as string, bToA: row.b_to_a as string | null } : null;
+  }
+
+  async aliasOwner(id: string): Promise<string | null> {
+    return (this.db.stmt('SELECT card_key FROM card_aliases WHERE concept_id=?1 OR a_to_b=?1 OR b_to_a=?1 LIMIT 1').get(id)?.card_key as string | undefined) ?? null;
+  }
+
+  async setAlias(cardKey: string, alias: CardAlias): Promise<void> {
+    this.db.stmt('DELETE FROM card_aliases WHERE card_key=? OR concept_id=?').run(cardKey, alias.conceptId);
+    this.db.stmt('INSERT INTO card_aliases VALUES (?,?,?,?)').run(cardKey, alias.conceptId, alias.aToB, alias.bToA);
   }
 
   private clear(path: string) {

@@ -12,7 +12,7 @@ import { Deck } from '@context/deck/domain/deck';
 import type { DeckId } from '@context/deck/domain/deck-id';
 import type { ReviewLog } from '@context/study/domain/review-log';
 import type { Review } from '@context/study/domain/review';
-import type { FileIndex, SerializedSyncState, SourceIndex, SourceLocation } from '@context/indexing/domain/source-index';
+import type { CardAlias, FileIndex, SerializedSyncState, SourceIndex, SourceLocation } from '@context/indexing/domain/source-index';
 
 const copyConcept = (c: Concept) => Concept.create(c.id, c.sideA, c.sideB, c.directionality);
 const copyItem = (i: StudyItem) => StudyItem.reconstitute(i.id, i.conceptId, i.direction, i.memoryState);
@@ -67,6 +67,7 @@ const copyIndex = (i: FileIndex): FileIndex => ({ cardKeys: new Map(i.cardKeys),
 export class InMemorySourceIndex implements SourceIndex {
   readonly files = new Map<string, FileIndex>();
   readonly tags = new Map<string, string>();
+  readonly aliases = new Map<string, CardAlias>();
   async get(path: string) { const i = this.files.get(path); return i ? copyIndex(i) : null; }
   async put(path: string, index: FileIndex) { this.files.set(path, copyIndex(index)); }
   async remove(path: string) { this.files.delete(path); }
@@ -92,6 +93,19 @@ export class InMemorySourceIndex implements SourceIndex {
       fileIndices[path] = { cardKeys: Object.fromEntries(i.cardKeys), conceptLines: Object.fromEntries(i.conceptLines), studyItemIds: [...i.studyItemIds], deckIds: [...i.deckIds] };
     }
     return { fileIndices, tagToDeckId: Object.fromEntries(this.tags) };
+  }
+  async conceptForCard(cardKey: string) {
+    for (const i of this.files.values()) { const c = i.cardKeys.get(cardKey); if (c !== undefined) return c; }
+    return null;
+  }
+  async aliasFor(cardKey: string) { const a = this.aliases.get(cardKey); return a ? { ...a } : null; }
+  async aliasOwner(id: string) {
+    for (const [key, a] of this.aliases) if (a.conceptId === id || a.aToB === id || a.bToA === id) return key;
+    return null;
+  }
+  async setAlias(cardKey: string, alias: CardAlias) {
+    for (const [key, a] of this.aliases) if (key === cardKey || a.conceptId === alias.conceptId) this.aliases.delete(key);
+    this.aliases.set(cardKey, { ...alias });
   }
 }
 

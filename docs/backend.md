@@ -123,8 +123,38 @@ edición combinada. No borres cursores para forzar una sobrescritura.
 
 Cambiar `RECALL_TAGS` y reiniciar reindexa las notas que ya están publicadas. El historial se
 mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
-hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido:
-cambiar una pregunta/respuesta puede crear una tarjeta nueva; no hay fusión semántica automática.
+hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido, con
+una excepción para las ediciones.
+
+Editar una tarjeta conserva su historial cuando el cambio es claro. Al publicar una nota se
+comparan las tarjetas que desaparecen de ella con las que aparecen en ella (solo dentro de esa
+nota y de esa publicación). Una tarjeta desaparecida y una nueva se consideran la misma si
+tienen la misma dirección (`::` o `:::`) y además:
+
+1. una cara es idéntica y la otra cambió (se corrigió la pregunta o la respuesta, aunque la
+   respuesta nueva sea completamente distinta), o
+2. cambiaron las dos caras, pero cada una se parece al menos un 80 % a la anterior: como
+   mucho una letra cambiada, añadida o quitada por cada cinco, sin contar espacios al inicio o
+   al final ni espacios repetidos (mayúsculas y tildes sí cuentan). Las caras de más de 1000
+   caracteres no se comparan así.
+
+La tarjeta editada conserva su ID, sus repasos, su programación y sus mazos; los clientes que
+la tenían en cola reciben un 409 y la recargan con el texto nuevo. En la duda, no se hereda
+nada y la edición se trata como antes (la tarjeta vieja se elimina y la nueva empieza de
+cero):
+
+- si una tarjeta desaparecida encaja con varias nuevas, o una nueva con varias desaparecidas;
+- si la tarjeta antigua también está en otra nota (es compartida);
+- si el texto nuevo ya existe como tarjeta, en otra nota o como edición anterior (se enlaza a
+  esa tarjeta, como siempre);
+- si cambia la dirección (`::` ↔ `:::`);
+- si la tarjeta se edita a la vez que se mueve a otra nota (solo se comparan tarjetas de la
+  misma nota).
+
+El servidor recuerda qué texto heredó cada historial. Si la tarjeta editada se borra y luego
+se vuelve a añadir con el mismo texto (por ejemplo, al moverla a otra nota en dos pasos),
+recupera su historial. Si se vuelve a escribir el texto de antes de la edición, es una
+tarjeta nueva con IDs nuevos; nunca se mezcla con la editada.
 
 ## Garantías y protocolo
 
@@ -219,7 +249,7 @@ y una vez al día. Es seguro: cada comando lleva `expectedRevision`, así que un
 llegue tras caducar su recibo se reevalúa y se rechaza con 409 (o, en notas con contenido
 idéntico, se reconoce) en lugar de aplicarse dos veces.
 
-El esquema actual es la versión 3. **Antes de actualizar, detén el servidor y haz una copia
+El esquema actual es la versión 4. **Antes de actualizar, detén el servidor y haz una copia
 con `scripts/backup-server.mjs`.** Al arrancar, el servidor nuevo migra la base
 automáticamente, encadenando los pasos necesarios:
 
@@ -233,6 +263,9 @@ automáticamente, encadenando los pasos necesarios:
   y ordenado por fecha, como ya hacía). Las referencias colgantes se conservan tal cual. Una
   clave desconocida, una fecha que no se pueda guardar en milisegundos exactos o cualquier
   diferencia anula la migración: la base queda intacta en v2 y el servidor no arranca.
+- v3 → v4, en otra transacción: solo añade la tabla `card_aliases` (qué IDs heredó el texto
+  de cada tarjeta editada) y un índice de tarjetas por contenido. Los datos existentes no
+  cambian y no tienen alias; si falla, la base queda en v3.
 
 Tras migrar ejecuta `VACUUM` para recuperar espacio (si falla, no es grave). Es irreversible:
 un servidor anterior rechazará la base migrada (`schema is newer`), y este servidor rechaza

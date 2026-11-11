@@ -31,6 +31,17 @@ export const SCHEMA_V3 = `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
+/**
+ * Schema v4 (additive): durable card key → inherited IDs of an edited card (at most one key per
+ * concept), and a lookup of live cards by key.
+ */
+export const SCHEMA_V4 = `
+  CREATE TABLE card_aliases (card_key TEXT PRIMARY KEY, concept_id TEXT NOT NULL UNIQUE, a_to_b TEXT NOT NULL, b_to_a TEXT);
+  CREATE INDEX card_aliases_a_to_b ON card_aliases(a_to_b);
+  CREATE INDEX card_aliases_b_to_a ON card_aliases(b_to_a);
+  CREATE INDEX note_cards_key ON note_cards(card_key);
+`;
+
 /** Tables that hold study data (everything except receipts and notes). */
 export const DATA_TABLES = ['concepts', 'study_items', 'item_revisions', 'decks', 'deck_items', 'reviews', 'note_files',
-  'note_cards', 'note_lines', 'note_items', 'note_decks', 'tag_decks', 'daily_budgets', 'meta'] as const;
+  'note_cards', 'note_lines', 'note_items', 'note_decks', 'tag_decks', 'daily_budgets', 'meta', 'card_aliases'] as const;

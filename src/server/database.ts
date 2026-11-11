@@ -2,7 +2,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SCHEMA_V3 } from './persistence/schema';
+import { SCHEMA_V3, SCHEMA_V4 } from './persistence/schema';
 import { exportDocuments, importDocuments, verifyDocuments } from './legacy-documents';
 
 /** Receipt key for a command: sha256 hex of its canonical JSON (shared by `once()` and the v1→v2 migration). */
@@ -24,7 +24,7 @@ export class RecallDatabase {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.sql = new DatabaseSync(path);
     const version = Number(this.sql.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version > 3) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
+    if (version > 4) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
     this.sql.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
@@ -33,11 +33,12 @@ export class RecallDatabase {
     try {
       if (version === 1) this.migrateV1();
       if (version === 1 || version === 2) this.migrateV2();
+      if (version >= 1 && version <= 3) this.migrateV3();
     } catch (error) { this.sql.close(); throw error; }
     if (version === 1 || version === 2) {
       try { this.sql.exec('VACUUM'); } catch (error) { console.error('VACUUM after schema migration failed (non-fatal):', error); }
     }
-    if (version === 0) this.sql.exec(`BEGIN; ${BASE_TABLES} ${SCHEMA_V3} PRAGMA user_version=3; COMMIT;`);
+    if (version === 0) this.sql.exec(`BEGIN; ${BASE_TABLES} ${SCHEMA_V3} ${SCHEMA_V4} PRAGMA user_version=4; COMMIT;`);
   }
   /** v1 kept full command payloads (whole notes) forever; v2 keeps only their hash. All or nothing. */
   private migrateV1() {
@@ -68,6 +69,16 @@ export class RecallDatabase {
       importDocuments(this.sql, documents);
       verifyDocuments(documents, exportDocuments(this.sql));
       this.sql.exec('DROP TABLE documents; PRAGMA user_version=3; COMMIT');
+    } catch (error) {
+      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  /** v4 adds card aliases (inherited IDs of edited cards); existing data has none. All or nothing. */
+  private migrateV3() {
+    this.sql.exec('BEGIN IMMEDIATE');
+    try {
+      this.sql.exec(`${SCHEMA_V4} PRAGMA user_version=4; COMMIT`);
     } catch (error) {
       if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
       throw error;

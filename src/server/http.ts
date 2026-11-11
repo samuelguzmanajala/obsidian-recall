@@ -85,7 +85,10 @@ export function createRecallServer(service: RecallService, token: string, audio?
         let data: Buffer;
         try {
           data = await audio.cache.getOrGenerate(createHash('sha256').update(match[1]).digest('hex'), match[2] === 'question' ? 'q' : 'a', rewritten);
-        } catch { throw new ApiError(502, 'Speech generation failed; use device TTS'); }
+        } catch (e) {
+          console.error('[Recall backend] speech generation failed:', (e as Error)?.message ?? e);
+          throw new ApiError(502, 'Speech generation failed; use device TTS');
+        }
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Length', data.length);
         res.end(data); return;

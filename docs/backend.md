@@ -213,13 +213,53 @@ vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el r
 
 ## Voz y proveedores
 
-Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Al configurar esa clave se reutilizan
-los adaptadores y la caché de audio existentes. Opcionalmente configura `RECALL_LLM_PROVIDER`,
-`RECALL_LLM_KEY` y `RECALL_LLM_MODEL` para la preparación multilingüe previa. Las instrucciones
-de voz conservan el valor anterior y admiten `RECALL_TTS_INSTRUCTIONS`.
+Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Con esa clave el servidor genera el audio
+(siempre MP3, `audio/mpeg`) y lo guarda en la caché de `RECALL_AUDIO_DIR`.
 
-Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS 60 s); un proveedor colgado
-produce un error de audio en lugar de bloquear la petición indefinidamente.
+`RECALL_TTS_PROVIDER` elige el proveedor: `openai` (por defecto, para no cambiar instalaciones
+existentes) o `gemini`. Cualquier otro valor impide arrancar. `RECALL_TTS_KEY`,
+`RECALL_TTS_MODEL`, `RECALL_TTS_VOICE` y `RECALL_TTS_INSTRUCTIONS` valen para ambos:
+
+| | `openai` | `gemini` |
+|---|---|---|
+| Modelo por defecto | `gpt-4o-mini-tts` | `gemini-3.8-flash-tts` |
+| Voz por defecto | `alloy` | `Kore` |
+| Instrucciones | las incorporadas, salvo `RECALL_TTS_INSTRUCTIONS` | ninguna, salvo `RECALL_TTS_INSTRUCTIONS` (va como `speech_metadata.style`) |
+
+OpenAI retira `gpt-4o-mini-tts`, `tts-1` y `tts-1-hd` el 2027-01-06; el proveedor previsto es
+Gemini. Al cambiar de proveedor revisa `RECALL_TTS_VOICE`/`RECALL_TTS_MODEL`: una voz de OpenAI
+no existe en Gemini. Las instrucciones incorporadas están escritas para OpenAI y no se envían a
+Gemini; Google recomienda no dar estilo por defecto y no pedir acentos en él.
+
+Gemini solo devuelve WAV, así que el servidor lo convierte a MP3 (mono, libmp3lame, VBR 4) con
+`ffmpeg`, ejecutado sin shell y por tuberías, sin ficheros temporales. `RECALL_FFMPEG` indica el
+ejecutable (por defecto `ffmpeg` del `PATH`). Con `gemini` el servidor comprueba al arrancar que
+ffmpeg funciona y tiene libmp3lame, y si no, no arranca. Bajo launchd el `PATH` no incluye
+`/opt/homebrew/bin`: usa una ruta absoluta (`RECALL_FFMPEG=/opt/homebrew/bin/ffmpeg`). La imagen
+Docker ya incluye ffmpeg.
+
+Cuotas observadas en Gemini con el nivel por defecto: unas 10 peticiones por minuto y 100 al
+día para `gemini-3.8-flash-tts`, y cada tarjeta nueva consume una por cara. Ante un 429 o un 5xx
+el servidor reintenta respetando el retraso que indica Google (como mucho 3 intentos y 30 s en
+total, para que el móvil no espere más de la cuenta). Si se agota la cuota diaria no reintenta.
+En cualquier fallo la petición responde 502 y Android usa su TTS local; el motivo queda en el
+log del servidor (sin la clave).
+
+La caché de audio distingue el proveedor: los MP3 ya generados con OpenAI conservan su nombre
+y siguen sirviéndose, y los de Gemini se guardan aparte con otro hash. Las escrituras de caché
+son atómicas (fichero temporal y renombrado), así que un fallo no deja audio a medias.
+
+La reescritura previa con un LLM es opcional: `RECALL_LLM_PROVIDER` (por defecto `none`, sin
+reescritura), `RECALL_LLM_KEY` y `RECALL_LLM_MODEL`. Ya no anuncia idiomas ("En inglés:", "La
+palabra inglesa:"): solo limpia símbolos, convierte "/" y paréntesis en pausas, mantiene los
+huecos como "…" y no traduce ni omite nada. La única etiqueta permitida es tras una palabra
+suelta que se escribe igual en dos idiomas ("neglect, en inglés"). La clave de la caché de
+reescrituras incluye un hash de la instrucción: al cambiarla, las reescrituras guardadas dejan
+de usarse y se regeneran (con coste del proveedor LLM). Las antiguas quedan en disco sin uso.
+
+Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS de OpenAI 60 s, TTS de Gemini
+30 s en total con reintentos); un proveedor colgado produce un error de audio en lugar de
+bloquear la petición indefinidamente.
 
 Activar estas opciones envía el texto de la tarjeta al proveedor correspondiente y puede
 generar cargos. Ni las claves ni esas llamadas deben pasar por Obsidian o el móvil.

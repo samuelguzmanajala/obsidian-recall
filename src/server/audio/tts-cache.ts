@@ -14,11 +14,11 @@ const FORMAT = 'mp3';
 
 /**
  * Lazy disk cache for synthesized audio. First lookup for a given
- * (studyItemId, side, hash(voice+model+text)) tuple does the OpenAI call;
+ * (studyItemId, side, hash(provider?+voice+model+instructions+text)) tuple calls the provider;
  * subsequent lookups serve from disk.
  *
  * Concurrent requests for the same key share a single in-flight Promise
- * so we never bill OpenAI twice for the same content.
+ * so we never bill the provider twice for the same content.
  */
 export class TtsCache {
   private readonly inFlight = new Map<string, Promise<Buffer>>();
@@ -30,6 +30,7 @@ export class TtsCache {
     private readonly voice: string = DEFAULT_VOICE,
     private readonly model: string = DEFAULT_MODEL,
     private readonly instructions: string = '',
+    private readonly provider: string = 'openai',
   ) {}
 
   /**
@@ -46,7 +47,7 @@ export class TtsCache {
 
     // 1. Disk hit
     const cached = await this.storage.read(path);
-    if (cached) return cached;
+    if (cached?.length) return cached;
 
     // 2. In-flight de-duplication
     const existing = this.inFlight.get(path);
@@ -77,9 +78,15 @@ export class TtsCache {
     return `${this.cacheDir}/${studyItemId}-${side}-${hash}.${FORMAT}`;
   }
 
+  /**
+   * The provider joins the key only when it is not OpenAI: OpenAI files were
+   * cached before providers existed (hash of voice:model:instructions:text),
+   * so keeping that exact input keeps every existing file valid.
+   */
   private hash(text: string): string {
+    const prefix = this.provider === 'openai' ? '' : `${this.provider}:`;
     return createHash('sha256')
-      .update(`${this.voice}:${this.model}:${this.instructions}:${text}`)
+      .update(`${prefix}${this.voice}:${this.model}:${this.instructions}:${text}`)
       .digest('hex')
       .slice(0, 12);
   }

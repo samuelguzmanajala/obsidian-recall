@@ -6,9 +6,15 @@
  *
  * Pure function. No external deps — regex-only.
  */
+const ELLIPSIS = '\uE000';
+
 export function markdownToVoice(md: string): string {
   let s = md.trim();
   if (s === '') return '';
+
+  // Ellipses ("...", "..", "…") are gaps/pauses: park them so the
+  // doubled-period tidy-up below cannot shrink them; restored as "…".
+  s = s.replace(/\.{2,}|…/g, ELLIPSIS);
 
   // Code fences: ```lang\n...\n``` → "(código)" (TTS reads code badly)
   s = s.replace(/```[\s\S]*?```/g, ' (código) ');
@@ -52,6 +58,7 @@ export function markdownToVoice(md: string): string {
   // Tidy up doubled punctuation introduced by the line-break replacement
   s = s.replace(/\.\s*\.\s*/g, '. ');
   s = s.replace(/\s+([,.;:!?])/g, '$1');
+  s = s.replace(/\uE000\.\s*/g, `${ELLIPSIS} `);
 
-  return s.trim();
+  return s.replace(/\uE000/g, '…').trim();
 }

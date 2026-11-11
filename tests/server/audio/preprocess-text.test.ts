@@ -32,6 +32,11 @@ describe('preprocessForTts', () => {
     expect(preprocessForTts('')).toBe('');
   });
 
+  it('leaves an ellipsis from markdownToVoice untouched', () => {
+    expect(preprocessForTts('Ich wohne in…')).toBe('Ich wohne in…');
+    expect(preprocessForTts('No … tu salud.')).toBe('No … tu salud.');
+  });
+
   it('does nothing when no underscores or extra whitespace', () => {
     expect(preprocessForTts('hello world')).toBe('hello world');
   });

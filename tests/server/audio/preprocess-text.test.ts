@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { preprocessForTts } from '@app/backend/voice-api/preprocess-text';
+import { preprocessForTts } from '../../../src/server/audio/preprocess-text';
 
 describe('preprocessForTts', () => {
   it('replaces a run of underscores with an ellipsis (natural TTS pause)', () => {

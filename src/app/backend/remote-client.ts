@@ -1,25 +1,25 @@
-import type { RecallSettings } from './recall-settings';
-import type { StudyClient } from './study-client';
+import { isBackendConfigured, type PluginSettings } from './plugin-settings';
+import type { ReviewCommand, SourceLocation, StudyClient } from './study-client';
 import type { DueStudyItemView } from '../../context/study/application/study-item-view';
 import type { SerializedSyncState } from '../../context/shared/infrastructure/json-storage';
-import type { ReviewStudyItemCommand } from '../../context/study/application/review-study-item';
+import type { Rating } from '../../context/study/domain/rating';
 
 export class RemoteError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 export interface RemoteNote { path: string; revision: number; deleted: boolean; hash: string | null }
-export type PendingReview = { studyItemId: string; operationId: string; expectedRevision: number; rating: ReviewStudyItemCommand['rating'] };
+export type PendingReview = { studyItemId: string; operationId: string; expectedRevision: number; rating: Rating };
 export interface ReviewJournal { load(): PendingReview[]; save(commands: PendingReview[]): void }
 type WireItem = Omit<DueStudyItemView, 'due' | 'lastReview'> & {
   due: string; lastReview: string | null; revision: number;
-  source: { filePath: string; line: number } | null;
+  source: SourceLocation | null;
 };
 export class RemoteClient implements StudyClient {
-  readonly remote = true;
-  saveSettingsQuiet: (() => Promise<void>) | null = null;
+  /** Persists sidebar state; wired by the plugin. */
+  persistExpandedDecks: ((ids: string[]) => Promise<void>) | null = null;
   private revisions = new Map<string, number>();
   private pending = new Map<string, PendingReview>();
-  private sources = new Map<string, { filePath: string; line: number }>();
+  private sources = new Map<string, SourceLocation>();
   private listeners = new Set<() => void>();
   private closed = false;
   close(): void { this.closed = true; this.listeners.clear(); }
@@ -36,7 +36,8 @@ export class RemoteClient implements StudyClient {
   retryPendingReviews = async (): Promise<void> => {
     for (const command of [...this.pending.values()]) await this.reviewStudyItem.execute(command);
   };
-  constructor(public settings: RecallSettings, private transport: typeof fetch = fetch, private journal?: ReviewJournal) {
+  isConfigured(): boolean { return isBackendConfigured(this.settings); }
+  constructor(public settings: PluginSettings, private transport: typeof fetch = fetch, private journal?: ReviewJournal) {
     for (const command of journal?.load() ?? []) {
       if (!command.operationId || !command.studyItemId || !Number.isInteger(command.expectedRevision)
         || !['again', 'hard', 'good', 'easy'].includes(command.rating)) throw new Error('Invalid pending review journal; restore it before continuing');
@@ -50,7 +51,7 @@ export class RemoteClient implements StudyClient {
   async request<T>(path: string, body?: unknown): Promise<T> {
     if (this.closed) throw new Error('Recall client closed; pending operations will resume on reload');
     const config = this.settings.backend;
-    if (!config?.url || !config.token) throw new Error('Configure the Recall backend URL and token');
+    if (!this.isConfigured()) throw new Error('Configure the Recall backend URL and token');
     const base = config.url.replace(/\/+$/, '');
     const parsed = new URL(base);
     if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error('Invalid backend URL');
@@ -98,7 +99,7 @@ export class RemoteClient implements StudyClient {
   } };
   getStudyStats: StudyClient['getStudyStats'] = { execute: () => this.request('/stats') };
   getLeeches: StudyClient['getLeeches'] = { execute: () => this.request('/leeches') };
-  reviewStudyItem = { execute: async (command: ReviewStudyItemCommand): Promise<void> => {
+  reviewStudyItem: StudyClient['reviewStudyItem'] = { execute: async (command: ReviewCommand): Promise<void> => {
     const expectedRevision = command.expectedRevision ?? this.revisions.get(command.studyItemId);
     if (expectedRevision === undefined) throw new Error('Refresh this card before reviewing');
     const pendingKey = `${command.studyItemId}:${expectedRevision}`;
@@ -122,8 +123,13 @@ export class RemoteClient implements StudyClient {
     this.savePending();
     this.notifyChanged();
   } };
-  // Remote refresh uses a new server queue, never client-side domain reconstruction.
-  studyItemRepository = { findById: async () => null };
-  conceptRepository = { findById: async () => null };
-  vaultSync = { findFileByConceptId: (id: string) => this.sources.get(id) ?? null };
+  findSource(conceptId: string): SourceLocation | null { return this.sources.get(conceptId) ?? null; }
+  get expandedDeckIds(): readonly string[] { return this.settings.expandedDeckIds; }
+  toggleDeckExpanded(deckId: string): void {
+    const ids = this.settings.expandedDeckIds;
+    const idx = ids.indexOf(deckId);
+    if (idx >= 0) ids.splice(idx, 1);
+    else ids.push(deckId);
+    void this.persistExpandedDecks?.([...ids]);
+  }
 }

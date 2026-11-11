@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { IncomingMessage } from 'http';
-import { checkAuth, generateToken } from '@app/backend/voice-api/auth';
+import { checkAuth, generateToken } from '../../src/server/auth';
 
 function fakeReq(headers: Record<string, string | undefined>): IncomingMessage {
   return { headers } as unknown as IncomingMessage;

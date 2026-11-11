@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage } from 'node:http';
-import { checkAuth } from '../app/backend/voice-api/auth';
-import { sendJson } from '../app/backend/voice-api/routes/types';
+import { checkAuth } from './auth';
+import { sendJson } from './send-json';
 import { ApiError, RecallService, dueLimit, record, string } from './service';
 import { createHash } from 'node:crypto';
-import type { ServerAudio } from './audio';
-import { preprocessForTts } from '../app/backend/voice-api/preprocess-text';
+import type { ServerAudio } from './audio/configure-audio';
+import { preprocessForTts } from './audio/preprocess-text';
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   if (Number(req.headers['content-length'] ?? 0) > 2_100_000) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { markdownToVoice } from '@app/backend/voice-api/markdown-to-voice';
+import { markdownToVoice } from '../../../src/server/audio/markdown-to-voice';
 
 describe('markdownToVoice', () => {
   it('strips bold and italic markers', () => {

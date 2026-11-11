@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TtsCache, type BinaryFileStorage } from '@app/backend/voice-api/tts-cache';
+import { TtsCache, type BinaryFileStorage } from '../../../src/server/audio/tts-cache';
 import { TtsClient } from '@context/shared/domain/tts-client';
 
 class InMemoryBinaryStorage implements BinaryFileStorage {

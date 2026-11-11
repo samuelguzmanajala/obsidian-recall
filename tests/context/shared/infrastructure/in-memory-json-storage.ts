@@ -14,16 +14,3 @@ export class InMemoryJsonFile implements JsonFilePort {
     this.data = data;
   }
 }
-
-/**
- * Creates StorageFiles for testing with in-memory file ports.
- */
-export function createTestStorageFiles() {
-  return {
-    concepts: new InMemoryJsonFile(),
-    studyItems: new InMemoryJsonFile(),
-    decks: new InMemoryJsonFile(),
-    reviews: new InMemoryJsonFile(),
-    syncState: new InMemoryJsonFile(),
-  };
-}

@@ -10,9 +10,19 @@ Android ── consultas, respuestas, voz ──┘       │
 ```
 
 El backend es la única autoridad del aprendizaje: interpreta las tarjetas, construye
-mazos, calcula intervalos y guarda respuestas. Obsidian puede seguir editando tus notas,
-pero en modo remoto no abre `recall-data`, no reproduce historiales ni sirve la API de voz.
-Android funciona aunque Obsidian esté cerrado, siempre que el servidor esté disponible.
+mazos, calcula intervalos y guarda respuestas. El plugin de Obsidian es solo un cliente:
+muestra mazos y repasos del servidor y, si lo activas, publica tus notas. Ya no existe el
+antiguo modo local: el plugin no abre `recall-data` (tampoco lo borra ni lo modifica), no
+reproduce historiales ni sirve la API de voz. Android funciona aunque Obsidian esté cerrado,
+siempre que el servidor esté disponible.
+
+En Recall Settings solo se configuran la URL del backend, el token y la publicación de notas.
+Los cambios de URL o token se aplican al recargar el plugin; mientras falten, las vistas
+indican que hay que configurar el backend. Tags, límites diarios, umbral de sanguijuelas,
+orden aleatorio y audio son variables de entorno del servidor (`RECALL_TAGS`,
+`RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`,
+`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
+tags…) se conservan sin usarse; si las necesitas, pásalas al entorno del backend.
 
 Es una instalación personal (una cuenta y un vault), no un SaaS multiusuario. Todas las
 peticiones autenticadas acceden al mismo conjunto de datos. No hay autenticación de usuarios,
@@ -47,7 +57,7 @@ No se ha ejecutado automáticamente contra tu vault. El importador no modifica n
 archivos de origen, y se niega a sobrescribir una base ya poblada.
 
 1. Deja terminar la sincronización actual y los repasos pendientes de todos los dispositivos.
-2. Detén el plugin local y la app en todos los dispositivos. Haz una copia completa de
+2. Detén el plugin antiguo (versión con modo local) y la app en todos los dispositivos. Haz una copia completa de
    `recall-data` y de la configuración del plugin. Trabaja con esa copia congelada.
 3. Valida primero (no crea la base destino):
 
@@ -64,8 +74,9 @@ archivos de origen, y se niega a sobrescribir una base ya poblada.
 5. Configura `RECALL_DB` con ese destino y `RECALL_TAGS` con los tags que ya utilizabas
    (separados por comas, sin `#`). Arranca el backend y comprueba mazos y estadísticas.
 6. Instala el plugin compilado (`main.js`, `manifest.json`, `styles.css`) y el nuevo APK.
-   En Recall Settings activa **Use standalone backend**, introduce URL y token, y recarga
-   el plugin. Repite el cambio de modo en cada Obsidian que utilices.
+   En Recall Settings introduce URL y token, y recarga el plugin. Repítelo en cada Obsidian
+   que utilices. (El antiguo interruptor **Use standalone backend** ya no existe; si tu
+   `data.json` lo conserva, se ignora.)
 7. En Android configura la misma URL y el mismo token (sin `/api/v1` al final).
 8. Solo después, activa **Publish Markdown notes** en el dispositivo editor y recarga.
    Ejecuta **Recall: Publish notes to backend** para subir las notas y crear su inventario.
@@ -80,7 +91,8 @@ automáticamente durante esta migración.
 
 La importación no copia claves de proveedores ni configuración privada. Pasa esas claves al
 entorno del backend si deseas audio remoto. Conserva la copia antigua, pero **no vuelvas a
-activar el motor local tras empezar a estudiar en el servidor**: sería otra línea de historial.
+instalar una versión antigua del plugin con motor local tras empezar a estudiar en el servidor**:
+sería otra línea de historial.
 
 ## Notas y sincronización
 

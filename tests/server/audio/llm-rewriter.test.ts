@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { LlmRewriter, type TextFileStorage } from '@app/backend/voice-api/llm-rewriter';
+import { LlmRewriter, type TextFileStorage } from '../../../src/server/audio/llm-rewriter';
 import type { LlmClient } from '@context/shared/domain/llm-client';
 
 class InMemoryTextStorage implements TextFileStorage {

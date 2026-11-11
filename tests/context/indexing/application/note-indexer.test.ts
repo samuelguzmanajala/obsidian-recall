@@ -1,17 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Container } from '@app/backend/container';
-import { VaultSync } from '@app/backend/vault-sync';
-import { CachedJsonFileStorage } from '@app/backend/cached-json-file-storage';
-import { createTestStorageFiles } from '../../context/shared/infrastructure/in-memory-json-storage';
+import { NoteIndexer } from '@context/indexing/application/note-indexer';
 import { DeckId } from '@context/deck/domain/deck-id';
+import { createIndexer } from './indexer-fixture';
 
-describe('VaultSync', () => {
-  let container: Container;
-  let sync: VaultSync;
+describe('NoteIndexer', () => {
+  let container: ReturnType<typeof createIndexer>;
+  let sync: NoteIndexer;
 
   beforeEach(() => {
-    container = new Container(createTestStorageFiles());
-    sync = new VaultSync(container);
+    container = createIndexer();
+    sync = container.indexer;
   });
 
   it('should create concepts and study items from a markdown file', async () => {
@@ -148,16 +146,8 @@ tags:
   });
 
   describe('sync state persistence', () => {
-    it('should persist sync state after batch rebuild', async () => {
-      const storageFiles = createTestStorageFiles();
-      const container = new Container(storageFiles);
-      const sync = new VaultSync(container);
-      sync.setCachedPorts({
-        concepts: new CachedJsonFileStorage(storageFiles.concepts),
-        studyItems: new CachedJsonFileStorage(storageFiles.studyItems),
-        decks: new CachedJsonFileStorage(storageFiles.decks),
-        syncState: new CachedJsonFileStorage(storageFiles.syncState),
-      });
+    it('should persist sync state after a sync', async () => {
+      const { indexer: sync, store } = createIndexer();
 
       const content = `---
 tags:
@@ -165,14 +155,12 @@ tags:
 ---
 - Aber:::Pero`;
 
-      await sync.beginBatch();
       await sync.syncFile('vocab.md', content);
-      await sync.endBatch();
 
-      const state = await storageFiles.syncState.read<{
+      const state = (store['sync-state'] ?? null) as {
         fileIndices: Record<string, unknown>;
         tagToDeckId: Record<string, string>;
-      }>();
+      } | null;
 
       expect(state).not.toBeNull();
       expect(Object.keys(state!.fileIndices)).toEqual(['vocab.md']);
@@ -181,9 +169,8 @@ tags:
     });
 
     it('should not duplicate data after simulated restart', async () => {
-      const storageFiles = createTestStorageFiles();
-      const container1 = new Container(storageFiles);
-      const sync1 = new VaultSync(container1);
+      const container1 = createIndexer();
+      const sync1 = container1.indexer;
 
       const content = `---
 tags:
@@ -197,9 +184,9 @@ tags:
       const conceptsBefore = await container1.conceptRepository.findAll();
       expect(conceptsBefore).toHaveLength(1);
 
-      // Simulate restart: new Container + VaultSync, same storage files
-      const container2 = new Container(storageFiles);
-      const sync2 = new VaultSync(container2);
+      // Simulate restart: new indexer and repositories, same stored documents
+      const container2 = createIndexer(container1.store);
+      const sync2 = container2.indexer;
       await sync2.initialize(); // Load persisted sync state
 
       // Re-sync the same file (as initialSync would do)

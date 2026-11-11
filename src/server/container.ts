@@ -38,14 +38,9 @@ import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study
 import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { GetLeeches } from '@context/study/application/get-leeches';
-import { ImportSrData } from '@context/study/application/import-sr-data';
-import { ReplayReviews } from '@context/study/application/replay-reviews';
-import type { RecallSettings } from './recall-settings';
-import type { VaultSync } from './vault-sync';
-import { LlmClient } from '@context/shared/domain/llm-client';
-import { HttpLlmClient } from '@context/shared/infrastructure/llm-adapters';
-import { TtsClient } from '@context/shared/domain/tts-client';
-import { OpenAiTtsClient } from '@context/shared/infrastructure/openai-tts-client';
+
+// Indexing
+import { NoteIndexer } from '@context/indexing/application/note-indexer';
 
 export interface StorageFiles {
   concepts: JsonFileStorage;
@@ -55,6 +50,10 @@ export interface StorageFiles {
   syncState: JsonFileStorage;
 }
 
+/**
+ * Server composition root for one transaction: the JSON repository ports point at
+ * transaction-scoped SQLite documents (see `RecallService.context()`).
+ */
 export class Container {
   // Domain ports — the ONLY way to access data from use cases and frontend
   readonly conceptRepository: ConceptRepository;
@@ -64,21 +63,6 @@ export class Container {
 
   // Storage
   readonly syncStateFile: JsonFileStorage;
-
-  // Settings (mutable — updated by plugin on save)
-  settings: RecallSettings | null = null;
-
-  // Callback to persist settings without triggering full reset
-  saveSettingsQuiet: (() => Promise<void>) | null = null;
-
-  // VaultSync reference (set by plugin after construction)
-  vaultSync: VaultSync | null = null;
-
-  // LLM client
-  readonly llmClient: LlmClient;
-
-  // TTS client (cloud)
-  readonly ttsClient: TtsClient;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;
@@ -107,13 +91,12 @@ export class Container {
   readonly getDeckTree: GetDeckTree;
   readonly getStudyStats: GetStudyStats;
   readonly getLeeches: GetLeeches;
-  readonly importSrData: ImportSrData;
-  readonly replayReviews: ReplayReviews;
 
-  constructor(
-    files: StorageFiles,
-    private readonly ttsFetch: typeof fetch = fetch,
-  ) {
+  // Markdown → domain commands
+  readonly indexer: NoteIndexer;
+
+  /** `flashcardTags`: tags to index (empty = all). Call `indexer.initialize()` before use. */
+  constructor(files: StorageFiles, flashcardTags: string[] = []) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
@@ -165,21 +148,21 @@ export class Container {
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
     this.getLeeches = new GetLeeches(this.studyItemRepository, this.conceptRepository);
-    this.importSrData = new ImportSrData(this.studyItemRepository);
-    this.replayReviews = new ReplayReviews(this.studyItemRepository, this.reviewLog, this.scheduler);
 
-    // LLM
-    this.llmClient = new HttpLlmClient(
-      () => this.settings?.llmProvider ?? 'none',
-      () => this.settings?.llmApiKey ?? '',
-      () => this.settings?.llmModel ?? '',
-    );
-
-    // TTS (cloud, OpenAI). Reads its own key — independent from LLM provider.
-    // ttsFetch is wired by the plugin layer (obsidianFetch) to bypass renderer CORS.
-    this.ttsClient = new OpenAiTtsClient(
-      () => this.settings?.voiceTts.apiKey ?? '',
-      this.ttsFetch,
-    );
+    this.indexer = new NoteIndexer({
+      parser: this.parser,
+      syncState: this.syncStateFile,
+      studyItemRepository: this.studyItemRepository,
+      deckRepository: this.deckRepository,
+      createConcept: this.createConcept,
+      removeConcept: this.removeConcept,
+      createStudyItem: this.createStudyItem,
+      removeStudyItem: this.removeStudyItem,
+      createDeck: this.createDeck,
+      nestDeck: this.nestDeck,
+      addStudyItemToDeck: this.addStudyItemToDeck,
+      removeStudyItemFromDeck: this.removeStudyItemFromDeck,
+      allowedTags: flashcardTags,
+    });
   }
 }

@@ -1,22 +1,20 @@
 import { ItemView, MarkdownRenderer, WorkspaceLeaf, Notice } from 'obsidian';
 import type { StudyClient } from '@app/backend/study-client';
 import { RemoteError } from '@app/backend/remote-client';
-import { ConceptId } from '@context/concept/domain/concept-id';
-import { StudyItemId } from '@context/study/domain/study-item-id';
-import { DueStudyItemView } from '@context/study/application/study-item-view';
+import type { DueStudyItemView } from '@context/study/application/study-item-view';
 import { Rating } from '@context/study/domain/rating';
 import { Direction } from '@context/study/domain/direction';
-import { MemoryState } from '@context/study/domain/memory-state';
 import { VIEW_TYPE_REVIEW, RATING_LABELS, RATING_COLORS } from './constants';
 import { formatInterval } from './format-interval';
 import { LiveRefresh } from './live-refresh';
+import { renderNotConfigured } from './not-configured';
 
 interface ReviewState extends Record<string, unknown> {
   deckId: string | null;
 }
 
 export class ReviewView extends ItemView {
-  private container: StudyClient;
+  private client: StudyClient;
   private submitting = false;
   private loadError: string | null = null;
   private items: DueStudyItemView[] = [];
@@ -28,11 +26,11 @@ export class ReviewView extends ItemView {
   private reviewedCount = 0;
   private renderGeneration = 0;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
-  private live = new LiveRefresh(current => this.refreshRemote(current));
+  private live = new LiveRefresh(current => this.refresh(current));
 
-  constructor(leaf: WorkspaceLeaf, container: StudyClient) {
+  constructor(leaf: WorkspaceLeaf, client: StudyClient) {
     super(leaf);
-    this.container = container;
+    this.client = client;
   }
 
   getViewType(): string {
@@ -48,7 +46,7 @@ export class ReviewView extends ItemView {
   }
 
   async setState(state: ReviewState): Promise<void> {
-    if (this.submitting || this.container.hasPendingReview?.()) {
+    if (this.submitting || this.client.hasPendingReview()) {
       new Notice('Confirm the pending review before changing decks.');
       return;
     }
@@ -72,22 +70,20 @@ export class ReviewView extends ItemView {
     await this.loadItems();
     this.render();
 
-    if (this.live.stopped) return;
-    if (this.container.remote) {
-      const refreshVisible = () => {
-        if (!this.contentEl.ownerDocument.hidden && this.contentEl.getClientRects().length) void this.live.request();
-      };
-      this.refreshTimer = setInterval(refreshVisible, 10_000);
-      this.registerDomEvent(this.contentEl.ownerDocument, 'visibilitychange', refreshVisible);
-      this.registerDomEvent(this.contentEl.ownerDocument.defaultView!, 'focus', refreshVisible);
-      if (this.container.onChange) this.register(this.container.onChange(refreshVisible));
-    }
+    if (this.live.stopped || !this.client.isConfigured()) return;
+    const refreshVisible = () => {
+      if (!this.contentEl.ownerDocument.hidden && this.contentEl.getClientRects().length) void this.live.request();
+    };
+    this.refreshTimer = setInterval(refreshVisible, 10_000);
+    this.registerDomEvent(this.contentEl.ownerDocument, 'visibilitychange', refreshVisible);
+    this.registerDomEvent(this.contentEl.ownerDocument.defaultView!, 'focus', refreshVisible);
+    this.register(this.client.onChange(refreshVisible));
 
     // Re-render current card when switching back to this tab (after editing note)
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', (leaf) => {
         if (leaf === this.leaf) {
-          void this.refreshCurrentCard();
+          void this.live.request();
         }
       }),
     );
@@ -126,72 +122,9 @@ export class ReviewView extends ItemView {
     });
   }
 
-  /**
-   * Refresh the current card's content from the repository
-   * (in case the user edited the source note).
-   */
-  private async refreshCurrentCard(): Promise<void> {
-    if (this.container.remote) { await this.live.request(); return; }
-    if (this.items.length === 0 || this.currentIndex >= this.items.length) return;
-
-    const item = this.items[this.currentIndex];
-
-    // Check if the study item still exists (might have been replaced after edit)
-    const studyItem = await this.container.studyItemRepository.findById(
-      new StudyItemId(item.studyItemId),
-    );
-
-    if (!studyItem) {
-      // Card was edited — VaultSync replaced it with a new StudyItem.
-      // Try to find the replacement by looking at the source file.
-      const replacement = await this.findReplacementItem(item);
-      if (replacement) {
-        // Swap in the new data, keep position in queue
-        Object.assign(item, replacement);
-        this.answerRevealed = false;
-        this.render();
-      } else {
-        // No replacement found — remove from queue
-        this.items.splice(this.currentIndex, 1);
-        if (this.currentIndex >= this.items.length) this.currentIndex = 0;
-        this.answerRevealed = false;
-        this.render();
-      }
-      return;
-    }
-
-    // StudyItem exists — check if concept content was updated in place
-    const concept = await this.container.conceptRepository.findById(
-      new ConceptId(item.conceptId),
-    );
-    if (!concept) {
-      this.items.splice(this.currentIndex, 1);
-      if (this.currentIndex >= this.items.length) this.currentIndex = 0;
-      this.answerRevealed = false;
-      this.render();
-      return;
-    }
-
-    if (concept.sideA.content !== item.sideA || concept.sideB.content !== item.sideB) {
-      item.sideA = concept.sideA.content;
-      item.sideB = concept.sideB.content;
-      this.answerRevealed = false;
-      this.render();
-    }
-  }
-
-  private getLimits(): { maxNew: number; maxReview: number } | undefined {
-    const s = this.container.settings;
-    if (!s) return undefined;
-    if (s.dailyNewLimit === 0 && s.dailyReviewLimit === 0) return undefined;
-    return { maxNew: s.dailyNewLimit, maxReview: s.dailyReviewLimit };
-  }
-
+  /** The backend owns the queue: limits, order and previews arrive with each refresh. */
   private async loadItems(): Promise<void> {
-    if (this.container.remote) { await this.live.request(); return; }
-    this.loadError = null;
-    try { await this.loadItemsFromClient(); }
-    catch (error) { this.loadError = (error as Error).message; this.items = []; }
+    await this.live.request();
   }
 
   async onClose(): Promise<void> {
@@ -200,28 +133,26 @@ export class ReviewView extends ItemView {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
   }
 
-  private async refreshRemote(isCurrent: () => boolean): Promise<void> {
+  private async refresh(isCurrent: () => boolean): Promise<void> {
     // A lost acknowledgement must be resolved with the same operation ID before
     // replacing the displayed card or its revision.
-    if (this.submitting) return;
+    if (this.submitting || !this.client.isConfigured()) return;
     const deckId = this.deckId;
     try {
-      if (this.container.hasPendingReview?.()) {
-        if (!this.container.retryPendingReviews) return;
-        await this.container.retryPendingReviews();
+      if (this.client.hasPendingReview()) {
+        await this.client.retryPendingReviews();
         if (!isCurrent() || this.submitting) return;
       }
       const [fresh, tree] = await Promise.all([
-        deckId ? this.container.getDueStudyItemsByDeck.execute(deckId) : this.container.getDueStudyItems.execute(),
-        deckId ? this.container.getDeckTree.execute() : Promise.resolve([]),
+        deckId ? this.client.getDueStudyItemsByDeck.execute(deckId) : this.client.getDueStudyItems.execute(),
+        deckId ? this.client.getDeckTree.execute() : Promise.resolve([]),
       ]);
-      if (!isCurrent() || this.submitting || this.container.hasPendingReview?.()) return;
+      if (!isCurrent() || this.submitting || this.client.hasPendingReview()) return;
       const previous = this.items[this.currentIndex];
       const freshById = new Map(fresh.map(item => [item.studyItemId, item]));
       const ordered = this.items.map(item => freshById.get(item.studyItemId)).filter((item): item is DueStudyItemView => !!item);
       const known = new Set(ordered.map(item => item.studyItemId));
       const added = fresh.filter(item => !known.has(item.studyItemId));
-      if (this.container.settings?.shuffleReviews !== false) this.shuffleArray(added);
       const next = [...ordered, ...added];
       const nextIndex = previous ? next.findIndex(item => item.studyItemId === previous.studyItemId) : 0;
       const current = next[Math.max(0, nextIndex)];
@@ -245,32 +176,6 @@ export class ReviewView extends ItemView {
     }
   }
 
-  private async loadItemsFromClient(): Promise<void> {
-    const limits = this.getLimits();
-    if (this.deckId) {
-      this.items = await this.container.getDueStudyItemsByDeck.execute(this.deckId, new Date(), limits);
-      const tree = await this.container.getDeckTree.execute();
-      this.deckName = this.findDeckName(tree, this.deckId) ?? 'Deck';
-    } else {
-      this.items = await this.container.getDueStudyItems.execute(new Date(), limits);
-      this.deckName = 'All decks';
-    }
-    // Shuffle if enabled in settings
-    if (this.container.settings?.shuffleReviews !== false) {
-      this.shuffleArray(this.items);
-    }
-    this.totalCount = this.items.length;
-    this.currentIndex = 0;
-    this.answerRevealed = false;
-  }
-
-  private shuffleArray<T>(arr: T[]): void {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-  }
-
   private findDeckName(nodes: { id: string; name: string; children: any[] }[], id: string): string | null {
     for (const node of nodes) {
       if (node.id === id) return node.name;
@@ -286,6 +191,11 @@ export class ReviewView extends ItemView {
     el.empty();
     el.addClass('recall-review');
     el.focus();
+
+    if (!this.client.isConfigured()) {
+      renderNotConfigured(el);
+      return;
+    }
 
     if (this.loadError) {
       el.createEl('p', { text: `Cannot load reviews: ${this.loadError}` });
@@ -377,17 +287,9 @@ export class ReviewView extends ItemView {
 
     const ratings = [Rating.Again, Rating.Hard, Rating.Good, Rating.Easy];
 
-    const currentState = new MemoryState(
-      item.stability,
-      item.difficulty,
-      item.due,
-      item.reps,
-      item.lapses,
-      item.lastReview,
-    );
     const previews = item.preview
       ? [item.preview.againDays, item.preview.hardDays, item.preview.goodDays, item.preview.easyDays].map(intervalDays => ({ intervalDays }))
-      : this.container.scheduler?.previewAll(currentState, new Date());
+      : undefined;
 
     for (let i = 0; i < ratings.length; i++) {
       const rating = ratings[i];
@@ -413,7 +315,7 @@ export class ReviewView extends ItemView {
     this.submitting = true;
     this.contentEl.setAttribute('aria-busy', 'true');
     try {
-      await this.container.reviewStudyItem.execute({
+      await this.client.reviewStudyItem.execute({
         studyItemId: item.studyItemId,
         expectedRevision: item.revision,
         rating,
@@ -444,7 +346,7 @@ export class ReviewView extends ItemView {
     }
     this.answerRevealed = false;
     this.render();
-    if (this.container.remote) await this.live.request();
+    await this.live.request();
   }
 
   private renderComplete(el: HTMLElement): void {
@@ -463,35 +365,8 @@ export class ReviewView extends ItemView {
     backBtn.addEventListener('click', () => this.goBack());
   }
 
-  /**
-   * When a card is edited, VaultSync creates a new Concept + StudyItem.
-   * Try to find the new item that replaced the old one by matching
-   * direction and source file.
-   */
-  private async findReplacementItem(oldItem: DueStudyItemView): Promise<DueStudyItemView | null> {
-    // Find the source file of the old concept
-    const oldFile = this.container.vaultSync?.findFileByConceptId(oldItem.conceptId);
-
-    // Get all due items and find one from the same file with the same direction
-    // that isn't already in our queue
-    const existingIds = new Set(this.items.map(i => i.studyItemId));
-    const allDue = await this.container.getDueStudyItems.execute();
-
-    for (const candidate of allDue) {
-      if (existingIds.has(candidate.studyItemId)) continue;
-      if (candidate.direction !== oldItem.direction) continue;
-
-      const candidateFile = this.container.vaultSync?.findFileByConceptId(candidate.conceptId);
-      if (candidateFile && oldFile && candidateFile.filePath === oldFile.filePath) {
-        return candidate;
-      }
-    }
-
-    return null;
-  }
-
   private async openSourceNote(conceptId: string): Promise<void> {
-    const result = this.container.vaultSync?.findFileByConceptId(conceptId);
+    const result = this.client.findSource(conceptId);
     if (!result) return;
 
     const file = this.app.vault.getAbstractFileByPath(result.filePath);

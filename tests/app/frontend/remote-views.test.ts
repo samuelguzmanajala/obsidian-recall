@@ -5,7 +5,7 @@ import { DeckBrowserView } from '../../../src/app/frontend/deck-browser-view';
 
 const card = (id = 'a', revision = 1) => ({ studyItemId: id, conceptId: id, revision, sideA: 'Q', sideB: 'A' });
 function review() {
-  const client: any = { remote: true, settings: { shuffleReviews: false },
+  const client: any = { isConfigured: () => true,
     getDueStudyItems: { execute: vi.fn() }, hasPendingReview: () => false };
   const view: any = new ReviewView({} as any, client);
   view.render = vi.fn();
@@ -61,7 +61,7 @@ describe('remote review refresh', () => {
 
 describe('deck browser refresh', () => {
   it('detects changed deck structure even when all global totals stay identical', async () => {
-    const client: any = { settings: {}, getDeckTree: { execute: vi.fn().mockResolvedValue([{ name: 'Before' }]) },
+    const client: any = { isConfigured: () => true, expandedDeckIds: [], getDeckTree: { execute: vi.fn().mockResolvedValue([{ name: 'Before' }]) },
       getStudyStats: { execute: vi.fn().mockResolvedValue({ dueNow: 1, totalItems: 1 }) },
       getLeeches: { execute: vi.fn().mockResolvedValue([]) } };
     const view: any = new DeckBrowserView({} as any, client);
@@ -71,5 +71,42 @@ describe('deck browser refresh', () => {
     expect(view.renderContent).toHaveBeenCalledTimes(2);
     expect(view.contentEl.scrollTop).toBe(123);
     await view.refresh(); expect(view.renderContent).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('backend not configured', () => {
+  const element = () => {
+    const created: string[] = [];
+    const el: any = {
+      scrollTop: 0, empty: vi.fn(), addClass: vi.fn(), focus: vi.fn(), querySelector: () => null,
+      createDiv: () => el, setAttribute: vi.fn(),
+      createEl: (_tag: string, options?: { text?: string }) => { if (options?.text) created.push(options.text); return el; },
+    };
+    return { el, created };
+  };
+  const unconfigured = () => ({ isConfigured: () => false, expandedDeckIds: [], hasPendingReview: () => false,
+    getDueStudyItems: { execute: vi.fn() }, getDueStudyItemsByDeck: { execute: vi.fn() }, getDeckTree: { execute: vi.fn() },
+    getStudyStats: { execute: vi.fn() }, getLeeches: { execute: vi.fn() } });
+
+  it('deck browser explains how to configure the backend instead of requesting data', async () => {
+    const client: any = unconfigured();
+    const view: any = new DeckBrowserView({} as any, client);
+    const { el, created } = element();
+    view.contentEl = el;
+    await view.render();
+    expect(created.join(' ')).toMatch(/backend URL and token in Settings/);
+    expect(client.getDeckTree.execute).not.toHaveBeenCalled();
+    expect(client.getStudyStats.execute).not.toHaveBeenCalled();
+  });
+
+  it('review view explains how to configure the backend instead of requesting data', async () => {
+    const client: any = unconfigured();
+    const view: any = new ReviewView({} as any, client);
+    const { el, created } = element();
+    view.contentEl = el;
+    await view.loadItems();
+    await view.render();
+    expect(created.join(' ')).toMatch(/backend URL and token in Settings/);
+    expect(client.getDueStudyItems.execute).not.toHaveBeenCalled();
   });
 });

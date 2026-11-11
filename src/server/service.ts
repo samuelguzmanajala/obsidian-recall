@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto';
-import { Container } from '../app/backend/container';
-import { VaultSync } from '../app/backend/vault-sync';
-import { DEFAULT_SETTINGS, type RecallSettings } from '../app/backend/recall-settings';
+import { Container } from './container';
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from './server-settings';
 import { MultiDeviceReviewLog } from '../context/study/infrastructure/json-review-log';
 import type { SerializedReview, SerializedSyncState } from '../context/shared/infrastructure/json-storage';
 import { StudyItemId } from '../context/study/domain/study-item-id';
 import { Rating } from '../context/study/domain/rating';
 import { Direction } from '../context/study/domain/direction';
-import { markdownToVoice } from '../app/backend/voice-api/markdown-to-voice';
+import { markdownToVoice } from './audio/markdown-to-voice';
 import { RecallDatabase, payloadHash } from './database';
 
 export class ApiError extends Error {
@@ -37,9 +36,9 @@ function notePath(value: unknown): string {
 
 /** Uses the existing domain through transactional ports; no Obsidian runtime or vault filesystem. */
 export class RecallService {
-  readonly settings: RecallSettings;
-  constructor(readonly db: RecallDatabase, settings: Partial<RecallSettings> = {}) {
-    this.settings = { ...structuredClone(DEFAULT_SETTINGS), ...settings };
+  readonly settings: ServerSettings;
+  constructor(readonly db: RecallDatabase, settings: Partial<ServerSettings> = {}) {
+    this.settings = { ...structuredClone(DEFAULT_SERVER_SETTINGS), ...settings };
   }
   async context(): Promise<Container> {
     const reviews = this.db.document('reviews');
@@ -48,11 +47,8 @@ export class RecallService {
       concepts: this.db.document('concepts'), studyItems: this.db.document('study-items'),
       decks: this.db.document('decks'), syncState: this.db.document('sync-state'),
       reviewLog: new MultiDeviceReviewLog({ readLocal: read, readAll: read, writeLocal: v => reviews.write(v) }),
-    });
-    container.settings = this.settings;
-    container.vaultSync = new VaultSync(container);
-    container.vaultSync.setAllowedTags(this.settings.flashcardTags);
-    await container.vaultSync.initialize();
+    }, this.settings.flashcardTags);
+    await container.indexer.initialize();
     return container;
   }
   query<T>(work: (c: Container) => Promise<T>): Promise<T> {
@@ -65,7 +61,7 @@ export class RecallService {
       const c = await this.context();
       const affected = new Set((await c.studyItemRepository.findAll()).map(i => i.id.value));
       const notes = this.db.sql.prepare('SELECT path,content FROM notes WHERE content IS NOT NULL').all();
-      for (const note of notes) await c.vaultSync!.syncFile(note.path as string, note.content as string);
+      for (const note of notes) await c.indexer.syncFile(note.path as string, note.content as string);
       for (const item of await c.studyItemRepository.findAll()) affected.add(item.id.value);
       if (notes.length) for (const id of affected) await this.db.document(`revision:${id}`).write(this.itemRevision(id) + 1);
       await config.write(this.settings.flashcardTags);
@@ -105,7 +101,7 @@ export class RecallService {
       }
       return { items: items.slice(0, limit).map(item => ({
         ...item, revision: this.itemRevision(item.studyItemId),
-        source: c.vaultSync!.findFileByConceptId(item.conceptId),
+        source: c.indexer.findFileByConceptId(item.conceptId),
         voiceQuestion: markdownToVoice(item.direction === Direction.AtoB ? item.sideA : item.sideB),
         voiceAnswer: markdownToVoice(item.direction === Direction.AtoB ? item.sideB : item.sideA),
       })) };
@@ -179,8 +175,8 @@ export class RecallService {
       const c = await this.context();
       const before = await c.syncStateFile.read<SerializedSyncState>();
       const affected = new Set(before?.fileIndices[path]?.studyItemIds ?? []);
-      if (content === null) await c.vaultSync!.removeFile(path);
-      else await c.vaultSync!.syncFile(path, content);
+      if (content === null) await c.indexer.removeFile(path);
+      else await c.indexer.syncFile(path, content);
       // Invalidate queued reviews when note contents change, including remove/recreate of stable IDs.
       const after = await c.syncStateFile.read<SerializedSyncState>();
       for (const id of after?.fileIndices[path]?.studyItemIds ?? []) affected.add(id);
@@ -219,7 +215,7 @@ export class RecallService {
       if (Number(old.revision) !== expectedRevision) throw new ApiError(409, 'Source note changed; reconcile before renaming');
       if (this.db.sql.prepare('SELECT path FROM notes WHERE path=?').get(newPath)) throw new ApiError(409, 'Target path already exists (including tombstones)');
       const c = await this.context();
-      await c.vaultSync!.renameFile(path, newPath);
+      await c.indexer.renameFile(path, newPath);
       this.db.sql.prepare('UPDATE notes SET content=NULL,revision=revision+1 WHERE path=?').run(path);
       this.db.sql.prepare('INSERT INTO notes VALUES (?,?,1)').run(newPath, old.content);
       return { path, revision: expectedRevision + 1, newPath, newRevision: 1 };

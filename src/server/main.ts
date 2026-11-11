@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { RecallDatabase } from './database';
 import { RecallService } from './service';
 import { createRecallServer } from './http';
-import { configureAudio } from './audio';
+import { configureAudio } from './audio/configure-audio';
 
 const token = process.env.RECALL_TOKEN ?? '';
 process.umask(0o077);

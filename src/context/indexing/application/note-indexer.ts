@@ -1,15 +1,39 @@
-import { Container } from './container';
-import { CachedJsonFileStorage } from './cached-json-file-storage';
-import { MultiDeviceReviewLog } from '@context/study/infrastructure/json-review-log';
-import { ParsedCard } from '@context/concept/infrastructure/markdown-parser';
+import { MarkdownParser, ParsedCard } from '@context/concept/infrastructure/markdown-parser';
 import { FrontmatterParser } from '@context/concept/infrastructure/frontmatter-parser';
 import { Directionality } from '@context/concept/domain/directionality';
 import { Direction } from '@context/study/domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
-import { StudyItemId } from '@context/study/domain/study-item-id';
 import { DeckId } from '@context/deck/domain/deck-id';
-import { SerializedSyncState } from '@context/shared/infrastructure/json-storage';
-import { SyncLogger } from './sync-logger';
+import { JsonFileStorage, SerializedSyncState } from '@context/shared/infrastructure/json-storage';
+import { StudyItemRepository } from '@context/study/domain/study-item-repository';
+import { DeckRepository } from '@context/deck/domain/deck-repository';
+import { CreateConcept } from '@context/concept/application/create-concept';
+import { RemoveConcept } from '@context/concept/application/remove-concept';
+import { CreateStudyItem } from '@context/study/application/create-study-item';
+import { RemoveStudyItem } from '@context/study/application/remove-study-item';
+import { CreateDeck } from '@context/deck/application/create-deck';
+import { NestDeck } from '@context/deck/application/nest-deck';
+import { AddStudyItemToDeck } from '@context/deck/application/add-study-item-to-deck';
+import { RemoveStudyItemFromDeck } from '@context/deck/application/remove-study-item-from-deck';
+
+/** Everything the indexer needs; the composition root wires it. */
+export interface NoteIndexerDeps {
+  parser: Pick<MarkdownParser, 'parse'>;
+  /** Persisted index (file → cards, tag → deck). Its format is stored by existing databases. */
+  syncState: JsonFileStorage;
+  studyItemRepository: Pick<StudyItemRepository, 'findByConceptId'>;
+  deckRepository: Pick<DeckRepository, 'findById'>;
+  createConcept: Pick<CreateConcept, 'execute'>;
+  removeConcept: Pick<RemoveConcept, 'execute'>;
+  createStudyItem: Pick<CreateStudyItem, 'execute'>;
+  removeStudyItem: Pick<RemoveStudyItem, 'execute'>;
+  createDeck: Pick<CreateDeck, 'execute'>;
+  nestDeck: Pick<NestDeck, 'execute'>;
+  addStudyItemToDeck: Pick<AddStudyItemToDeck, 'execute'>;
+  removeStudyItemFromDeck: Pick<RemoveStudyItemFromDeck, 'execute'>;
+  /** Tags to index. Only notes with at least one matching tag (or subtag) are indexed. Empty = all. */
+  allowedTags?: string[];
+}
 
 /**
  * Tracks which concepts came from which file, so we can
@@ -26,7 +50,11 @@ interface FileIndex {
   deckIds: string[];
 }
 
-export class VaultSync {
+/**
+ * Translates Markdown notes into concept, study item and deck commands, and remembers
+ * which cards came from which note. Card, concept and deck IDs are derived from content.
+ */
+export class NoteIndexer {
   private fileIndices = new Map<string, FileIndex>();
   private frontmatterParser = new FrontmatterParser();
   /** tag → deckId — ensures same tag always maps to same deck */
@@ -34,84 +62,11 @@ export class VaultSync {
 
   private static readonly UNTAGGED_DECK_TAG = '__untagged__';
 
-  private batchMode = false;
-  private syncStateDirty = false;
+  /** Tags the user configured. Empty = allow all. */
+  private readonly allowedTags: string[];
 
-  /** Tags the user configured in settings. Empty = allow all. */
-  private allowedTags: string[] = [];
-
-  private cachedPorts: {
-    concepts: CachedJsonFileStorage;
-    studyItems: CachedJsonFileStorage;
-    decks: CachedJsonFileStorage;
-    syncState: CachedJsonFileStorage;
-  } | null = null;
-
-  private reviewLogRef: MultiDeviceReviewLog | null = null;
-  private logger: SyncLogger | null = null;
-
-  constructor(private readonly container: Container) {}
-
-  setLogger(logger: SyncLogger): void {
-    this.logger = logger;
-  }
-
-  setReviewLog(reviewLog: MultiDeviceReviewLog): void {
-    this.reviewLogRef = reviewLog;
-  }
-
-  setCachedPorts(ports: {
-    concepts: CachedJsonFileStorage;
-    studyItems: CachedJsonFileStorage;
-    decks: CachedJsonFileStorage;
-    syncState: CachedJsonFileStorage;
-  }): void {
-    this.cachedPorts = ports;
-  }
-
-  /**
-   * Set which tags are allowed. Only notes with at least one matching tag
-   * (or subtag) will be indexed. Empty array = index everything.
-   */
-  setAllowedTags(tags: string[]): void {
-    this.allowedTags = tags;
-  }
-
-  /**
-   * Wipe everything EXCEPT reviews (source of truth for event sourcing).
-   * Used by rebuild to recreate items from vault while preserving history.
-   */
-  async resetKeepReviews(): Promise<void> {
-    if (!this.cachedPorts) throw new Error('CachedPorts not set');
-    await this.cachedPorts.decks.clear();
-    await this.cachedPorts.concepts.clear();
-    await this.cachedPorts.studyItems.clear();
-    // Reviews intentionally NOT cleared
-
-    this.fileIndices.clear();
-    this.tagToDeckId.clear();
-    await this.persistState();
-  }
-
-  /**
-   * Wipe all sync state, decks, concepts, study items, and reviews.
-   * Called when tag filter changes so we can rebuild from scratch.
-   * Uses atomic clear() — one write per store, not per entity.
-   */
-  async resetAll(): Promise<void> {
-    if (!this.cachedPorts) throw new Error('CachedPorts not set');
-    await this.cachedPorts.decks.clear();
-    await this.cachedPorts.concepts.clear();
-    await this.cachedPorts.studyItems.clear();
-    // Reviews cleared via MultiDeviceReviewLog directly
-    if (this.reviewLogRef) await this.reviewLogRef.clear();
-
-    // Clear in-memory maps
-    this.fileIndices.clear();
-    this.tagToDeckId.clear();
-
-    // Persist empty sync state
-    await this.persistState();
+  constructor(private readonly deps: NoteIndexerDeps) {
+    this.allowedTags = deps.allowedTags ?? [];
   }
 
   /**
@@ -143,15 +98,6 @@ export class VaultSync {
   }
 
   /**
-   * Find a conceptId by file path and card key.
-   */
-  findConceptIdByCardKey(filePath: string, cardKey: string): string | null {
-    const index = this.fileIndices.get(filePath);
-    if (!index) return null;
-    return index.cardKeys.get(cardKey) ?? null;
-  }
-
-  /**
    * Find which file and line a concept belongs to.
    */
   findFileByConceptId(conceptId: string): { filePath: string; line: number } | null {
@@ -170,7 +116,7 @@ export class VaultSync {
    * Must be called before the first syncFile to avoid duplicates on restart.
    */
   async initialize(): Promise<void> {
-    const state = await this.container.syncStateFile.read<SerializedSyncState>();
+    const state = await this.deps.syncState.read<SerializedSyncState>();
     if (!state) return;
 
     for (const [tag, deckId] of Object.entries(state.tagToDeckId)) {
@@ -192,23 +138,13 @@ export class VaultSync {
    * Sync a single file. Returns true if the file was indexed (had matching tags + cards).
    */
   async syncFile(filePath: string, content: string): Promise<boolean> {
-    const parsedCards = this.container.parser.parse(content, filePath);
+    const parsedCards = this.deps.parser.parse(content, filePath);
     const tags = this.frontmatterParser.extractTags(content);
     const previousIndex = this.fileIndices.get(filePath);
-
-    this.logger?.info(
-      `syncFile START  file="${filePath}"  parsed=${parsedCards.length}  ` +
-      `tags=[${tags.join(',')}]  previousCards=${previousIndex?.cardKeys.size ?? 0}`,
-    );
 
     // If tag filter is active and note doesn't match, treat as removal
     if (!this.matchesTagFilter(tags)) {
       if (this.fileIndices.has(filePath)) {
-        this.logger?.warn(
-          `syncFile REMOVE-FILE (tags don't match filter) file="${filePath}" ` +
-          `tags=[${tags.join(',')}] allowed=[${this.allowedTags.join(',')}] ` +
-          `cardsAboutToDie=${previousIndex?.cardKeys.size ?? 0}`,
-        );
         await this.removeFile(filePath);
       }
       return false;
@@ -217,11 +153,6 @@ export class VaultSync {
     if (parsedCards.length === 0) {
       // Matching tags but no cards — remove if previously indexed
       if (this.fileIndices.has(filePath)) {
-        this.logger?.warn(
-          `syncFile REMOVE-FILE (parser returned 0 cards) file="${filePath}" ` +
-          `cardsAboutToDie=${previousIndex?.cardKeys.size ?? 0}  ` +
-          `contentLength=${content.length}`,
-        );
         await this.removeFile(filePath);
       }
       return false;
@@ -234,7 +165,7 @@ export class VaultSync {
     // Filter tags to only those matching the allowed filter
     // Files without matching tags go to "Untagged" deck
     const filteredTags = this.filterToAllowedTags(tags);
-    const effectiveTags = filteredTags.length > 0 ? filteredTags : [VaultSync.UNTAGGED_DECK_TAG];
+    const effectiveTags = filteredTags.length > 0 ? filteredTags : [NoteIndexer.UNTAGGED_DECK_TAG];
     const leafDeckIds = await this.ensureDeckHierarchy(effectiveTags);
     newIndex.deckIds = leafDeckIds;
 
@@ -255,7 +186,7 @@ export class VaultSync {
 
         // If tags changed, reassign study items to new decks
         if (decksChanged) {
-          const studyItems = await this.container.studyItemRepository.findByConceptId(
+          const studyItems = await this.deps.studyItemRepository.findByConceptId(
             new ConceptId(conceptId),
           );
           const siIds = studyItems.map(si => si.id.value);
@@ -267,7 +198,7 @@ export class VaultSync {
           for (const oldDeckId of previousIndex!.deckIds) {
             if (retainedDecks.has(oldDeckId)) continue;
             for (const siId of siIds) {
-              await this.container.removeStudyItemFromDeck.execute({
+              await this.deps.removeStudyItemFromDeck.execute({
                 deckId: oldDeckId,
                 studyItemId: siId,
               });
@@ -277,7 +208,7 @@ export class VaultSync {
           // Add to new decks
           for (const deckId of leafDeckIds) {
             for (const siId of siIds) {
-              await this.container.addStudyItemToDeck.execute({
+              await this.deps.addStudyItemToDeck.execute({
                 deckId,
                 studyItemId: siId,
               });
@@ -287,7 +218,7 @@ export class VaultSync {
           newIndex.studyItemIds.push(...siIds);
         } else {
           // Decks didn't change — carry over studyItemIds
-          const studyItems = await this.container.studyItemRepository.findByConceptId(
+          const studyItems = await this.deps.studyItemRepository.findByConceptId(
             new ConceptId(conceptId),
           );
           newIndex.studyItemIds.push(...studyItems.map(si => si.id.value));
@@ -299,23 +230,10 @@ export class VaultSync {
         newIndex.conceptLines.set(conceptId, card.lineNumber);
         newIndex.studyItemIds.push(...studyItemIds);
 
-        // Diagnostic: were there pre-existing reviews for these brand new IDs?
-        // If yes → the same content existed before under another path, the
-        // auto-replay in CreateStudyItem should have restored its state.
-        if (this.reviewLogRef) {
-          for (const siId of studyItemIds) {
-            const prior = await this.reviewLogRef.findByStudyItemId(new StudyItemId(siId));
-            this.logger?.info(
-              `syncFile NEW-CARD  file="${filePath}"  cardKey=${key}  ` +
-              `studyItemId=${siId.slice(0, 8)}  priorReviews=${prior.length}`,
-            );
-          }
-        }
-
         // Assign study items to leaf decks
         for (const deckId of leafDeckIds) {
           for (const siId of studyItemIds) {
-            await this.container.addStudyItemToDeck.execute({
+            await this.deps.addStudyItemToDeck.execute({
               deckId,
               studyItemId: siId,
             });
@@ -327,20 +245,11 @@ export class VaultSync {
     // Remove cards that no longer exist in the file
     for (const removedKey of previousKeys) {
       const conceptId = previousIndex!.cardKeys.get(removedKey)!;
-      this.logger?.warn(
-        `syncFile REMOVE-CARD  file="${filePath}"  cardKey=${removedKey}  ` +
-        `conceptId=${conceptId.slice(0, 8)}  reason=cardKey-not-in-new-parse`,
-      );
       await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds, filePath);
     }
 
     this.fileIndices.set(filePath, newIndex);
     await this.persistState();
-    this.logger?.info(
-      `syncFile DONE  file="${filePath}"  kept=${parsedCards.length - (previousKeys.size === 0 ? parsedCards.length : 0)} ` +
-      `created=${parsedCards.length - (previousIndex?.cardKeys.size ?? parsedCards.length) + previousKeys.size}  ` +
-      `removed=${previousKeys.size}`,
-    );
     return true;
   }
 
@@ -356,10 +265,6 @@ export class VaultSync {
   async removeFile(filePath: string): Promise<void> {
     const index = this.fileIndices.get(filePath);
     if (!index) return;
-
-    this.logger?.warn(
-      `removeFile  file="${filePath}"  conceptsAboutToDie=${index.cardKeys.size}`,
-    );
 
     for (const conceptId of index.cardKeys.values()) {
       await this.removeConceptWithStudyItems(conceptId, index.deckIds, filePath);
@@ -378,14 +283,14 @@ export class VaultSync {
     const leafDeckIds: string[] = [];
 
     for (const tag of tags) {
-      const parts = tag === VaultSync.UNTAGGED_DECK_TAG
+      const parts = tag === NoteIndexer.UNTAGGED_DECK_TAG
         ? ['Untagged']
         : tag.split('/');
       let parentId: string | null = null;
 
       for (let i = 0; i < parts.length; i++) {
-        const fullTag = tag === VaultSync.UNTAGGED_DECK_TAG
-          ? VaultSync.UNTAGGED_DECK_TAG
+        const fullTag = tag === NoteIndexer.UNTAGGED_DECK_TAG
+          ? NoteIndexer.UNTAGGED_DECK_TAG
           : parts.slice(0, i + 1).join('/');
 
         let deckId = this.tagToDeckId.get(fullTag);
@@ -394,15 +299,15 @@ export class VaultSync {
           this.tagToDeckId.set(fullTag, deckId);
         }
 
-        const existingDeck = await this.container.deckRepository.findById(new DeckId(deckId));
+        const existingDeck = await this.deps.deckRepository.findById(new DeckId(deckId));
         if (!existingDeck) {
-          await this.container.createDeck.execute({
+          await this.deps.createDeck.execute({
             id: deckId,
             name: parts[i],
             parentId,
           });
         } else if (parentId && existingDeck.parentId?.value !== parentId) {
-          await this.container.nestDeck.execute({
+          await this.deps.nestDeck.execute({
             deckId,
             parentId,
           });
@@ -426,7 +331,7 @@ export class VaultSync {
     const conceptId = await this.computeDeterministicId(`concept:${card.sideA}|${card.sideB}|${card.directionality}`);
     const studyItemIds: string[] = [];
 
-    await this.container.createConcept.execute({
+    await this.deps.createConcept.execute({
       id: conceptId,
       sideA: card.sideA,
       sideB: card.sideB,
@@ -434,7 +339,7 @@ export class VaultSync {
     });
 
     const atobId = await this.computeDeterministicId(`si:${card.sideA}|${card.sideB}|a-to-b`);
-    await this.container.createStudyItem.execute({
+    await this.deps.createStudyItem.execute({
       id: atobId,
       conceptId,
       direction: Direction.AtoB,
@@ -443,7 +348,7 @@ export class VaultSync {
 
     if (card.directionality === Directionality.Bidirectional) {
       const btoaId = await this.computeDeterministicId(`si:${card.sideA}|${card.sideB}|b-to-a`);
-      await this.container.createStudyItem.execute({
+      await this.deps.createStudyItem.execute({
         id: btoaId,
         conceptId,
         direction: Direction.BtoA,
@@ -478,7 +383,7 @@ export class VaultSync {
     const otherSources = [...this.fileIndices.entries()]
       .filter(([path, index]) => path !== excludingPath && [...index.cardKeys.values()].includes(conceptId));
     const retainedDecks = new Set(otherSources.flatMap(([, index]) => index.deckIds));
-    const studyItems = await this.container.studyItemRepository.findByConceptId(
+    const studyItems = await this.deps.studyItemRepository.findByConceptId(
       new ConceptId(conceptId),
     );
 
@@ -486,15 +391,15 @@ export class VaultSync {
     for (const item of studyItems) {
       for (const deckId of deckIds) {
         if (retainedDecks.has(deckId)) continue;
-        await this.container.removeStudyItemFromDeck.execute({
+        await this.deps.removeStudyItemFromDeck.execute({
           deckId,
           studyItemId: item.id.value,
         });
       }
-      if (otherSources.length === 0) await this.container.removeStudyItem.execute({ id: item.id.value });
+      if (otherSources.length === 0) await this.deps.removeStudyItem.execute({ id: item.id.value });
     }
 
-    if (otherSources.length === 0) await this.container.removeConcept.execute({ id: conceptId });
+    if (otherSources.length === 0) await this.deps.removeConcept.execute({ id: conceptId });
   }
 
   /**
@@ -514,33 +419,7 @@ export class VaultSync {
     return sorted1.every((val, idx) => val === sorted2[idx]);
   }
 
-  async beginBatch(): Promise<void> {
-    if (!this.cachedPorts) throw new Error('CachedPorts not set');
-    this.batchMode = true;
-    this.cachedPorts.concepts.setBatchMode(true);
-    this.cachedPorts.studyItems.setBatchMode(true);
-    this.cachedPorts.decks.setBatchMode(true);
-    this.cachedPorts.syncState.setBatchMode(true);
-  }
-
-  async endBatch(): Promise<void> {
-    if (!this.cachedPorts) throw new Error('CachedPorts not set');
-    this.batchMode = false;
-    if (this.syncStateDirty) {
-      await this.persistState();
-      this.syncStateDirty = false;
-    }
-    await this.cachedPorts.concepts.flush();
-    await this.cachedPorts.studyItems.flush();
-    await this.cachedPorts.decks.flush();
-    await this.cachedPorts.syncState.flush();
-  }
-
   private async persistState(): Promise<void> {
-    if (this.batchMode) {
-      this.syncStateDirty = true;
-      return;
-    }
     const state: SerializedSyncState = {
       fileIndices: {},
       tagToDeckId: Object.fromEntries(this.tagToDeckId),
@@ -555,6 +434,6 @@ export class VaultSync {
       };
     }
 
-    await this.container.syncStateFile.write(state);
+    await this.deps.syncState.write(state);
   }
 }

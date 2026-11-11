@@ -8,10 +8,10 @@ import { RecallService } from '../../src/server/service';
 import { createRecallServer } from '../../src/server/http';
 import { Rating } from '../../src/context/study/domain/rating';
 import { RemoteClient } from '../../src/app/backend/remote-client';
-import { DEFAULT_SETTINGS } from '../../src/app/backend/recall-settings';
+import { DEFAULT_SETTINGS } from '../../src/app/backend/plugin-settings';
 import { RemoteNoteSync } from '../../src/app/backend/remote-note-sync';
-import { TtsCache } from '../../src/app/backend/voice-api/tts-cache';
-import type { ServerAudio } from '../../src/server/audio';
+import { TtsCache } from '../../src/server/audio/tts-cache';
+import type { ServerAudio } from '../../src/server/audio/configure-audio';
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { for (const f of cleanup.splice(0).reverse()) await f(); });
@@ -242,7 +242,7 @@ describe('standalone backend', () => {
     const [item] = await client.getDueStudyItems.execute();
     expect(item.due).toBeInstanceOf(Date);
     expect(item.preview?.goodDays).toBeDefined();
-    expect(client.vaultSync.findFileByConceptId(item.conceptId)?.filePath).toBe('Test.md');
+    expect(client.findSource(item.conceptId)?.filePath).toBe('Test.md');
     await client.reviewStudyItem.execute({ studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision });
     expect((await client.getStudyStats.execute()).reviewsToday).toBe(1);
   });
@@ -309,7 +309,7 @@ describe('standalone backend', () => {
     await service.renameNote(cmd);
     const after = await service.query(async c => c.studyItemRepository.findAll());
     expect(after).toEqual(before);
-    expect(await service.query(async c => c.vaultSync!.findFileByConceptId(item.conceptId))).toMatchObject({ filePath: 'Folder/New.md' });
+    expect(await service.query(async c => c.indexer.findFileByConceptId(item.conceptId))).toMatchObject({ filePath: 'Folder/New.md' });
   });
   it('does not let a new publisher overwrite a conflicting server note', async () => {
     const service = setup();

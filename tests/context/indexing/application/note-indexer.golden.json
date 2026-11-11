@@ -1,0 +1,787 @@
+{
+  "1-initial": {
+    "store": {
+      "decks": {
+        "2c3e90bb-016d-9a01-3f1d-5f2933976cdd": {
+          "id": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "name": "German",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9": {
+          "id": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "name": "vocabulary",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a",
+            "87f77979-2d90-6c50-5350-1726c0b2ee4a",
+            "46f56bb8-b166-fae7-f060-8b387b3bfa6b",
+            "9fac4f0e-de80-41b5-c122-3bb29460bdbf"
+          ]
+        },
+        "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632": {
+          "id": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "name": "Untagged",
+          "parentId": null,
+          "studyItemIds": [
+            "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+          ]
+        },
+        "5011b9fa-37d1-597f-5184-764f0a9af93b": {
+          "id": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "name": "dev",
+          "parentId": null,
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a"
+          ]
+        }
+      },
+      "concepts": {
+        "8caed186-394f-f6f1-e297-b92304a04d6d": {
+          "id": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "sideA": "Aber",
+          "sideB": "Pero",
+          "directionality": "bidirectional"
+        },
+        "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+          "id": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "sideA": "What is DDD?",
+          "sideB": "Domain-Driven Design",
+          "directionality": "unidirectional"
+        },
+        "8574e65f-bdbb-60fc-eba6-9dd974179623": {
+          "id": "8574e65f-bdbb-60fc-eba6-9dd974179623",
+          "sideA": "Arbeiten",
+          "sideB": "Trabajar",
+          "directionality": "bidirectional"
+        },
+        "6c28458c-8484-19a4-1072-757a10244e4e": {
+          "id": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "sideA": "Plain",
+          "sideB": "Untagged card",
+          "directionality": "unidirectional"
+        }
+      },
+      "study-items": {
+        "180f862f-be3f-4b76-dba4-9967effd539f": {
+          "id": "180f862f-be3f-4b76-dba4-9967effd539f",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "86a45691-d426-001d-7e22-744aac61603a": {
+          "id": "86a45691-d426-001d-7e22-744aac61603a",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "b-to-a",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "87f77979-2d90-6c50-5350-1726c0b2ee4a": {
+          "id": "87f77979-2d90-6c50-5350-1726c0b2ee4a",
+          "conceptId": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "46f56bb8-b166-fae7-f060-8b387b3bfa6b": {
+          "id": "46f56bb8-b166-fae7-f060-8b387b3bfa6b",
+          "conceptId": "8574e65f-bdbb-60fc-eba6-9dd974179623",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "9fac4f0e-de80-41b5-c122-3bb29460bdbf": {
+          "id": "9fac4f0e-de80-41b5-c122-3bb29460bdbf",
+          "conceptId": "8574e65f-bdbb-60fc-eba6-9dd974179623",
+          "direction": "b-to-a",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "e411b5d9-5a9a-5015-31f0-bed0bffa51ac": {
+          "id": "e411b5d9-5a9a-5015-31f0-bed0bffa51ac",
+          "conceptId": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        }
+      },
+      "sync-state": {
+        "fileIndices": {
+          "a.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d",
+              "[\"What is DDD?\",\"Domain-Driven Design\",\"unidirectional\"]": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+              "[\"Arbeiten\",\"Trabajar\",\"bidirectional\"]": "8574e65f-bdbb-60fc-eba6-9dd974179623"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 6,
+              "2868e61a-6684-79f2-4ac1-c6c50566d89c": 7,
+              "8574e65f-bdbb-60fc-eba6-9dd974179623": 10
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a",
+              "87f77979-2d90-6c50-5350-1726c0b2ee4a",
+              "46f56bb8-b166-fae7-f060-8b387b3bfa6b",
+              "9fac4f0e-de80-41b5-c122-3bb29460bdbf"
+            ],
+            "deckIds": [
+              "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9"
+            ]
+          },
+          "b.md": {
+            "cardKeys": {
+              "[\"Plain\",\"Untagged card\",\"unidirectional\"]": "6c28458c-8484-19a4-1072-757a10244e4e"
+            },
+            "conceptLines": {
+              "6c28458c-8484-19a4-1072-757a10244e4e": 1
+            },
+            "studyItemIds": [
+              "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+            ],
+            "deckIds": [
+              "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632"
+            ]
+          },
+          "c.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 4
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a"
+            ],
+            "deckIds": [
+              "5011b9fa-37d1-597f-5184-764f0a9af93b"
+            ]
+          }
+        },
+        "tagToDeckId": {
+          "German": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "German/vocabulary": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "__untagged__": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "dev": "5011b9fa-37d1-597f-5184-764f0a9af93b"
+        }
+      }
+    },
+    "sources": {
+      "8caed186-394f-f6f1-e297-b92304a04d6d": {
+        "filePath": "a.md",
+        "line": 6
+      },
+      "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+        "filePath": "a.md",
+        "line": 7
+      },
+      "8574e65f-bdbb-60fc-eba6-9dd974179623": {
+        "filePath": "a.md",
+        "line": 10
+      },
+      "6c28458c-8484-19a4-1072-757a10244e4e": {
+        "filePath": "b.md",
+        "line": 1
+      }
+    }
+  },
+  "2-retag-and-remove-card": {
+    "store": {
+      "decks": {
+        "2c3e90bb-016d-9a01-3f1d-5f2933976cdd": {
+          "id": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "name": "German",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9": {
+          "id": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "name": "vocabulary",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": []
+        },
+        "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632": {
+          "id": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "name": "Untagged",
+          "parentId": null,
+          "studyItemIds": [
+            "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+          ]
+        },
+        "5011b9fa-37d1-597f-5184-764f0a9af93b": {
+          "id": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "name": "dev",
+          "parentId": null,
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a"
+          ]
+        },
+        "a6adae99-89de-c595-5b99-c28034a7c111": {
+          "id": "a6adae99-89de-c595-5b99-c28034a7c111",
+          "name": "grammar",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a",
+            "87f77979-2d90-6c50-5350-1726c0b2ee4a"
+          ]
+        }
+      },
+      "concepts": {
+        "8caed186-394f-f6f1-e297-b92304a04d6d": {
+          "id": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "sideA": "Aber",
+          "sideB": "Pero",
+          "directionality": "bidirectional"
+        },
+        "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+          "id": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "sideA": "What is DDD?",
+          "sideB": "Domain-Driven Design",
+          "directionality": "unidirectional"
+        },
+        "6c28458c-8484-19a4-1072-757a10244e4e": {
+          "id": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "sideA": "Plain",
+          "sideB": "Untagged card",
+          "directionality": "unidirectional"
+        }
+      },
+      "study-items": {
+        "180f862f-be3f-4b76-dba4-9967effd539f": {
+          "id": "180f862f-be3f-4b76-dba4-9967effd539f",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "86a45691-d426-001d-7e22-744aac61603a": {
+          "id": "86a45691-d426-001d-7e22-744aac61603a",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "b-to-a",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "87f77979-2d90-6c50-5350-1726c0b2ee4a": {
+          "id": "87f77979-2d90-6c50-5350-1726c0b2ee4a",
+          "conceptId": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "e411b5d9-5a9a-5015-31f0-bed0bffa51ac": {
+          "id": "e411b5d9-5a9a-5015-31f0-bed0bffa51ac",
+          "conceptId": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        }
+      },
+      "sync-state": {
+        "fileIndices": {
+          "a.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d",
+              "[\"What is DDD?\",\"Domain-Driven Design\",\"unidirectional\"]": "2868e61a-6684-79f2-4ac1-c6c50566d89c"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 6,
+              "2868e61a-6684-79f2-4ac1-c6c50566d89c": 7
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a",
+              "87f77979-2d90-6c50-5350-1726c0b2ee4a"
+            ],
+            "deckIds": [
+              "a6adae99-89de-c595-5b99-c28034a7c111"
+            ]
+          },
+          "b.md": {
+            "cardKeys": {
+              "[\"Plain\",\"Untagged card\",\"unidirectional\"]": "6c28458c-8484-19a4-1072-757a10244e4e"
+            },
+            "conceptLines": {
+              "6c28458c-8484-19a4-1072-757a10244e4e": 1
+            },
+            "studyItemIds": [
+              "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+            ],
+            "deckIds": [
+              "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632"
+            ]
+          },
+          "c.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 4
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a"
+            ],
+            "deckIds": [
+              "5011b9fa-37d1-597f-5184-764f0a9af93b"
+            ]
+          }
+        },
+        "tagToDeckId": {
+          "German": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "German/vocabulary": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "__untagged__": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "dev": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "German/grammar": "a6adae99-89de-c595-5b99-c28034a7c111"
+        }
+      }
+    },
+    "sources": {
+      "8caed186-394f-f6f1-e297-b92304a04d6d": {
+        "filePath": "a.md",
+        "line": 6
+      },
+      "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+        "filePath": "a.md",
+        "line": 7
+      },
+      "8574e65f-bdbb-60fc-eba6-9dd974179623": null,
+      "6c28458c-8484-19a4-1072-757a10244e4e": {
+        "filePath": "b.md",
+        "line": 1
+      }
+    }
+  },
+  "3-rename": {
+    "store": {
+      "decks": {
+        "2c3e90bb-016d-9a01-3f1d-5f2933976cdd": {
+          "id": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "name": "German",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9": {
+          "id": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "name": "vocabulary",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": []
+        },
+        "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632": {
+          "id": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "name": "Untagged",
+          "parentId": null,
+          "studyItemIds": [
+            "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+          ]
+        },
+        "5011b9fa-37d1-597f-5184-764f0a9af93b": {
+          "id": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "name": "dev",
+          "parentId": null,
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a"
+          ]
+        },
+        "a6adae99-89de-c595-5b99-c28034a7c111": {
+          "id": "a6adae99-89de-c595-5b99-c28034a7c111",
+          "name": "grammar",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": [
+            "180f862f-be3f-4b76-dba4-9967effd539f",
+            "86a45691-d426-001d-7e22-744aac61603a",
+            "87f77979-2d90-6c50-5350-1726c0b2ee4a"
+          ]
+        }
+      },
+      "concepts": {
+        "8caed186-394f-f6f1-e297-b92304a04d6d": {
+          "id": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "sideA": "Aber",
+          "sideB": "Pero",
+          "directionality": "bidirectional"
+        },
+        "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+          "id": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "sideA": "What is DDD?",
+          "sideB": "Domain-Driven Design",
+          "directionality": "unidirectional"
+        },
+        "6c28458c-8484-19a4-1072-757a10244e4e": {
+          "id": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "sideA": "Plain",
+          "sideB": "Untagged card",
+          "directionality": "unidirectional"
+        }
+      },
+      "study-items": {
+        "180f862f-be3f-4b76-dba4-9967effd539f": {
+          "id": "180f862f-be3f-4b76-dba4-9967effd539f",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "86a45691-d426-001d-7e22-744aac61603a": {
+          "id": "86a45691-d426-001d-7e22-744aac61603a",
+          "conceptId": "8caed186-394f-f6f1-e297-b92304a04d6d",
+          "direction": "b-to-a",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "87f77979-2d90-6c50-5350-1726c0b2ee4a": {
+          "id": "87f77979-2d90-6c50-5350-1726c0b2ee4a",
+          "conceptId": "2868e61a-6684-79f2-4ac1-c6c50566d89c",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "e411b5d9-5a9a-5015-31f0-bed0bffa51ac": {
+          "id": "e411b5d9-5a9a-5015-31f0-bed0bffa51ac",
+          "conceptId": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        }
+      },
+      "sync-state": {
+        "fileIndices": {
+          "a.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d",
+              "[\"What is DDD?\",\"Domain-Driven Design\",\"unidirectional\"]": "2868e61a-6684-79f2-4ac1-c6c50566d89c"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 6,
+              "2868e61a-6684-79f2-4ac1-c6c50566d89c": 7
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a",
+              "87f77979-2d90-6c50-5350-1726c0b2ee4a"
+            ],
+            "deckIds": [
+              "a6adae99-89de-c595-5b99-c28034a7c111"
+            ]
+          },
+          "c.md": {
+            "cardKeys": {
+              "[\"Aber\",\"Pero\",\"bidirectional\"]": "8caed186-394f-f6f1-e297-b92304a04d6d"
+            },
+            "conceptLines": {
+              "8caed186-394f-f6f1-e297-b92304a04d6d": 4
+            },
+            "studyItemIds": [
+              "180f862f-be3f-4b76-dba4-9967effd539f",
+              "86a45691-d426-001d-7e22-744aac61603a"
+            ],
+            "deckIds": [
+              "5011b9fa-37d1-597f-5184-764f0a9af93b"
+            ]
+          },
+          "folder/b.md": {
+            "cardKeys": {
+              "[\"Plain\",\"Untagged card\",\"unidirectional\"]": "6c28458c-8484-19a4-1072-757a10244e4e"
+            },
+            "conceptLines": {
+              "6c28458c-8484-19a4-1072-757a10244e4e": 1
+            },
+            "studyItemIds": [
+              "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+            ],
+            "deckIds": [
+              "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632"
+            ]
+          }
+        },
+        "tagToDeckId": {
+          "German": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "German/vocabulary": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "__untagged__": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "dev": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "German/grammar": "a6adae99-89de-c595-5b99-c28034a7c111"
+        }
+      }
+    },
+    "sources": {
+      "8caed186-394f-f6f1-e297-b92304a04d6d": {
+        "filePath": "a.md",
+        "line": 6
+      },
+      "2868e61a-6684-79f2-4ac1-c6c50566d89c": {
+        "filePath": "a.md",
+        "line": 7
+      },
+      "8574e65f-bdbb-60fc-eba6-9dd974179623": null,
+      "6c28458c-8484-19a4-1072-757a10244e4e": {
+        "filePath": "folder/b.md",
+        "line": 1
+      }
+    }
+  },
+  "4-remove": {
+    "store": {
+      "decks": {
+        "2c3e90bb-016d-9a01-3f1d-5f2933976cdd": {
+          "id": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "name": "German",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9": {
+          "id": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "name": "vocabulary",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": []
+        },
+        "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632": {
+          "id": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "name": "Untagged",
+          "parentId": null,
+          "studyItemIds": [
+            "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+          ]
+        },
+        "5011b9fa-37d1-597f-5184-764f0a9af93b": {
+          "id": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "name": "dev",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "a6adae99-89de-c595-5b99-c28034a7c111": {
+          "id": "a6adae99-89de-c595-5b99-c28034a7c111",
+          "name": "grammar",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": []
+        }
+      },
+      "concepts": {
+        "6c28458c-8484-19a4-1072-757a10244e4e": {
+          "id": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "sideA": "Plain",
+          "sideB": "Untagged card",
+          "directionality": "unidirectional"
+        }
+      },
+      "study-items": {
+        "e411b5d9-5a9a-5015-31f0-bed0bffa51ac": {
+          "id": "e411b5d9-5a9a-5015-31f0-bed0bffa51ac",
+          "conceptId": "6c28458c-8484-19a4-1072-757a10244e4e",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        }
+      },
+      "sync-state": {
+        "fileIndices": {
+          "folder/b.md": {
+            "cardKeys": {
+              "[\"Plain\",\"Untagged card\",\"unidirectional\"]": "6c28458c-8484-19a4-1072-757a10244e4e"
+            },
+            "conceptLines": {
+              "6c28458c-8484-19a4-1072-757a10244e4e": 1
+            },
+            "studyItemIds": [
+              "e411b5d9-5a9a-5015-31f0-bed0bffa51ac"
+            ],
+            "deckIds": [
+              "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632"
+            ]
+          }
+        },
+        "tagToDeckId": {
+          "German": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "German/vocabulary": "080d0b1a-f40d-5f48-7c1e-6235bfc23dd9",
+          "__untagged__": "4f2bdf90-e251-f4fe-b1fe-6ee2622a7632",
+          "dev": "5011b9fa-37d1-597f-5184-764f0a9af93b",
+          "German/grammar": "a6adae99-89de-c595-5b99-c28034a7c111"
+        }
+      }
+    },
+    "sources": {
+      "8caed186-394f-f6f1-e297-b92304a04d6d": null,
+      "2868e61a-6684-79f2-4ac1-c6c50566d89c": null,
+      "8574e65f-bdbb-60fc-eba6-9dd974179623": null,
+      "6c28458c-8484-19a4-1072-757a10244e4e": {
+        "filePath": "folder/b.md",
+        "line": 1
+      }
+    }
+  },
+  "5-filtered": {
+    "store": {
+      "decks": {
+        "2c3e90bb-016d-9a01-3f1d-5f2933976cdd": {
+          "id": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "name": "German",
+          "parentId": null,
+          "studyItemIds": []
+        },
+        "dde6a216-ebb2-b8e3-a05e-fca99f1a9053": {
+          "id": "dde6a216-ebb2-b8e3-a05e-fca99f1a9053",
+          "name": "x",
+          "parentId": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "studyItemIds": [
+            "6e6875b2-1d66-686b-1723-440c5076ba68",
+            "9bc593d9-bfef-5b39-c751-b19aceb173d2"
+          ]
+        }
+      },
+      "concepts": {
+        "4d09c2e6-42c5-ad39-0d21-dd598b5817d2": {
+          "id": "4d09c2e6-42c5-ad39-0d21-dd598b5817d2",
+          "sideA": "Hallo",
+          "sideB": "Hola",
+          "directionality": "bidirectional"
+        }
+      },
+      "study-items": {
+        "6e6875b2-1d66-686b-1723-440c5076ba68": {
+          "id": "6e6875b2-1d66-686b-1723-440c5076ba68",
+          "conceptId": "4d09c2e6-42c5-ad39-0d21-dd598b5817d2",
+          "direction": "a-to-b",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        },
+        "9bc593d9-bfef-5b39-c751-b19aceb173d2": {
+          "id": "9bc593d9-bfef-5b39-c751-b19aceb173d2",
+          "conceptId": "4d09c2e6-42c5-ad39-0d21-dd598b5817d2",
+          "direction": "b-to-a",
+          "memoryState": {
+            "stability": 0,
+            "difficulty": 0,
+            "due": "2026-01-02T03:04:05.000Z",
+            "reps": 0,
+            "lapses": 0,
+            "lastReview": null
+          }
+        }
+      },
+      "sync-state": {
+        "fileIndices": {
+          "x.md": {
+            "cardKeys": {
+              "[\"Hallo\",\"Hola\",\"bidirectional\"]": "4d09c2e6-42c5-ad39-0d21-dd598b5817d2"
+            },
+            "conceptLines": {
+              "4d09c2e6-42c5-ad39-0d21-dd598b5817d2": 4
+            },
+            "studyItemIds": [
+              "6e6875b2-1d66-686b-1723-440c5076ba68",
+              "9bc593d9-bfef-5b39-c751-b19aceb173d2"
+            ],
+            "deckIds": [
+              "dde6a216-ebb2-b8e3-a05e-fca99f1a9053"
+            ]
+          }
+        },
+        "tagToDeckId": {
+          "German": "2c3e90bb-016d-9a01-3f1d-5f2933976cdd",
+          "German/x": "dde6a216-ebb2-b8e3-a05e-fca99f1a9053"
+        }
+      }
+    }
+  }
+}

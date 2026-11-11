@@ -1,10 +1,10 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { TtsCache } from '../app/backend/voice-api/tts-cache';
-import { LlmRewriter } from '../app/backend/voice-api/llm-rewriter';
-import { HttpLlmClient } from '../context/shared/infrastructure/llm-adapters';
-import { OpenAiTtsClient } from '../context/shared/infrastructure/openai-tts-client';
-import { DEFAULT_VOICE_INSTRUCTIONS, type LlmProvider } from '../app/backend/recall-settings';
+import { TtsCache } from './tts-cache';
+import { LlmRewriter } from './llm-rewriter';
+import { HttpLlmClient } from '../../context/shared/infrastructure/llm-adapters';
+import { OpenAiTtsClient } from '../../context/shared/infrastructure/openai-tts-client';
+import { DEFAULT_VOICE_INSTRUCTIONS, type LlmProvider } from './voice-instructions';
 
 export interface ServerAudio { cache: TtsCache; rewriter: LlmRewriter | null }
 /** Reuses existing speech adapters; provider credentials stay only on the server. */

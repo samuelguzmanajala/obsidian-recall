@@ -246,3 +246,43 @@ Antes de reconciliar se guardo una copia SQLite verificada; se publicaron las 11
 pendientes sin borrar ninguna, y la comparacion posterior de las 2694 notas visibles dio
 cero diferencias. El plugin instalado se actualizo con Obsidian cerrado y se hizo tambien
 una copia de sus diarios/cursores locales antes de reiniciar.
+
+### Esquema normalizado, herencia de historial y plugin solo cliente (2026-11-11, noche)
+
+Desplegado desde la rama `feat/standalone-recall-backend-wt`, commit `06c0f94`, en dos pasos
+(primero `b856083`, esquema v3; despues `06c0f94`, esquema v4). En ambos: servicio detenido,
+copia en frio verificada, ensayo de la migracion sobre una copia de esa misma copia con Node
+24.16.0 y, solo entonces, sustitucion de `server/main.cjs`, `server/migrate.cjs` y
+`server/backup.mjs`.
+
+- La base paso de v1 a v4: recibos de operacion con hash (ya no guardan el contenido de las
+  notas), tablas normalizadas en lugar de documentos JSON y tabla de alias para tarjetas
+  editadas. Tamano: 62 MB a 29 MB. Integridad correcta; 14.705 repasos, 4.705 tarjetas,
+  3.460 conceptos y 100 mazos, igual que antes de migrar.
+- Ensayo de paridad: sobre copias de la base real, el servidor anterior y el nuevo devolvieron
+  respuestas identicas byte a byte en 24 operaciones (mazos, cola general y por mazo, fuentes,
+  estadisticas, leeches, inventario, repasos, edicion/borrado/renombrado de notas, conflicto y
+  reintento idempotente). Un repaso paso de ~93 ms a ~3 ms.
+- Un servidor anterior se niega a abrir una base v3/v4. Para volver atras hay que restaurar
+  bundles Y base: bundles previos en `backups/server-2026-11-11T22-41-35Z` (v1) y
+  `backups/server-2026-11-11T22-54-53Z` (v3); copias en frio
+  `backups/recall-2026-11-11T22-41-10-744Z.sqlite` (v1) y
+  `backups/recall-2026-11-11T22-54-36-433Z.sqlite` (v3), ambas tambien en Disk2.
+- `server/backup.mjs` nuevo: cuenta repasos en la tabla `reviews` y sigue aceptando bases
+  antiguas. Probado contra la base migrada.
+- Plugin: instalado el bundle de `06c0f94` (solo cliente del backend; sin modo local ni
+  dependencias de Node). Copias previas: `backups/plugin-refresh-2026-11-11T22-30-36-500Z` y
+  `backups/plugin-refresh-2026-11-11T22-55-08-471Z`; diarios y cursores en
+  `backups/sync-conflict-2026-11-11T22-30-36-433Z` y `...T22-55-08-398Z`.
+  Comprobado en Obsidian real por CDP en loopback (puerto cerrado despues): mazos cargados
+  desde el servidor nuevo, cinco comandos registrados, `sin operaciones pendientes`.
+- Se elimino del almacenamiento local de Obsidian el diario huerfano de la URL anterior
+  (`mac-mini-de-samuel`, sin `-2`): 659 operaciones y 5,5 MB, casi toda la cuota. Estaba
+  obsoleto (vault y backend coincidian en inventario) y queda en la copia `sync-conflict` de
+  las 22:30. El trabajo pendiente de `node_modules/fsevents/README.md` se descarta ahora al
+  arrancar; el backend conserva su copia de esa nota.
+- La carpeta `recall-data/` del vault no se ha tocado; el plugin ya no la lee.
+- No se registraron repasos durante las comprobaciones. No se hizo ninguna peticion
+  autenticada desde fuera de Obsidian (el token no se leyo).
+- Android no se ha actualizado en este despliegue; el protocolo no cambia y `POST /reviews`
+  acepta ya el campo opcional `due`.

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { checkAuth } from '../app/backend/voice-api/auth';
 import { sendJson } from '../app/backend/voice-api/routes/types';
-import { ApiError, RecallService, record } from './service';
+import { ApiError, RecallService, dueLimit, record, string } from './service';
 import { createHash } from 'node:crypto';
 import type { ServerAudio } from './audio';
 import { preprocessForTts } from '../app/backend/voice-api/preprocess-text';
@@ -42,8 +42,7 @@ export function createRecallServer(service: RecallService, token: string, audio?
       } else if (req.method === 'GET' && path === '/api/v1/leeches') {
         result = await service.query(c => c.getLeeches.execute(service.settings.leechThreshold));
       } else if (req.method === 'GET' && path === '/api/v1/due') {
-        const limit = Number(url.searchParams.get('limit') ?? 50);
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new ApiError(400, 'limit must be 1–10000');
+        const limit = dueLimit(Number(url.searchParams.get('limit') ?? 50));
         result = await service.due(url.searchParams.get('deckId') ?? undefined, limit);
       } else if (req.method === 'GET' && path === '/api/v1/sources') {
         result = await service.query(async c => await c.syncStateFile.read() ?? { fileIndices: {}, tagToDeckId: {} });
@@ -62,6 +61,8 @@ export function createRecallServer(service: RecallService, token: string, audio?
       } else if (req.method === 'POST' && path === '/api/v1/reviews') {
         const body = record(await readBody(req));
         if (!Array.isArray(body.reviews) || body.reviews.length < 1 || body.reviews.length > 100) throw new ApiError(400, 'Expected 1–100 reviews');
+        const due = body.due === undefined ? undefined : record(body.due);
+        const queue = due && { deckId: due.deckId === undefined ? undefined : string(due.deckId, 'deckId'), limit: dueLimit(due.limit) };
         let applied = 0;
         const errors: { idx: number; reason: string; status: number }[] = [];
         for (const [idx, review] of body.reviews.entries()) {
@@ -71,7 +72,8 @@ export function createRecallServer(service: RecallService, token: string, audio?
             errors.push({ idx, reason: e.message, status: e.status });
           }
         }
-        result = { applied, errors };
+        // The queue is recomputed on every call (also on retries); it is not part of the review receipt.
+        result = queue ? { applied, errors, due: await service.due(queue.deckId, queue.limit) } : { applied, errors };
       } else if (req.method === 'GET' && /^\/api\/v1\/audio\//.test(path)) {
         const match = /^\/api\/v1\/audio\/([^/]+)\/(question|answer)$/.exec(path);
         if (!match) throw new ApiError(404, 'Not found');

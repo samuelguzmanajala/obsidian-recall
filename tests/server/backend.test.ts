@@ -436,3 +436,80 @@ describe('standalone backend', () => {
     expect(items[0].memoryState.reps).toBe(1);
   });
 });
+
+describe('POST /api/v1/reviews with due queue', () => {
+  async function post(service: RecallService, body: unknown) {
+    const { url, token } = await serve(service);
+    const response = await fetch(`${url}/api/v1/reviews`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() as any };
+  }
+  async function note(service: RecallService, path: string, content: string) {
+    await service.note({ operationId: randomUUID(), path, content, expectedRevision: 0 });
+  }
+  const reviewLog = (service: RecallService) => service.query(async c => (await c.reviewLog.findAll()).length);
+
+  it('answers exactly as before when due is absent', async () => {
+    const service = setup();
+    const res = await post(service, { reviews: [command(await seed(service))] });
+    expect(res).toEqual({ status: 200, body: { applied: 1, errors: [] } });
+  });
+  it('returns the queue after the review, burying the reviewed card and its sibling', async () => {
+    const service = setup();
+    await note(service, 'Test.md', 'Question:::Answer\nOther::Card');
+    const items = await service.query(c => c.studyItemRepository.findAll());
+    const item = (await service.due()).items.find(i => i.sideA === 'Question')!;
+    const siblings = items.filter(i => i.conceptId.value === item.conceptId).map(i => i.id.value);
+    expect(siblings).toHaveLength(2);
+    const res = await post(service, { reviews: [command(item)], due: { limit: 50 } });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ applied: 1, errors: [] });
+    const ids = res.body.due.items.map((i: any) => i.studyItemId);
+    for (const id of siblings) expect(ids).not.toContain(id);
+    expect(res.body.due.items.map((i: any) => i.conceptId)).not.toContain(item.conceptId);
+    expect(res.body.due.items.map((i: any) => i.sideA)).toEqual(['Other']);
+    expect(JSON.parse(JSON.stringify(await service.due(undefined, 50)))).toEqual(res.body.due);
+  });
+  it('still returns the queue when a review is rejected', async () => {
+    const service = setup();
+    const item = await seed(service);
+    const res = await post(service, { reviews: [{ ...command(item), expectedRevision: item.revision + 1 }], due: { limit: 10 } });
+    expect(res.status).toBe(200);
+    expect(res.body.applied).toBe(0);
+    expect(res.body.errors).toEqual([{ idx: 0, reason: expect.any(String), status: 409 }]);
+    expect(res.body.due.items.map((i: any) => i.studyItemId)).toEqual([item.studyItemId]);
+  });
+  it('rejects an invalid due before applying any review', async () => {
+    const service = setup();
+    const item = await seed(service);
+    for (const due of [null, 5, 'x', [], {}, { limit: 0 }, { limit: 10001 }, { limit: 1.5 }, { limit: '10' }, { limit: 10, deckId: '' }, { limit: 10, deckId: 3 }]) {
+      const res = await post(service, { reviews: [command(item)], due });
+      expect(res.status, JSON.stringify(due)).toBe(400);
+    }
+    expect(await reviewLog(service)).toBe(0);
+  });
+  it('recomputes the queue on a retry with the same operationId', async () => {
+    const service = setup();
+    await note(service, 'Test.md', 'A::1\nB::2');
+    const [first, second] = (await service.due()).items;
+    const cmd = command(first);
+    const once = await post(service, { reviews: [cmd], due: { limit: 50 } });
+    expect(once.body.due.items.map((i: any) => i.studyItemId)).toEqual([second.studyItemId]);
+    await service.review(command(second));
+    const retry = await post(service, { reviews: [cmd], due: { limit: 50 } });
+    expect(retry.body).toEqual({ applied: 1, errors: [], due: { items: [] } });
+    expect(await reviewLog(service)).toBe(2);
+    expect(service.db.sql.prepare('SELECT result FROM operations').all().every(r => !(r.result as string).includes('items'))).toBe(true);
+  });
+  it('restricts the queue to the requested deck', async () => {
+    const service = setup();
+    await note(service, 'German.md', '---\ntags: [German]\n---\nHund::Dog\nKatze::Cat');
+    await note(service, 'French.md', '---\ntags: [French]\n---\nChien::Dog');
+    const decks = await service.query(c => c.getDeckTree.execute());
+    const german = decks.find(d => d.name === 'German')!;
+    const item = (await service.due()).items.find(i => i.sideA === 'Hund')!;
+    const res = await post(service, { reviews: [command(item)], due: { deckId: german.id, limit: 50 } });
+    expect(res.body.due.items.map((i: any) => i.sideA)).toEqual(['Katze']);
+    const all = await post(service, { reviews: [command((await service.due()).items.find(i => i.sideA === 'Katze')!)], due: { limit: 50 } });
+    expect(all.body.due.items.map((i: any) => i.sideA)).toEqual(['Chien']);
+  });
+});

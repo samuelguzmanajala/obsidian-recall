@@ -136,7 +136,7 @@ Todas las rutas salvo health exigen `Authorization: Bearer <token>`.
 | GET `/api/v1/health` | Disponibilidad e identificación del protocolo |
 | GET `/api/v1/decks`, `/stats`, `/leeches` | Consultas de estudio |
 | GET `/api/v1/due?deckId=...&limit=50` | Tarjetas, revisiones, intervalos y texto de voz |
-| POST `/api/v1/reviews` | Respuestas idempotentes, resultado por elemento |
+| POST `/api/v1/reviews` | Respuestas idempotentes, resultado por elemento y cola opcional (`due`) |
 | GET `/api/v1/notes` | Inventario, hashes, revisiones y tombstones |
 | GET `/api/v1/note?path=...` | Contenido de una nota para reconciliar |
 | GET `/api/v1/sources` | Índice de notas/líneas para abrir la fuente desde Obsidian |
@@ -155,6 +155,14 @@ rechaza reutilizar ese ID con otro contenido. Dos comandos distintos basados en 
 7 no pueden incrementar ambos el estado. El segundo se rechaza y debe refrescar su cola.
 `POST /reviews` devuelve HTTP 200 para un lote válido con `{applied, errors}`; cada error
 incluye `idx`, `status` y `reason`. Una validación fallida no equivale a un repaso guardado.
+
+El cuerpo admite además un campo opcional `"due": {"deckId": "...", "limit": 50}` (`deckId`
+opcional y no vacío; `limit` obligatorio, entero 1–10000). Si está presente, la respuesta
+añade `"due": {"items": [...]}` con la misma forma y reglas que `GET /due`, calculada después
+de procesar todo el lote, aunque se rechacen algunos o todos los repasos. Un `due` inválido
+rechaza la petición entera con 400 antes de aplicar ningún repaso. Sin `due`, la respuesta no
+cambia. La cola no forma parte del acuse idempotente: al reintentar con el mismo `operationId`
+se devuelve el mismo resultado del repaso y una cola recalculada en ese momento.
 Los errores de conexión y los conflictos ya no se ocultan en los clientes.
 
 Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para una ruta nueva.
@@ -167,6 +175,9 @@ Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Al configurar esa clave se r
 los adaptadores y la caché de audio existentes. Opcionalmente configura `RECALL_LLM_PROVIDER`,
 `RECALL_LLM_KEY` y `RECALL_LLM_MODEL` para la preparación multilingüe previa. Las instrucciones
 de voz conservan el valor anterior y admiten `RECALL_TTS_INSTRUCTIONS`.
+
+Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS 60 s); un proveedor colgado
+produce un error de audio en lugar de bloquear la petición indefinidamente.
 
 Activar estas opciones envía el texto de la tarjeta al proveedor correspondiente y puede
 generar cargos. Ni las claves ni esas llamadas deben pasar por Obsidian o el móvil.
@@ -187,7 +198,18 @@ caché y escritura agrupada por transacción. Es apropiada para una instalación
 una promesa de escalado horizontal: usa un único proceso primario y disco local persistente,
 no un SQLite sincronizado por Obsidian/iCloud/NFS. Para mucho volumen, el siguiente paso sería
 normalizar tablas y consultas; para usuarios independientes, autenticación y aislamiento.
-Los recibos de operaciones y el historial se conservan sin caducidad en esta versión.
+El historial se conserva sin caducidad. Los recibos de operaciones guardan solo el hash
+SHA-256 del comando (nunca el Markdown publicado) y el resultado, y caducan a los
+`RECALL_RECEIPT_DAYS` días (por defecto 90; `0` los conserva siempre). Se purgan al arrancar
+y una vez al día. Es seguro: cada comando lleva `expectedRevision`, así que un reintento que
+llegue tras caducar su recibo se reevalúa y se rechaza con 409 (o, en notas con contenido
+idéntico, se reconoce) en lugar de aplicarse dos veces.
+
+El esquema actual es la versión 2. Al arrancar por primera vez, el servidor nuevo migra una
+base v1 automáticamente en una única transacción (si falla, la base queda intacta en v1),
+sustituye cada payload guardado por su hash (los reintentos pendientes siguen reconociéndose)
+y ejecuta `VACUUM` para recuperar espacio. Es irreversible: un servidor anterior rechazará
+la base migrada. Antes de actualizar, haz una copia con `scripts/backup-server.mjs`.
 
 El estudio es online. No se simula que se guardó una respuesta sin confirmación. Android
 reintenta fallos de transporte con el mismo ID; Obsidian conserva el intento en memoria para

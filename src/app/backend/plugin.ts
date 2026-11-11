@@ -1,6 +1,7 @@
 import { Plugin, TFile, WorkspaceLeaf, Notice, Modal } from 'obsidian';
 import { RemoteClient } from './remote-client';
 import { RemoteNoteSync } from './remote-note-sync';
+import { KeyDebouncer } from './key-debouncer';
 import { Container } from './container';
 import { createJsonFileStorage, createReviewDeviceStorage, getDeviceId } from './obsidian-storage';
 import { CachedJsonFileStorage } from './cached-json-file-storage';
@@ -95,6 +96,9 @@ export default class RecallPlugin extends Plugin {
     this.remoteSync = new RemoteNoteSync(client, state, value => localStorage.setItem(key, JSON.stringify(value)), {
       load: () => JSON.parse(localStorage.getItem(journalKey) ?? '[]'),
       save: jobs => localStorage.setItem(journalKey, JSON.stringify(jobs)),
+    }, async path => {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      return file instanceof TFile ? this.app.vault.read(file) : null;
     });
     this.addCommand({ id: 'resolve-note-conflict', name: 'Resolve note conflict using this vault version', callback: () => {
       const path = this.remoteSync?.conflictPath;
@@ -135,8 +139,15 @@ export default class RecallPlugin extends Plugin {
     };
     const publish = (file: TFile) => { const path = file.path; return enqueue(() => publishNow(file, path)); };
     this.registerEvent(this.app.vault.on('create', file => { if (file instanceof TFile) void publish(file); }));
-    this.registerEvent(this.app.vault.on('modify', file => { if (file instanceof TFile) void publish(file); }));
+    // Autosave fires every few seconds while typing; publish only the settled note.
+    // An edit dropped on unload is picked up by the next reconcile.
+    const edits = new KeyDebouncer(2000);
+    this.register(() => edits.clear());
+    this.registerEvent(this.app.vault.on('modify', file => {
+      if (file instanceof TFile) edits.schedule(file.path, () => void publish(file));
+    }));
     this.registerEvent(this.app.vault.on('delete', file => {
+      if (file instanceof TFile) edits.cancel(file.path);
       if (file instanceof TFile && file.extension === 'md') {
         const path = file.path;
         this.remoteSync!.stageDelete(path);
@@ -144,6 +155,7 @@ export default class RecallPlugin extends Plugin {
       }
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      edits.cancel(oldPath);
       if (file instanceof TFile && oldPath.endsWith('.md') && file.extension !== 'md') {
         this.remoteSync!.stageDelete(oldPath);
         void enqueue(() => this.remoteSync!.retry());
@@ -169,11 +181,13 @@ export default class RecallPlugin extends Plugin {
       lastReconcileAt = Date.now();
       return enqueue(async () => {
         const files = this.app.vault.getMarkdownFiles().filter(file => !file.path.split('/').includes('node_modules'));
-        for (const file of files) {
-          const path = file.path;
-          const content = await this.app.vault.read(file);
-          if (path === file.path) await this.remoteSync!.stageCurrent(path, content);
-        }
+        await this.remoteSync!.batch(async () => {
+          for (const file of files) {
+            const path = file.path;
+            const content = await this.app.vault.read(file);
+            if (path === file.path) await this.remoteSync!.stageCurrent(path, content);
+          }
+        });
         const localPaths = new Set(files.map(file => file.path));
         const missing = this.remoteSync!.knownPaths.filter(path => !path.split('/').includes('node_modules') && !localPaths.has(path));
         if (missing.length) new Notice(`Recall: ${missing.length} notas conocidas no estan presentes. No se han borrado sus tarjetas; revisa la sincronizacion del vault.`, 15000);

@@ -18,20 +18,45 @@ export class RemoteNoteSync {
   private activeJob: NoteJob | null = null;
   private conflict: NoteJob | null = null;
   private closed = false;
+  private batchDepth = 0;
+  private batchDirty = false;
   close(): void { this.closed = true; }
   private assertOpen(): void { if (this.closed) throw new Error('Recall publisher closed; journal retained for recovery'); }
   constructor(private client: RemoteClient, private state: Acknowledged,
-    private persist: (state: Acknowledged) => void, private journal?: NoteJournal) {
+    private persist: (state: Acknowledged) => void, private journal?: NoteJournal,
+    private readContent?: (path: string) => Promise<string | null>) {
     this.jobs = journal?.load() ?? [];
     if (!Array.isArray(this.jobs) || this.jobs.some(j => !j.operationId || !j.path
-      || (!j.newPath && j.content !== null && typeof j.content !== 'string'))) {
+      || (!j.newPath && j.content !== null && typeof j.content !== 'string'
+        && !(j.content === undefined && j.expectedRevision === undefined && readContent)))) {
       throw new Error('Invalid note journal; restore it before publishing');
     }
   }
   get pendingCount(): number { return this.jobs.length; }
   get conflictPath(): string | null { return this.conflict?.path ?? null; }
   get knownPaths(): string[] { return Object.keys(this.state).filter(path => this.state[path].hash !== null); }
-  private save(): void { this.assertOpen(); this.journal?.save(this.jobs); }
+  // With a reader, an unsent edit is journaled as "publish this path's current content":
+  // the vault already holds it. A prepared payload keeps its exact content for replay.
+  private save(): void {
+    this.assertOpen();
+    this.journal?.save(this.readContent ? this.jobs.map(job => !job.newPath && typeof job.content === 'string'
+      && job.expectedRevision === undefined ? { operationId: job.operationId, path: job.path } : job) : this.jobs);
+  }
+  /** Stage many notes with a single journal write when the outermost batch ends. */
+  async batch<T>(work: () => Promise<T>): Promise<T> {
+    this.batchDepth++;
+    try { return await work(); }
+    finally { if (--this.batchDepth === 0 && this.batchDirty) { this.batchDirty = false; this.save(); } }
+  }
+  /** Loads a journaled path-only edit; false when the file is gone (never a deletion). */
+  private async hydrate(job: NoteJob): Promise<boolean> {
+    if (job.newPath || job.content !== undefined) return true;
+    const content = await this.readContent!(job.path);
+    this.assertOpen();
+    if (content === null) return false;
+    if (job.content === undefined) job.content = content;
+    return true;
+  }
   private replaceJobs(next: NoteJob[]): void {
     const previous = this.jobs;
     this.jobs = next;
@@ -49,7 +74,7 @@ export class RemoteNoteSync {
       && typeof last.content === 'string' && typeof job.content === 'string' && last.expectedRevision === undefined) {
       last.content = job.content;
     } else this.jobs.push(job);
-    this.save();
+    if (this.batchDepth) this.batchDirty = true; else this.save();
   }
   async publish(path: string, content: string | null): Promise<void> {
     if (content === null) this.append({ operationId: crypto.randomUUID(), path, content });
@@ -129,7 +154,9 @@ export class RemoteNoteSync {
     // Do not compact across deletes or renames: these are ordering barriers.
     if (job.newPath || typeof job.content !== 'string') return false;
     const related = this.jobs.filter(next => next.path === job.path || next.newPath === job.path);
-    if (related.some(next => next.newPath || typeof next.content !== 'string')) return false;
+    if (related.some(next => next.newPath || next.content === null)) return false;
+    for (const next of related) if (!await this.hydrate(next)) return false;
+    if (related.some(next => typeof next.content !== 'string')) return false;
     const snapshot = related.map(ref => ({ ref, content: ref.content }));
     const manifest = await this.client.request<{ notes: RemoteNote[] }>('/notes');
     const remote = manifest.notes.find(note => note.path === job.path);
@@ -159,6 +186,7 @@ export class RemoteNoteSync {
     return false;
   }
   private async apply(job: NoteJob): Promise<void> {
+    if (!await this.hydrate(job)) return; // Retire it: the next scan sees the vault as it is.
     if (job.expectedRevision === undefined) {
       const known = this.state[job.path];
       if (job.newPath) {

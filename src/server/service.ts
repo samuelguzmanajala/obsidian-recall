@@ -8,7 +8,7 @@ import { StudyItemId } from '../context/study/domain/study-item-id';
 import { Rating } from '../context/study/domain/rating';
 import { Direction } from '../context/study/domain/direction';
 import { markdownToVoice } from '../app/backend/voice-api/markdown-to-voice';
-import { RecallDatabase } from './database';
+import { RecallDatabase, payloadHash } from './database';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -20,6 +20,10 @@ export function record(value: unknown): Record<string, unknown> {
 export function string(value: unknown, name: string, max = 1024): string {
   if (typeof value !== 'string' || !value.length || value.length > max) throw new ApiError(400, `Invalid ${name}`);
   return value;
+}
+export function dueLimit(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1 || (value as number) > 10000) throw new ApiError(400, 'limit must be 1–10000');
+  return value as number;
 }
 export function revision(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new ApiError(400, 'expectedRevision is required');
@@ -112,15 +116,24 @@ export class RecallService {
     return row ? JSON.parse(row.value as string) as number : 0;
   }
   private async once(id: string, payload: unknown, apply: () => Promise<unknown>) {
-    const canonical = JSON.stringify(payload);
-    const existing = this.db.sql.prepare('SELECT payload,result FROM operations WHERE id=?').get(id);
+    const hash = payloadHash(JSON.stringify(payload));
+    const existing = this.db.sql.prepare('SELECT payload_hash,result FROM operations WHERE id=?').get(id);
     if (existing) {
-      if (existing.payload !== canonical) throw new ApiError(409, 'operationId was already used for a different command');
+      if (existing.payload_hash !== hash) throw new ApiError(409, 'operationId was already used for a different command');
       return JSON.parse(existing.result as string);
     }
     const result = await apply();
-    this.db.sql.prepare('INSERT INTO operations VALUES (?,?,?)').run(id, canonical, JSON.stringify(result));
+    this.db.sql.prepare('INSERT INTO operations VALUES (?,?,?,?)').run(id, hash, JSON.stringify(result), Date.now());
     return result;
+  }
+  /**
+   * Expiry is safe: every command carries `expectedRevision`, so a retry arriving after its receipt
+   * expired is re-evaluated and rejected with 409 (or acknowledged as identical content for notes)
+   * instead of being applied twice. `days` = 0 keeps receipts forever.
+   */
+  expireReceipts(days: number, now = Date.now()): Promise<number> {
+    return this.db.transaction(async () => days === 0 ? 0
+      : Number(this.db.sql.prepare('DELETE FROM operations WHERE created_at < ?').run(now - days * 86_400_000).changes));
   }
   async review(body: unknown) {
     const cmd = record(body);

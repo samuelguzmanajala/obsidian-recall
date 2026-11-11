@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { RecallDatabase } from './database';
 import { RecallService } from './service';
 import { createRecallServer } from './http';
-import { configureAudio } from './audio';
+import { configureAudio } from './audio/configure-audio';
 
 const token = process.env.RECALL_TOKEN ?? '';
 process.umask(0o077);
@@ -14,6 +14,7 @@ function nonnegative(name: string, fallback: number) {
   if (!Number.isSafeInteger(n) || n < 0) throw new Error(`Invalid ${name}`);
   return n;
 }
+const receiptDays = nonnegative('RECALL_RECEIPT_DAYS', 90);
 const db = new RecallDatabase(resolve(process.env.RECALL_DB ?? './data/recall.sqlite'));
 const service = new RecallService(db, {
   flashcardTags: (process.env.RECALL_TAGS ?? '').split(',').map(t => t.trim()).filter(Boolean),
@@ -23,16 +24,21 @@ const service = new RecallService(db, {
   shuffleReviews: process.env.RECALL_SHUFFLE !== 'false',
 });
 const server = createRecallServer(service, token, configureAudio());
+const expire = () => service.expireReceipts(receiptDays).catch(error => console.error('Receipt expiry failed:', error));
+void expire();
+const expiry = setInterval(expire, 86_400_000);
+expiry.unref();
 service.reindexIfTagsChanged().then(() => {
   if (stopping) return;
   server.listen(port, process.env.RECALL_HOST ?? '127.0.0.1', () => {
     console.log(`Recall backend listening on ${process.env.RECALL_HOST ?? '127.0.0.1'}:${port}`);
   });
-}).catch(async error => { console.error('Recall startup failed:', error); await db.close(); process.exitCode = 1; });
+}).catch(async error => { console.error('Recall startup failed:', error); clearInterval(expiry); await db.close(); process.exitCode = 1; });
 let stopping = false;
 async function stop() {
   if (stopping) return;
   stopping = true;
+  clearInterval(expiry);
   server.closeIdleConnections();
   await new Promise<void>(r => server.close(() => r()));
   await db.close();

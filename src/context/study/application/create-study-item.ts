@@ -29,7 +29,7 @@ export class CreateStudyItem {
    * 2. **Auto-replay**: if the item doesn't exist BUT historical reviews
    *    for this ID exist in the log, create the item and immediately
    *    replay those reviews to reconstruct its state. This covers the
-   *    case where vault-sync deleted the item (e.g., during a card edit
+   *    case where the note indexer deleted the item (e.g., during a card edit
    *    cycle) and is now recreating it. IDs are content-derived, so the
    *    same content always resurfaces with the same ID — and now also
    *    with its full history intact.

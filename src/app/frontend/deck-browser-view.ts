@@ -1,22 +1,24 @@
 import { ItemView, WorkspaceLeaf, setIcon } from 'obsidian';
 import type { StudyClient } from '@app/backend/study-client';
-import { DeckTreeNode } from '@context/deck/application/get-deck-tree';
-import { LeechView } from '@context/study/application/get-leeches';
+import type { DeckTreeNode } from '@context/deck/application/get-deck-tree';
+import type { LeechView } from '@context/study/application/get-leeches';
+import type { StudyStats } from '@context/study/application/get-study-stats';
 import { Direction } from '@context/study/domain/direction';
 import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from './constants';
 import { LiveRefresh } from './live-refresh';
+import { renderNotConfigured } from './not-configured';
 
 export class DeckBrowserView extends ItemView {
-  private container: StudyClient;
+  private client: StudyClient;
   private lastHash = '';
   private leechesExpanded = false;
   private dueCheckInterval: ReturnType<typeof setInterval> | null = null;
   private forceRender = false;
   private live = new LiveRefresh(current => this.update(current));
 
-  constructor(leaf: WorkspaceLeaf, container: StudyClient) {
+  constructor(leaf: WorkspaceLeaf, client: StudyClient) {
     super(leaf);
-    this.container = container;
+    this.client = client;
   }
 
   getViewType(): string {
@@ -33,15 +35,15 @@ export class DeckBrowserView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
-    if (this.live.stopped) return;
+    if (this.live.stopped || !this.client.isConfigured()) return;
     const refreshVisible = () => {
       if (!this.contentEl.ownerDocument.hidden && this.contentEl.getClientRects().length) void this.refresh();
     };
-    this.dueCheckInterval = setInterval(refreshVisible, this.container.remote ? 10_000 : 60_000);
+    this.dueCheckInterval = setInterval(refreshVisible, 10_000);
     this.registerDomEvent(this.contentEl.ownerDocument, 'visibilitychange', refreshVisible);
     this.registerDomEvent(this.contentEl.ownerDocument.defaultView!, 'focus', refreshVisible);
     this.registerEvent(this.app.workspace.on('active-leaf-change', refreshVisible));
-    if (this.container.onChange) this.register(this.container.onChange(refreshVisible));
+    this.register(this.client.onChange(refreshVisible));
   }
 
   async onClose(): Promise<void> {
@@ -63,11 +65,17 @@ export class DeckBrowserView extends ItemView {
   }
 
   private async update(isCurrent: () => boolean): Promise<void> {
+    if (!this.client.isConfigured()) {
+      this.contentEl.empty();
+      this.contentEl.addClass('recall-deck-browser');
+      renderNotConfigured(this.contentEl);
+      return;
+    }
     try {
       const [tree, stats, leeches] = await Promise.all([
-        this.container.getDeckTree.execute(),
-        this.container.getStudyStats.execute(),
-        this.container.getLeeches.execute(this.container.settings?.leechThreshold ?? 8),
+        this.client.getDeckTree.execute(),
+        this.client.getStudyStats.execute(),
+        this.client.getLeeches.execute(),
       ]);
       if (!isCurrent()) return;
       const hash = JSON.stringify([tree, stats, leeches]);
@@ -91,7 +99,7 @@ export class DeckBrowserView extends ItemView {
     }
   }
 
-  private renderContent(tree: DeckTreeNode[], stats: Awaited<ReturnType<StudyClient['getStudyStats']['execute']>>, leeches: LeechView[]): void {
+  private renderContent(tree: DeckTreeNode[], stats: StudyStats, leeches: LeechView[]): void {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-deck-browser');
@@ -129,12 +137,9 @@ export class DeckBrowserView extends ItemView {
       this.renderDeckNode(list, node, 0);
     }
 
-    // Leeches section
-    const threshold = this.container.settings?.leechThreshold ?? 8;
-    if (threshold > 0) {
-      if (leeches.length > 0) {
-        this.renderLeechSection(el, leeches);
-      }
+    // Leeches section (the server applies its leech threshold)
+    if (leeches.length > 0) {
+      this.renderLeechSection(el, leeches);
     }
   }
 
@@ -146,7 +151,7 @@ export class DeckBrowserView extends ItemView {
 
   private renderDeckNode(parent: HTMLElement, node: DeckTreeNode, depth: number): void {
     const hasChildren = node.children.length > 0;
-    const expandedIds = this.container.settings?.expandedDeckIds ?? [];
+    const expandedIds = this.client.expandedDeckIds;
     const isCollapsed = !expandedIds.includes(node.id);
 
     const wrapper = parent.createDiv({ cls: 'recall-deck-wrapper' });
@@ -166,7 +171,7 @@ export class DeckBrowserView extends ItemView {
       setIcon(toggle, isCollapsed ? 'chevron-right' : 'chevron-down');
       toggle.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.toggleDeckExpanded(node.id);
+        this.client.toggleDeckExpanded(node.id);
         this.render();
       });
     } else {
@@ -245,7 +250,7 @@ export class DeckBrowserView extends ItemView {
   }
 
   private async openLeechNote(conceptId: string): Promise<void> {
-    const result = this.container.vaultSync?.findFileByConceptId(conceptId);
+    const result = this.client.findSource(conceptId);
     if (!result) return;
 
     const file = this.app.vault.getAbstractFileByPath(result.filePath);
@@ -255,22 +260,6 @@ export class DeckBrowserView extends ItemView {
     await leaf.openFile(file as any, {
       eState: { line: result.line - 1 },
     });
-  }
-
-  private toggleDeckExpanded(deckId: string): void {
-    const settings = this.container.settings;
-    if (!settings) return;
-
-    const ids = settings.expandedDeckIds;
-    const idx = ids.indexOf(deckId);
-    if (idx >= 0) {
-      ids.splice(idx, 1);
-    } else {
-      ids.push(deckId);
-    }
-
-    // Persist quietly (no reset, no re-sync)
-    this.container.saveSettingsQuiet?.();
   }
 
   private async openReview(deckId?: string): Promise<void> {

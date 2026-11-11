@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { RemoteClient } from '../../../src/app/backend/remote-client';
-import { DEFAULT_SETTINGS } from '../../../src/app/backend/recall-settings';
+import { DEFAULT_SETTINGS } from '../../../src/app/backend/plugin-settings';
 afterEach(() => vi.useRealTimers());
 it('times out even when the Obsidian transport cannot abort, then permits a new request', async () => {
   vi.useFakeTimers();

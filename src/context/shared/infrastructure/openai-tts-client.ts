@@ -7,6 +7,7 @@ export class OpenAiTtsClient implements TtsClient {
   constructor(
     private readonly getApiKey: () => string,
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly timeoutMs = 60_000,
   ) {}
 
   isConfigured(): boolean {
@@ -29,21 +30,27 @@ export class OpenAiTtsClient implements TtsClient {
       body.instructions = req.instructions.trim();
     }
 
-    const res = await this.fetchImpl(OPENAI_TTS_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await this.fetchImpl(OPENAI_TTS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`OpenAI TTS error (${res.status}): ${text.slice(0, 300)}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`OpenAI TTS error (${res.status}): ${text.slice(0, 300)}`);
+      }
+
+      const arr = await res.arrayBuffer();
+      return Buffer.from(arr);
+    } catch (error) {
+      if ((error as Error)?.name === 'TimeoutError') throw new Error(`OpenAI TTS request timed out after ${this.timeoutMs / 1000} s`);
+      throw error;
     }
-
-    const arr = await res.arrayBuffer();
-    return Buffer.from(arr);
   }
 }

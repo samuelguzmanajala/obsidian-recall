@@ -1,10 +1,11 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { RecallDatabase } from './database';
-import { RecallService } from './service';
+import { Container } from './container';
+import { importDocuments, isEmpty, type SerializedReview } from './legacy-documents';
 import { Rating } from '../context/study/domain/rating';
 import { Direction } from '../context/study/domain/direction';
-import type { SerializedReview, SerializedSyncState } from '../context/shared/infrastructure/json-storage';
+import type { SerializedSyncState } from '../context/indexing/domain/source-index';
 
 /** Read-only source; never merge two independent scheduling authorities. Target must be empty. */
 export async function importLegacy(source: string, db: RecallDatabase) {
@@ -28,9 +29,9 @@ export async function importLegacy(source: string, db: RecallDatabase) {
   }
   documents.reviews = [...merged.values()].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   return db.transaction(async () => {
-    if (db.sql.prepare('SELECT key FROM documents LIMIT 1').get() || db.sql.prepare('SELECT path FROM notes LIMIT 1').get()) throw new Error('Target database is not empty; refusing to overwrite');
-    for (const [key, data] of Object.entries(documents)) await db.document(key).write(data);
-    const c = await new RecallService(db).context();
+    if (!isEmpty(db.sql)) throw new Error('Target database is not empty; refusing to overwrite');
+    importDocuments(db.sql, documents);
+    const c = new Container(db);
     const concepts = await c.conceptRepository.findAll();
     const items = await c.studyItemRepository.findAll();
     const decks = await c.deckRepository.findAll();

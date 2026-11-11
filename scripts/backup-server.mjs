@@ -16,7 +16,10 @@ const check = new DatabaseSync(destination, { readOnly: true });
 try {
   const result = check.prepare('PRAGMA integrity_check').get();
   if (result.integrity_check !== 'ok') throw new Error('Backup integrity check failed');
-  const reviews = check.prepare("SELECT value FROM documents WHERE key='reviews'").get();
+  const table = name => check.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
+  // Schema v3 has a reviews table; v1/v2 kept the review log as one JSON document.
+  const legacy = !table('reviews') && table('documents') ? check.prepare("SELECT value FROM documents WHERE key='reviews'").get() : null;
+  const reviews = table('reviews') ? Number(check.prepare('SELECT COUNT(*) AS n FROM reviews').get().n) : legacy ? JSON.parse(legacy.value).length : 0;
   const hash = createHash('sha256').update(await readFile(destination)).digest('hex');
   let mirror = null;
   if (process.env.RECALL_BACKUP_MIRROR) {
@@ -30,5 +33,5 @@ try {
       if (createHash('sha256').update(await readFile(mirror)).digest('hex') !== hash) throw new Error('Mirror verification failed');
     } catch (e) { mirror = null; console.error(`Backup local correcto; copia externa pendiente: ${e.code ?? e.message}`); }
   }
-  console.log(JSON.stringify({ backup: destination, mirror, integrity: 'ok', reviews: reviews ? JSON.parse(reviews.value).length : 0, sha256: hash }));
+  console.log(JSON.stringify({ backup: destination, mirror, integrity: 'ok', reviews, sha256: hash }));
 } finally { check.close(); }

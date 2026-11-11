@@ -9,9 +9,12 @@ The server owns Markdown parsing, decks, FSRS scheduling, daily limits, review h
 and optional cloud speech. SQLite transactions combine state, history and persistent
 idempotency receipts. Optimistic revisions reject stale device commands.
 
-See **[Backend setup, safe migration and protocol](docs/backend.md)** before enabling
-remote mode. Existing installations stay in legacy local mode until explicitly switched.
-Do not run local and remote scheduling as parallel authorities.
+The Obsidian plugin is only a client of the backend: it shows decks and reviews from the
+server and can publish your notes. The former local mode (scheduling data in the vault's
+`recall-data/` folder and an embedded voice API) has been removed; the plugin no longer
+reads that folder and never modifies it. See **[Backend setup, safe migration and
+protocol](docs/backend.md)** to import an old `recall-data` folder and to configure the
+plugin (backend URL and token; tags, limits and audio are server environment variables).
 
 The verified installation on Samuel's Mac is documented in
 [macOS deployment and recovery](docs/macos-deployment.md), including backup locations
@@ -33,7 +36,7 @@ Requires Node 24. Validate changes with `npm run typecheck`, `npm run test:run`,
 - One user/vault, one primary backend, multiple online clients.
 - Optional Obsidian publisher; Markdown remains editable in the vault.
 - Explicit conflict detection, not automatic Markdown merging or offline study.
-- Existing local mode is retained for migration; new server guarantees apply in remote mode.
+- Old `recall-data/` folders can be imported once with `npm run migrate:server`.
 - Daily boundary uses the backend timezone (`TZ`, default Europe/Madrid in Compose).
 
 ## Original plugin overview

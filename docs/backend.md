@@ -10,9 +10,19 @@ Android ── consultas, respuestas, voz ──┘       │
 ```
 
 El backend es la única autoridad del aprendizaje: interpreta las tarjetas, construye
-mazos, calcula intervalos y guarda respuestas. Obsidian puede seguir editando tus notas,
-pero en modo remoto no abre `recall-data`, no reproduce historiales ni sirve la API de voz.
-Android funciona aunque Obsidian esté cerrado, siempre que el servidor esté disponible.
+mazos, calcula intervalos y guarda respuestas. El plugin de Obsidian es solo un cliente:
+muestra mazos y repasos del servidor y, si lo activas, publica tus notas. Ya no existe el
+antiguo modo local: el plugin no abre `recall-data` (tampoco lo borra ni lo modifica), no
+reproduce historiales ni sirve la API de voz. Android funciona aunque Obsidian esté cerrado,
+siempre que el servidor esté disponible.
+
+En Recall Settings solo se configuran la URL del backend, el token y la publicación de notas.
+Los cambios de URL o token se aplican al recargar el plugin; mientras falten, las vistas
+indican que hay que configurar el backend. Tags, límites diarios, umbral de sanguijuelas,
+orden aleatorio y audio son variables de entorno del servidor (`RECALL_TAGS`,
+`RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`,
+`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
+tags…) se conservan sin usarse; si las necesitas, pásalas al entorno del backend.
 
 Es una instalación personal (una cuenta y un vault), no un SaaS multiusuario. Todas las
 peticiones autenticadas acceden al mismo conjunto de datos. No hay autenticación de usuarios,
@@ -47,7 +57,7 @@ No se ha ejecutado automáticamente contra tu vault. El importador no modifica n
 archivos de origen, y se niega a sobrescribir una base ya poblada.
 
 1. Deja terminar la sincronización actual y los repasos pendientes de todos los dispositivos.
-2. Detén el plugin local y la app en todos los dispositivos. Haz una copia completa de
+2. Detén el plugin antiguo (versión con modo local) y la app en todos los dispositivos. Haz una copia completa de
    `recall-data` y de la configuración del plugin. Trabaja con esa copia congelada.
 3. Valida primero (no crea la base destino):
 
@@ -64,8 +74,9 @@ archivos de origen, y se niega a sobrescribir una base ya poblada.
 5. Configura `RECALL_DB` con ese destino y `RECALL_TAGS` con los tags que ya utilizabas
    (separados por comas, sin `#`). Arranca el backend y comprueba mazos y estadísticas.
 6. Instala el plugin compilado (`main.js`, `manifest.json`, `styles.css`) y el nuevo APK.
-   En Recall Settings activa **Use standalone backend**, introduce URL y token, y recarga
-   el plugin. Repite el cambio de modo en cada Obsidian que utilices.
+   En Recall Settings introduce URL y token, y recarga el plugin. Repítelo en cada Obsidian
+   que utilices. (El antiguo interruptor **Use standalone backend** ya no existe; si tu
+   `data.json` lo conserva, se ignora.)
 7. En Android configura la misma URL y el mismo token (sin `/api/v1` al final).
 8. Solo después, activa **Publish Markdown notes** en el dispositivo editor y recarga.
    Ejecuta **Recall: Publish notes to backend** para subir las notas y crear su inventario.
@@ -80,7 +91,8 @@ automáticamente durante esta migración.
 
 La importación no copia claves de proveedores ni configuración privada. Pasa esas claves al
 entorno del backend si deseas audio remoto. Conserva la copia antigua, pero **no vuelvas a
-activar el motor local tras empezar a estudiar en el servidor**: sería otra línea de historial.
+instalar una versión antigua del plugin con motor local tras empezar a estudiar en el servidor**:
+sería otra línea de historial.
 
 ## Notas y sincronización
 
@@ -111,8 +123,38 @@ edición combinada. No borres cursores para forzar una sobrescritura.
 
 Cambiar `RECALL_TAGS` y reiniciar reindexa las notas que ya están publicadas. El historial se
 mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
-hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido:
-cambiar una pregunta/respuesta puede crear una tarjeta nueva; no hay fusión semántica automática.
+hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido, con
+una excepción para las ediciones.
+
+Editar una tarjeta conserva su historial cuando el cambio es claro. Al publicar una nota se
+comparan las tarjetas que desaparecen de ella con las que aparecen en ella (solo dentro de esa
+nota y de esa publicación). Una tarjeta desaparecida y una nueva se consideran la misma si
+tienen la misma dirección (`::` o `:::`) y además:
+
+1. una cara es idéntica y la otra cambió (se corrigió la pregunta o la respuesta, aunque la
+   respuesta nueva sea completamente distinta), o
+2. cambiaron las dos caras, pero cada una se parece al menos un 80 % a la anterior: como
+   mucho una letra cambiada, añadida o quitada por cada cinco, sin contar espacios al inicio o
+   al final ni espacios repetidos (mayúsculas y tildes sí cuentan). Las caras de más de 1000
+   caracteres no se comparan así.
+
+La tarjeta editada conserva su ID, sus repasos, su programación y sus mazos; los clientes que
+la tenían en cola reciben un 409 y la recargan con el texto nuevo. En la duda, no se hereda
+nada y la edición se trata como antes (la tarjeta vieja se elimina y la nueva empieza de
+cero):
+
+- si una tarjeta desaparecida encaja con varias nuevas, o una nueva con varias desaparecidas;
+- si la tarjeta antigua también está en otra nota (es compartida);
+- si el texto nuevo ya existe como tarjeta, en otra nota o como edición anterior (se enlaza a
+  esa tarjeta, como siempre);
+- si cambia la dirección (`::` ↔ `:::`);
+- si la tarjeta se edita a la vez que se mueve a otra nota (solo se comparan tarjetas de la
+  misma nota).
+
+El servidor recuerda qué texto heredó cada historial. Si la tarjeta editada se borra y luego
+se vuelve a añadir con el mismo texto (por ejemplo, al moverla a otra nota en dos pasos),
+recupera su historial. Si se vuelve a escribir el texto de antes de la edición, es una
+tarjeta nueva con IDs nuevos; nunca se mezcla con la editada.
 
 ## Garantías y protocolo
 
@@ -136,7 +178,7 @@ Todas las rutas salvo health exigen `Authorization: Bearer <token>`.
 | GET `/api/v1/health` | Disponibilidad e identificación del protocolo |
 | GET `/api/v1/decks`, `/stats`, `/leeches` | Consultas de estudio |
 | GET `/api/v1/due?deckId=...&limit=50` | Tarjetas, revisiones, intervalos y texto de voz |
-| POST `/api/v1/reviews` | Respuestas idempotentes, resultado por elemento |
+| POST `/api/v1/reviews` | Respuestas idempotentes, resultado por elemento y cola opcional (`due`) |
 | GET `/api/v1/notes` | Inventario, hashes, revisiones y tombstones |
 | GET `/api/v1/note?path=...` | Contenido de una nota para reconciliar |
 | GET `/api/v1/sources` | Índice de notas/líneas para abrir la fuente desde Obsidian |
@@ -155,6 +197,14 @@ rechaza reutilizar ese ID con otro contenido. Dos comandos distintos basados en 
 7 no pueden incrementar ambos el estado. El segundo se rechaza y debe refrescar su cola.
 `POST /reviews` devuelve HTTP 200 para un lote válido con `{applied, errors}`; cada error
 incluye `idx`, `status` y `reason`. Una validación fallida no equivale a un repaso guardado.
+
+El cuerpo admite además un campo opcional `"due": {"deckId": "...", "limit": 50}` (`deckId`
+opcional y no vacío; `limit` obligatorio, entero 1–10000). Si está presente, la respuesta
+añade `"due": {"items": [...]}` con la misma forma y reglas que `GET /due`, calculada después
+de procesar todo el lote, aunque se rechacen algunos o todos los repasos. Un `due` inválido
+rechaza la petición entera con 400 antes de aplicar ningún repaso. Sin `due`, la respuesta no
+cambia. La cola no forma parte del acuse idempotente: al reintentar con el mismo `operationId`
+se devuelve el mismo resultado del repaso y una cola recalculada en ese momento.
 Los errores de conexión y los conflictos ya no se ocultan en los clientes.
 
 Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para una ruta nueva.
@@ -167,6 +217,9 @@ Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Al configurar esa clave se r
 los adaptadores y la caché de audio existentes. Opcionalmente configura `RECALL_LLM_PROVIDER`,
 `RECALL_LLM_KEY` y `RECALL_LLM_MODEL` para la preparación multilingüe previa. Las instrucciones
 de voz conservan el valor anterior y admiten `RECALL_TTS_INSTRUCTIONS`.
+
+Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS 60 s); un proveedor colgado
+produce un error de audio en lugar de bloquear la petición indefinidamente.
 
 Activar estas opciones envía el texto de la tarjeta al proveedor correspondiente y puede
 generar cargos. Ni las claves ni esas llamadas deben pasar por Obsidian o el móvil.
@@ -182,12 +235,41 @@ archivo `-wal`/`-shm` que siga presente, o utiliza una herramienta de backup SQL
 solo el archivo principal mientras el servidor está escribiendo. La caché de audio es
 prescindible y puede regenerarse, con posible coste del proveedor.
 
-Esta versión adapta los repositorios existentes a documentos JSON dentro de SQLite, con
-caché y escritura agrupada por transacción. Es apropiada para una instalación personal, no
-una promesa de escalado horizontal: usa un único proceso primario y disco local persistente,
-no un SQLite sincronizado por Obsidian/iCloud/NFS. Para mucho volumen, el siguiente paso sería
-normalizar tablas y consultas; para usuarios independientes, autenticación y aislamiento.
-Los recibos de operaciones y el historial se conservan sin caducidad en esta versión.
+Los repositorios del dominio se implementan sobre tablas normalizadas de SQLite (conceptos,
+tarjetas, mazos y sus elementos, historial de repasos, índice de notas, revisiones y
+contadores diarios). Cada operación lee y escribe solo las filas que necesita: un repaso ya no
+reescribe el historial completo, y el coste de las consultas no crece con los repasos
+acumulados. Es apropiada para una instalación personal, no una promesa de escalado
+horizontal: usa un único proceso primario y disco local persistente, no un SQLite sincronizado
+por Obsidian/iCloud/NFS. Para usuarios independientes harían falta autenticación y aislamiento.
+El historial se conserva sin caducidad. Los recibos de operaciones guardan solo el hash
+SHA-256 del comando (nunca el Markdown publicado) y el resultado, y caducan a los
+`RECALL_RECEIPT_DAYS` días (por defecto 90; `0` los conserva siempre). Se purgan al arrancar
+y una vez al día. Es seguro: cada comando lleva `expectedRevision`, así que un reintento que
+llegue tras caducar su recibo se reevalúa y se rechaza con 409 (o, en notas con contenido
+idéntico, se reconoce) en lugar de aplicarse dos veces.
+
+El esquema actual es la versión 4. **Antes de actualizar, detén el servidor y haz una copia
+con `scripts/backup-server.mjs`.** Al arrancar, el servidor nuevo migra la base
+automáticamente, encadenando los pasos necesarios:
+
+- v1 → v2, en una transacción: sustituye cada payload de recibo por su hash (los reintentos
+  pendientes siguen reconociéndose).
+- v2 → v3, en otra transacción: convierte los documentos JSON (`concepts`, `study-items`,
+  `decks`, `reviews`, `sync-state`, `index-tags`, `revision:*`, `budget:*`) en filas de
+  tablas, conservando el orden en que la aplicación los recorría. Antes de borrar los
+  documentos, vuelve a exportar las tablas al formato antiguo y comprueba que coinciden con
+  lo que la aplicación veía (el historial de repasos deduplicado por tarjeta y marca temporal
+  y ordenado por fecha, como ya hacía). Las referencias colgantes se conservan tal cual. Una
+  clave desconocida, una fecha que no se pueda guardar en milisegundos exactos o cualquier
+  diferencia anula la migración: la base queda intacta en v2 y el servidor no arranca.
+- v3 → v4, en otra transacción: solo añade la tabla `card_aliases` (qué IDs heredó el texto
+  de cada tarjeta editada) y un índice de tarjetas por contenido. Los datos existentes no
+  cambian y no tienen alias; si falla, la base queda en v3.
+
+Tras migrar ejecuta `VACUUM` para recuperar espacio (si falla, no es grave). Es irreversible:
+un servidor anterior rechazará la base migrada (`schema is newer`), y este servidor rechaza
+bases de una versión posterior. Para volver atrás, restaura la copia.
 
 El estudio es online. No se simula que se guardó una respuesta sin confirmación. Android
 reintenta fallos de transporte con el mismo ID; Obsidian conserva el intento en memoria para

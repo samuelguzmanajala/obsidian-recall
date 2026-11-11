@@ -52,6 +52,8 @@ export class HttpLlmClient implements LlmClient {
     private readonly getProvider: () => string,
     private readonly getApiKey: () => string,
     private readonly getModel: () => string = () => '',
+    private readonly timeoutMs = 30_000,
+    private readonly fetchImpl?: typeof fetch,
   ) {}
 
   isConfigured(): boolean {
@@ -75,21 +77,28 @@ export class HttpLlmClient implements LlmClient {
       ? this.buildAnthropicBody(messages, model)
       : this.buildOpenAiBody(messages, model);
 
-    const response = await fetch(config.baseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...config.authHeader(apiKey),
-      },
-      body: JSON.stringify(body),
-    });
+    let json: any;
+    try {
+      const response = await (this.fetchImpl ?? fetch)(config.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config.authHeader(apiKey),
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`LLM API error (${response.status}): ${text}`);
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`LLM API error (${response.status}): ${text}`);
+      }
+
+      json = await response.json();
+    } catch (error) {
+      if ((error as Error)?.name === 'TimeoutError') throw new Error(`LLM request timed out after ${this.timeoutMs / 1000} s`);
+      throw error;
     }
-
-    const json = await response.json();
 
     return {
       content: config.extractContent(json),

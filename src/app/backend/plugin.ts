@@ -1,6 +1,7 @@
 import { Plugin, TFile, Notice, Modal } from 'obsidian';
 import { RemoteClient } from './remote-client';
 import { RemoteNoteSync } from './remote-note-sync';
+import { isExcludedPath } from './excluded-paths';
 import { KeyDebouncer } from './key-debouncer';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
@@ -74,6 +75,8 @@ export default class RecallPlugin extends Plugin {
       const file = this.app.vault.getAbstractFileByPath(path);
       return file instanceof TFile ? this.app.vault.read(file) : null;
     });
+    // Jobs staged before a path was excluded would otherwise stay pending forever.
+    this.remoteSync.discardExcluded(isExcludedPath);
     this.addCommand({ id: 'resolve-note-conflict', name: 'Resolve note conflict using this vault version', callback: () => {
       const path = this.remoteSync?.conflictPath;
       if (!path) { new Notice('Recall: no hay un conflicto de contenido detectado. Reintenta la sincronizacion primero.'); return; }
@@ -105,7 +108,7 @@ export default class RecallPlugin extends Plugin {
       return publicationTail;
     };
     const publishNow = async (file: TFile, path: string) => {
-      if (file.extension !== 'md' || path.split('/').includes('node_modules')) return;
+      if (file.extension !== 'md' || isExcludedPath(path)) return;
       if (file.path !== path) return;
       const content = await this.app.vault.read(file);
       if (file.path !== path) return;
@@ -122,7 +125,7 @@ export default class RecallPlugin extends Plugin {
     }));
     this.registerEvent(this.app.vault.on('delete', file => {
       if (file instanceof TFile) edits.cancel(file.path);
-      if (file instanceof TFile && file.extension === 'md') {
+      if (file instanceof TFile && file.extension === 'md' && !isExcludedPath(file.path)) {
         const path = file.path;
         this.remoteSync!.stageDelete(path);
         void enqueue(() => this.remoteSync!.retry());
@@ -130,7 +133,11 @@ export default class RecallPlugin extends Plugin {
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       edits.cancel(oldPath);
-      if (file instanceof TFile && oldPath.endsWith('.md') && file.extension !== 'md') {
+      // Moving a note into an excluded folder sends nothing (no inferred delete);
+      // moving it out of one publishes it as a new note.
+      if (file instanceof TFile && (isExcludedPath(oldPath) || isExcludedPath(file.path))) {
+        if (isExcludedPath(oldPath) && !isExcludedPath(file.path)) void publish(file);
+      } else if (file instanceof TFile && oldPath.endsWith('.md') && file.extension !== 'md') {
         this.remoteSync!.stageDelete(oldPath);
         void enqueue(() => this.remoteSync!.retry());
       } else if (file instanceof TFile && file.extension === 'md' && !oldPath.endsWith('.md')) {
@@ -154,7 +161,7 @@ export default class RecallPlugin extends Plugin {
       reconcileQueued = true;
       lastReconcileAt = Date.now();
       return enqueue(async () => {
-        const files = this.app.vault.getMarkdownFiles().filter(file => !file.path.split('/').includes('node_modules'));
+        const files = this.app.vault.getMarkdownFiles().filter(file => !isExcludedPath(file.path));
         await this.remoteSync!.batch(async () => {
           for (const file of files) {
             const path = file.path;
@@ -163,7 +170,7 @@ export default class RecallPlugin extends Plugin {
           }
         });
         const localPaths = new Set(files.map(file => file.path));
-        const missing = this.remoteSync!.knownPaths.filter(path => !path.split('/').includes('node_modules') && !localPaths.has(path));
+        const missing = this.remoteSync!.knownPaths.filter(path => !isExcludedPath(path) && !localPaths.has(path));
         if (missing.length) new Notice(`Recall: ${missing.length} notas conocidas no estan presentes. No se han borrado sus tarjetas; revisa la sincronizacion del vault.`, 15000);
         await recover();
       }).finally(() => { reconcileQueued = false; });

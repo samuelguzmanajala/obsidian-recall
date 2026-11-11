@@ -117,6 +117,64 @@ describe('RemoteNoteSync journal', () => {
   });
 });
 
+describe('RemoteNoteSync excluded paths', () => {
+  it('drops journaled work for excluded paths at startup without touching cursors or the backend', async () => {
+    const backend = fakeBackend(); const store = storage();
+    const excluded = (path: string) => path.split('/').includes('node_modules');
+    const jobs: NoteJob[] = [
+      { operationId: 'n1', path: 'A.md' },
+      { operationId: 'x1', path: 'node_modules/fsevents/README.md' },
+      { operationId: 'x2', path: 'lib/node_modules/p/Doc.md', content: 'Q::Inline' },
+      { operationId: 'n2', path: 'B.md', content: 'Q::B' },
+      { operationId: 'x3', path: 'node_modules/pkg/CHANGELOG.md', content: 'Q::Sent', expectedRevision: 2, hash: 'h', baseHash: 'b' },
+      { operationId: 'x4', path: 'node_modules/gone.md', content: null },
+      { operationId: 'x5', path: 'node_modules/a.md', newPath: 'node_modules/b.md' },
+      { operationId: 'k1', path: 'node_modules/in.md', newPath: 'Out.md' },
+      { operationId: 'k2', path: 'Into.md', newPath: 'node_modules/into.md' },
+      { operationId: 'n3', path: 'C.md' },
+    ];
+    store.raw = JSON.stringify(jobs);
+    const state = { 'node_modules/pkg/CHANGELOG.md': { revision: 1, hash: 'old' } };
+    const cursors = structuredClone(state);
+    const persist = vi.fn();
+    const vault: Record<string, string> = { 'A.md': 'Q::A', 'C.md': 'Q::C', 'node_modules/fsevents/README.md': 'Q::Local' };
+    const sync = new RemoteNoteSync(backend.client, state, persist, store.journal, async path => vault[path] ?? null);
+    expect(sync.discardExcluded(excluded)).toBe(5);
+    expect(store.saves).toBe(1);
+    expect(store.stored.map(job => job.operationId)).toEqual(['n1', 'n2', 'k1', 'k2', 'n3']);
+    expect(sync.pendingCount).toBe(5);
+    expect(sync.conflictPath).toBeNull();
+    expect(state).toEqual(cursors);
+    expect(persist).not.toHaveBeenCalled();
+    expect(backend.sent).toEqual([]);
+    // A second pass finds nothing to drop and does not rewrite the journal.
+    expect(sync.discardExcluded(excluded)).toBe(0);
+    expect(store.saves).toBe(1);
+
+    // The half-excluded renames are left alone; with no cursor they wait for reconciliation.
+    await expect(sync.retry()).rejects.toThrow();
+    expect(backend.sent.map(s => s.path)).toEqual(['A.md', 'B.md', 'C.md']);
+    expect(backend.sent.some(s => excluded(s.path))).toBe(false);
+    expect(store.stored.map(job => job.operationId)).toEqual(['k1', 'k2']);
+    expect(state).toMatchObject(cursors);
+  });
+
+  it('reaches an empty queue when only excluded work was pending', async () => {
+    const backend = fakeBackend(); const store = storage();
+    store.raw = JSON.stringify([{ operationId: 'x', path: 'node_modules/fsevents/README.md' }]);
+    backend.notes.set('node_modules/fsevents/README.md', { revision: 1, content: 'Q::Remote', hash: await contentHash('Q::Remote') });
+    const sync = new RemoteNoteSync(backend.client, {}, () => {}, store.journal, async () => 'Q::Local');
+    await expect(sync.retry()).rejects.toThrow('conflicto');
+    expect(sync.conflictPath).toBe('node_modules/fsevents/README.md');
+    sync.discardExcluded(path => path.split('/').includes('node_modules'));
+    expect(sync.conflictPath).toBeNull();
+    expect(sync.pendingCount).toBe(0);
+    await sync.retry();
+    expect(backend.sent).toEqual([]);
+    expect(backend.notes.get('node_modules/fsevents/README.md')?.content).toBe('Q::Remote');
+  });
+});
+
 describe('KeyDebouncer', () => {
   afterEach(() => { vi.useRealTimers(); });
   it('runs only the last call per key and honours cancel and clear', () => {

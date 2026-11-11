@@ -94,6 +94,18 @@ export class RemoteNoteSync {
   }
   stageRename(path: string, newPath: string): void { this.append({ operationId: crypto.randomUUID(), path, newPath }); }
   stageDelete(path: string): void { this.append({ operationId: crypto.randomUUID(), path, content: null }); }
+  /**
+   * Startup only, before any retry: drops journaled work for paths that are no longer
+   * published. Cursors are kept and nothing is sent; the backend copy stays as it is.
+   * A rename is dropped only when both of its paths are excluded.
+   */
+  discardExcluded(isExcluded: (path: string) => boolean): number {
+    const kept = this.jobs.filter(job => !(isExcluded(job.path) && (!job.newPath || isExcluded(job.newPath))));
+    const dropped = this.jobs.length - kept.length;
+    if (dropped) this.replaceJobs(kept);
+    if (this.conflict && !this.jobs.includes(this.conflict)) this.conflict = null;
+    return dropped;
+  }
   /** Explicit user decision only. Never automatically overwrite a conflicting note. */
   async resolveWithLocal(content: string, expectedPath?: string): Promise<void> {
     const superseded = new Set(this.jobs.slice(1));

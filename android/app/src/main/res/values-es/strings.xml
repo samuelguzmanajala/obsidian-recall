@@ -56,6 +56,22 @@
     <string name="session_error_hint">Tu última valoración solo cuenta si el servidor la confirmó.</string>
     <string name="session_error_unsaved">Tus repasos no llegan al servidor. Los que aún no se han guardado se conservan en el teléfono y se enviarán cuando vuelva la conexión.</string>
 
+    <string name="session_error_generic">No se pudo completar la petición al servidor. Comprueba la conexión y reintenta.</string>
+    <string name="session_error_voice">La voz del teléfono no está disponible. Revisa el motor de texto a voz en los ajustes de Android y reintenta.</string>
+    <plurals name="session_line_pending">
+        <item quantity="one">%d sin confirmar</item>
+        <item quantity="other">%d sin confirmar</item>
+    </plurals>
+    <plurals name="session_line_rejected">
+        <item quantity="one">%d rechazada</item>
+        <item quantity="other">%d rechazadas</item>
+    </plurals>
+    <plurals name="session_rejected_notice">
+        <item quantity="one">El servidor rechazó %d repaso</item>
+        <item quantity="other">El servidor rechazó %d repasos</item>
+    </plurals>
+    <string name="session_done_tally_desc">%1$s, %2$d</string>
+
     <string name="rating_again">Otra vez</string>
     <string name="rating_hard">Difícil</string>
     <string name="rating_good">Bien</string>

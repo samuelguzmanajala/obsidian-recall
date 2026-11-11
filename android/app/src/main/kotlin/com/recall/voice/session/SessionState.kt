@@ -33,4 +33,6 @@ enum class ErrorKind {
   Generic,
   /** The background sender keeps failing; the unconfirmed reviews are kept in the journal. */
   ReviewsNotSaved,
+  /** The phone's text-to-speech engine could not start. */
+  VoiceUnavailable,
 }

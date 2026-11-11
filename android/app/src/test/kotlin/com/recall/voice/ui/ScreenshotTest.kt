@@ -4,7 +4,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -44,10 +47,13 @@ class ScreenshotTest(private val dark: Boolean) {
 
   private val outDir = File(System.getProperty("recall.review.dir") ?: "build/review").apply { mkdirs() }
 
-  private fun shoot(name: String, content: @Composable () -> Unit) {
+  private fun shoot(name: String, fontScale: Float = 1f, content: @Composable () -> Unit) {
     compose.setContent {
-      RecallTheme(dark = dark) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
+      val density = LocalDensity.current
+      CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+        RecallTheme(dark = dark) {
+          Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
+        }
       }
     }
     compose.waitForIdle()
@@ -80,7 +86,12 @@ class ScreenshotTest(private val dark: Boolean) {
 
   private val history = confirmed(Rating.Good, Rating.Good, Rating.Again, Rating.Easy, Rating.Hard, Rating.Good)
 
-  private fun session(name: String, state: SessionState, history: List<Station> = this.history) = shoot(name) {
+  private fun session(
+    name: String,
+    state: SessionState,
+    history: List<Station> = this.history,
+    fontScale: Float = 1f,
+  ) = shoot(name, fontScale) {
     SessionScreen(
       state = state,
       deckName = "Kotlin",
@@ -97,6 +108,10 @@ class ScreenshotTest(private val dark: Boolean) {
 
   @Test fun sessionQuestion() = session("session-question", SessionState.ListeningReveal(card, 7, 23))
 
+  @Test fun sessionRatingFont130() = session("session-rating-font130", SessionState.ListeningRating(card, 7, 23), fontScale = 1.3f)
+
+  @Test fun sessionQuestionFont130() = session("session-question-font130", SessionState.ListeningReveal(card, 7, 23), fontScale = 1.3f)
+
   @Test fun sessionPaused() = session("session-paused", SessionState.AwaitingConfirmation(card, 7, 23))
 
   @Test fun sessionError() = session(
@@ -112,7 +127,21 @@ class ScreenshotTest(private val dark: Boolean) {
     },
   )
 
-  /** Confirmed, one rejected (fourth), and the last two still being saved. */
+  /** Paused while a rejected review is on the line: the tallest status area. */
+  @Test fun sessionPausedRejected() = session(
+    "session-paused-rejected",
+    SessionState.AwaitingConfirmation(card, 7, 23),
+    history = confirmed(Rating.Good, Rating.Good, Rating.Again) +
+      Station(Rating.Easy, StationStatus.Rejected) +
+      confirmed(Rating.Hard, Rating.Good),
+  )
+
+  @Test fun sessionVoiceError() = session(
+    "session-voice-error",
+    SessionState.Error("TTS engine not available", com.recall.voice.session.ErrorKind.VoiceUnavailable),
+  )
+
+  /** Confirmed, one rejected (fourth), and the last two still being saved; the status area counts the rejection. */
   @Test fun sessionPendingRejected() = session(
     "session-pending-rejected",
     SessionState.ListeningReveal(card, 7, 23),

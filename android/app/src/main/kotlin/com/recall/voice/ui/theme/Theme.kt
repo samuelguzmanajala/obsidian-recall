@@ -45,6 +45,8 @@ data class RecallColors(
   val onShellMuted: Color,
   val track: Color,
   val card: Color,
+  /** Keyline around the card panel where its tone alone does not part it from the ground. */
+  val cardEdge: Color,
   val onCard: Color,
   val onCardMuted: Color,
   val cardRule: Color,
@@ -68,11 +70,11 @@ data class RecallColors(
 
 private val NightColors = RecallColors(
   shell = Midnight, onShell = Porcelain, onShellMuted = PorcelainDim, track = MidnightSeam,
-  card = Porcelain, onCard = Midnight, onCardMuted = InkMuted, cardRule = PorcelainRule,
+  card = Porcelain, cardEdge = Color.Unspecified, onCard = Midnight, onCardMuted = InkMuted, cardRule = PorcelainRule,
   cardCode = Color(0xFFE3E8F6), cardMark = Color(0xFFFFE08A),
   again = Scarlet, hard = Amber, good = Green, easy = Cobalt,
 )
-private val DayColors = NightColors.copy(card = Color.White, cardCode = Color(0xFFEDF0F9))
+private val DayColors = NightColors.copy(card = Color.White, cardEdge = PorcelainRule, cardCode = Color(0xFFEDF0F9))
 
 val LocalRecallColors = staticCompositionLocalOf { NightColors }
 

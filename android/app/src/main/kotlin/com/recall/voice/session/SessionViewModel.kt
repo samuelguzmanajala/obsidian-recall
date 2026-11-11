@@ -138,7 +138,7 @@ class SessionViewModel(
 
   private suspend fun CoroutineScope.session() {
     if (!tts.awaitInit()) {
-      _state.value = SessionState.Error("TTS engine not available")
+      _state.value = SessionState.Error("TTS engine not available", ErrorKind.VoiceUnavailable)
       return
     }
     _state.value = SessionState.Fetching

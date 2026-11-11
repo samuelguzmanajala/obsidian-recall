@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -77,18 +78,38 @@ fun ShellTopBar(
   )
 }
 
-/** How many stations fit before the line has to scroll with the rider. */
-private const val MAX_STATIONS = 25
+/** Radius of the interchange ring that marks the current station. */
+private val RingRadius = 13.dp
+
+/** Radius of a passed station's dot. */
+private val StationRadius = 6.5.dp
+
+/** Clear space kept between the ring and the station just left. */
+private val StationGap = 3.dp
+
+/** Inset of the first and last station from the line's ends. */
+private val LineInset = 16.dp
+
+/** Closest two stations may sit: the ring never covers the station the rider just left. */
+val MinStationPitch = RingRadius + StationRadius + StationGap
+
+/**
+ * How many stations fit along a line whose stations can spread over [span] (the distance from the
+ * first to the last station), keeping them at least [minPitch] apart. Never fewer than two.
+ */
+fun stationsThatFit(span: Float, minPitch: Float): Int =
+  if (minPitch <= 0f || span <= 0f) 2 else (kotlin.math.floor(span / minPitch).toInt() + 1).coerceAtLeast(2)
 
 /** First station drawn for a session of [total] cards when the rider is at [index] (both 1-based). */
-fun lineWindowStart(index: Int, total: Int, max: Int = MAX_STATIONS): Int =
+fun lineWindowStart(index: Int, total: Int, max: Int): Int =
   if (total <= max) 1 else (index - max / 3).coerceIn(1, total - max + 1)
 
 /**
- * The session as a line. A passed station shows the rating given there and what the server made
- * of it: a filled dot in the rating's ink once confirmed, a hollow ring in that ink while it is
- * still being saved, and a porcelain dot cut by a slash when the server rejected it (shape, not
- * only colour, tells them apart). The current station is an interchange ring; the rest are ticks.
+ * The session as a line. Each passed segment takes the ink of the rating given at the station it
+ * leaves, so the line fills with your answers. What the server made of a rating is told by shape as
+ * well as colour: confirmed is a filled dot with a full-width inked segment; still being saved is a
+ * hollow ring with a thin inked segment; rejected is a porcelain dot cut by a slash, its segment
+ * left as bare track. The current station is an interchange ring; the rest are ticks.
  */
 @Composable
 fun SessionLine(
@@ -99,7 +120,13 @@ fun SessionLine(
   modifier: Modifier = Modifier,
 ) {
   val c = Recall.colors
-  val description = stringResource(R.string.session_progress_desc, index.coerceAtMost(total), total)
+  val pending = stations.count { it.status == StationStatus.Pending }
+  val rejected = stations.count { it.status == StationStatus.Rejected }
+  val description = buildList {
+    add(stringResource(R.string.session_progress_desc, index.coerceAtMost(total), total))
+    if (pending > 0) add(pluralStringResource(R.plurals.session_line_pending, pending, pending))
+    if (rejected > 0) add(pluralStringResource(R.plurals.session_line_rejected, rejected, rejected))
+  }.joinToString(". ")
   val position by animateFloatAsState(index.toFloat(), tween(320), label = "station")
   val pulse: State<Float> = if (listening) {
     rememberInfiniteTransition(label = "listening").animateFloat(
@@ -117,44 +144,63 @@ fun SessionLine(
       },
   ) {
     if (total <= 0) return@Canvas
-    val first = lineWindowStart(index, total)
-    val last = minOf(total, first + MAX_STATIONS - 1)
-    val pad = 16.dp.toPx()
+    val pad = LineInset.toPx()
+    val max = stationsThatFit(size.width - 2 * pad, MinStationPitch.toPx())
+    val first = lineWindowStart(index, total, max)
+    val last = minOf(total, first + max - 1)
     val y = size.height / 2
     val span = (last - first).coerceAtLeast(1)
     fun x(station: Float) = pad + (size.width - 2 * pad) * ((station - first) / span).coerceIn(-0.1f, 1.1f)
     val left = if (first == 1) pad else 0f
     val right = if (last == total) size.width - pad else size.width
     val stroke = 8.dp.toPx()
+    val thin = 3.dp.toPx()
 
     drawLine(c.track, Offset(left, y), Offset(right, y), stroke, StrokeCap.Round)
     val here = x(position.coerceAtMost(total.toFloat()))
-    if (here > left) drawLine(c.onShellMuted, Offset(left, y), Offset(here, y), stroke, StrokeCap.Round)
+
+    // Passed segments, each in the ink of the station it leaves; the one into the rider follows the ring.
+    for (from in maxOf(1, first - 1) until minOf(index, last + 1)) {
+      val station = stations.getOrNull(from - 1) ?: continue
+      // Off the window's left edge the segment also covers the track's rounded end.
+      val start = if (from < first) left - stroke / 2 else x(from.toFloat())
+      val end = if (from + 1 >= index) here else x((from + 1).toFloat())
+      if (end <= start) continue
+      when (station.status) {
+        StationStatus.Confirmed -> drawLine(c.ink(station.rating), Offset(start, y), Offset(end, y), stroke, StrokeCap.Butt)
+        StationStatus.Pending -> drawLine(c.ink(station.rating), Offset(start, y), Offset(end, y), thin, StrokeCap.Butt)
+        StationStatus.Rejected -> Unit
+      }
+    }
 
     for (station in first..last) {
       val at = Offset(x(station.toFloat()), y)
       when {
         station < index -> drawStation(stations.getOrNull(station - 1), at, c)
-        station > index -> drawCircle(c.onShell, 2.5.dp.toPx(), at)
+        station > index -> {
+          val reach = 6.dp.toPx()
+          drawLine(c.onShell, Offset(at.x, y - reach), Offset(at.x, y + reach), 2.5.dp.toPx(), StrokeCap.Round)
+        }
       }
     }
     if (index in first..last) {
       val at = Offset(here, y)
-      if (listening) drawCircle(c.onShell.copy(alpha = 0.35f * (1f - pulse.value)), (13 + 9 * pulse.value).dp.toPx(), at)
-      drawCircle(c.onShell, 13.dp.toPx(), at)
+      if (listening) drawCircle(c.onShell.copy(alpha = 0.35f * (1f - pulse.value)), (RingRadius.value + 9 * pulse.value).dp.toPx(), at)
+      drawCircle(c.onShell, RingRadius.toPx(), at)
       drawCircle(c.shell, 7.dp.toPx(), at)
     }
   }
 }
 
 private fun DrawScope.drawStation(station: Station?, at: Offset, c: RecallColors) {
-  val radius = 6.5.dp.toPx()
+  val radius = StationRadius.toPx()
+  // A midnight keyline parts the dot from a segment in the same ink.
+  drawCircle(c.shell, radius + 1.5.dp.toPx(), at)
   when (station?.status) {
     null -> drawCircle(c.onShell, radius, at)
     StationStatus.Confirmed -> drawCircle(c.ink(station.rating), radius, at)
     StationStatus.Pending -> {
       val ring = 2.5.dp.toPx()
-      drawCircle(c.shell, radius, at)
       drawCircle(c.ink(station.rating), radius - ring / 2, at, style = Stroke(ring))
     }
     StationStatus.Rejected -> {

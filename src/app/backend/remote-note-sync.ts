@@ -51,11 +51,14 @@ export class RemoteNoteSync {
     } else this.jobs.push(job);
     this.save();
   }
-  publish(path: string, content: string | null): Promise<void> {
-    this.append({ operationId: crypto.randomUUID(), path, content });
-    return this.retry(path);
+  async publish(path: string, content: string | null): Promise<void> {
+    if (content === null) this.append({ operationId: crypto.randomUUID(), path, content });
+    else await this.stageCurrent(path, content);
+    await this.retry(path);
   }
   async stageCurrent(path: string, content: string): Promise<void> {
+    const latest = [...this.jobs].reverse().find(job => job.path === path || job.newPath === path);
+    if (latest && !latest.newPath && latest.content === content) return;
     if (!this.jobs.some(job => job.path === path || job.newPath === path)
       && this.state[path]?.hash === await contentHash(content)) return;
     this.append({ operationId: crypto.randomUUID(), path, content });

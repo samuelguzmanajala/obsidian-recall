@@ -37,6 +37,21 @@ async function serve(service: RecallService, audio?: ServerAudio) {
 }
 
 describe('standalone backend', () => {
+  it('does not grow a conflicted journal when a full vault scan sees the same content repeatedly', async () => {
+    const service = setup(); const { client } = await serve(service);
+    let jobs: any[] = [];
+    const sync = new RemoteNoteSync(client, {}, () => {}, {
+      load: () => structuredClone(jobs), save: next => { jobs = structuredClone(next); },
+    });
+    await sync.publish('Test.md', 'Q::Base');
+    await service.note({ operationId: randomUUID(), path: 'Test.md', content: 'Q::Other device', expectedRevision: 1 });
+    await expect(sync.publish('Test.md', 'Q::Local')).rejects.toMatchObject({ status: 409 });
+    for (let i = 0; i < 3; i++) await sync.stageCurrent('Test.md', 'Q::Local');
+    expect(sync.pendingCount).toBe(1);
+    expect(jobs).toHaveLength(1);
+    await sync.stageCurrent('Test.md', 'Q::Latest local');
+    expect(sync.pendingCount).toBe(2);
+  });
   it('preserves an edit appended while checking an already-applied queued prefix', async () => {
     const service = setup(); const { client } = await serve(service);
     const sync = new RemoteNoteSync(client, {}, () => {});

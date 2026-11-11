@@ -127,7 +127,7 @@ export default class RecallPlugin extends Plugin {
       return publicationTail;
     };
     const publishNow = async (file: TFile, path: string) => {
-      if (file.extension !== 'md') return;
+      if (file.extension !== 'md' || path.split('/').includes('node_modules')) return;
       if (file.path !== path) return;
       const content = await this.app.vault.read(file);
       if (file.path !== path) return;
@@ -161,17 +161,30 @@ export default class RecallPlugin extends Plugin {
     this.addCommand({ id: 'publish-notes', name: 'Publish notes to backend', callback: async () => {
       await reconcile();
     } });
-    const reconcile = () => enqueue(async () => {
-      const files = this.app.vault.getMarkdownFiles();
-      for (const file of files) {
-        const path = file.path;
-        const content = await this.app.vault.read(file);
-        if (path === file.path) await this.remoteSync!.stageCurrent(path, content);
-      }
-      const localPaths = new Set(files.map(file => file.path));
-      const missing = this.remoteSync!.knownPaths.filter(path => !localPaths.has(path));
-      if (missing.length) new Notice(`Recall: ${missing.length} notas conocidas no estan presentes. No se han borrado sus tarjetas; revisa la sincronizacion del vault.`, 15000);
-      await recover();
+    let reconcileQueued = false;
+    let lastReconcileAt = 0;
+    const reconcile = () => {
+      if (reconcileQueued || disposed) return publicationTail;
+      reconcileQueued = true;
+      lastReconcileAt = Date.now();
+      return enqueue(async () => {
+        const files = this.app.vault.getMarkdownFiles().filter(file => !file.path.split('/').includes('node_modules'));
+        for (const file of files) {
+          const path = file.path;
+          const content = await this.app.vault.read(file);
+          if (path === file.path) await this.remoteSync!.stageCurrent(path, content);
+        }
+        const localPaths = new Set(files.map(file => file.path));
+        const missing = this.remoteSync!.knownPaths.filter(path => !path.split('/').includes('node_modules') && !localPaths.has(path));
+        if (missing.length) new Notice(`Recall: ${missing.length} notas conocidas no estan presentes. No se han borrado sus tarjetas; revisa la sincronizacion del vault.`, 15000);
+        await recover();
+      }).finally(() => { reconcileQueued = false; });
+    };
+    // File watcher events can be missed during long-running sessions, especially
+    // when another process updates many files on an external volume.
+    this.registerInterval(window.setInterval(() => void reconcile(), 10 * 60_000));
+    this.registerDomEvent(window, 'focus', () => {
+      if (Date.now() - lastReconcileAt >= 2 * 60_000) void reconcile();
     });
     this.app.workspace.onLayoutReady(() => { if (!disposed) void reconcile(); });
   }

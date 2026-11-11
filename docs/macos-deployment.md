@@ -226,3 +226,23 @@ despues vuelve a cargar el agente. Para el plugin, compila con `npm run build` y
 
 La comprobacion de interfaz uso CDP temporalmente en loopback; Obsidian se volvio a abrir sin
 depuracion y el puerto 9223 quedo cerrado. No es necesario habilitar CDP para usar Recall.
+
+### Reconciliacion de notas tras una sesion larga (2026-11-11)
+
+Se detectaron 60 notas del vault mas nuevas que el backend y 53 notas visibles nuevas sin
+publicar. Obsidian llevaba abierto desde el 28 de octubre. El plugin hacia un escaneo
+completo solo al arrancar y dependia de eventos `create`/`modify` el resto del tiempo;
+las ediciones externas en lote del vault no llegaron todas al publicador. No hay evidencia
+de que el backend haya modificado archivos Markdown locales.
+
+Desde esta correccion, el plugin reconcilia el vault cada 10 minutos y al recuperar el foco
+si han transcurrido al menos 2 minutos. La cola evita duplicados cuando una nota en conflicto
+no ha cambiado. Se excluye `node_modules` de nuevas publicaciones: sus Markdown son
+dependencias, no apuntes. La ausencia de una nota local sigue sin convertirse en borrado
+automatico del backend. Ante un conflicto real, las notas del vault son la fuente de verdad
+para esta instalacion, pero se conserva la revision y la proteccion CAS del backend.
+
+Antes de reconciliar se guardo una copia SQLite verificada; se publicaron las 113 notas
+pendientes sin borrar ninguna, y la comparacion posterior de las 2694 notas visibles dio
+cero diferencias. El plugin instalado se actualizo con Obsidian cerrado y se hizo tambien
+una copia de sus diarios/cursores locales antes de reiniciar.

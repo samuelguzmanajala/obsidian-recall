@@ -74,7 +74,7 @@ class FakeBatch implements TtsBatchClient {
 }
 
 const opts = (o: Partial<PregenerateOptions> = {}): PregenerateOptions =>
-  ({ apply: true, mode: 'batch', maxUsd: 1, batchSize: 500, concurrency: 2, waitMinutes: 60, discardUnconfirmed: false, ...o });
+  ({ apply: true, mode: 'batch', maxUsd: 1, batchSize: 150, concurrency: 2, waitMinutes: 60, discardUnconfirmed: false, ...o });
 function deps(w: Awaited<ReturnType<typeof world>>, batch?: TtsBatchClient, audio: ServerAudio = w.audio) {
   const lines: string[] = [];
   const d: PregenerateDeps = { service: w.service, audio, batch, out: l => lines.push(l), sleep: async () => {}, now: () => new Date('2026-11-12T10:00:00Z') };
@@ -375,7 +375,7 @@ describe('the shared audio plan', () => {
 
 describe('pregenerate CLI', () => {
   it('defaults to a dry run and validates flags', () => {
-    expect(parseArgs([], 'gemini')).toMatchObject({ apply: false, mode: 'batch', batchSize: 500, concurrency: 2 });
+    expect(parseArgs([], 'gemini')).toMatchObject({ apply: false, mode: 'batch', batchSize: 150, concurrency: 2 });
     expect(parseArgs([], 'openai').mode).toBe('interactive');
     expect(() => parseArgs(['--apply'], 'gemini')).toThrow(/requires --max-usd/);
     expect(() => parseArgs(['--apply', '--max-usd=1', '--mode=batch'], 'openai')).toThrow(/needs RECALL_TTS_PROVIDER=gemini/);

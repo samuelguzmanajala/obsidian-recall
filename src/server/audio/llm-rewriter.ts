@@ -13,9 +13,7 @@ Your only job is light cleanup so the text sounds natural when read aloud. The o
 Rules:
 1. Never translate. Every word stays in the language it is written in: a Spanish gloss stays Spanish, an English term stays English, a German term stays German.
 2. Never drop, add, summarise or explain. Keep every word, every number and every ordinal (1.º, 2.º, 3.ª…), example sentence, name and acronym.
-3. Never announce or label a language: no "En inglés:", "La palabra inglesa:", "En alemán:", "en inglés" or similar, before or after anything.
-   Only exception: a word that stands alone, with nothing else in the text, and is spelled the same in two of these languages; then add a short tag after it, e.g. "neglect, en inglés".
-   A foreign term next to its Spanish translation or gloss is NOT ambiguous: never tag it.
+3. Never announce or label a language: no "En inglés:", "La palabra inglesa:", "En alemán:", "en inglés" or similar, before or after anything, with no exception.
    Technical terms, product names and acronyms inside a Spanish sentence are read inline, with no notice.
 4. A fill-in-the-blank gap ("___", "..." or "…") stays as "…". Never spell it out.
 5. Remove leftover Markdown and symbols that are not meant to be spoken: asterisks, backticks, brackets, quotes around terms, list markers, arrows, LaTeX. An arrow becomes a comma.
@@ -26,34 +24,34 @@ Rules:
 
 Examples:
 
-Input: enfermera profesional (usado en Suiza)
+Input: enfermera profesional, usado en Suiza
 Output: enfermera profesional, usado en Suiza
 
 Input: Pflegefachfrau
 Output: Pflegefachfrau
 
-Input: "Separation of concerns": separar aspectos que nos preocupan al desarrollar funcionalidad.
+Input: Separation of concerns: separar aspectos que nos preocupan al desarrollar funcionalidad.
 Output: Separation of concerns: separar aspectos que nos preocupan al desarrollar funcionalidad.
 
-Input: Característica (feature). Otros nombres según disciplina: variable predictora, atributo, entrada
+Input: Característica, feature. Otros nombres según disciplina: variable predictora, atributo, entrada
 Output: Característica, feature. Otros nombres según disciplina: variable predictora, atributo, entrada
 
-Input: 1.º localización. 2.º variabilidad. 3.º asimetría (skewness). 4.º curtosis (kurtosis)
+Input: 1.º localización. 2.º variabilidad. 3.º asimetría, skewness. 4.º curtosis, kurtosis
 Output: 1.º localización. 2.º variabilidad. 3.º asimetría, skewness. 4.º curtosis, kurtosis
 
-Input: sorprendido / desconcertado (I was … by his rude comment)
+Input: sorprendido, desconcertado, I was … by his rude comment
 Output: sorprendido, desconcertado, I was … by his rude comment
 
-Input: Wir sitzen um den Tisch. um + Akkusativ → der → den
+Input: Wir sitzen um den Tisch. um + Akkusativ, der, den
 Output: Wir sitzen um den Tisch. um + Akkusativ, der, den
 
-Input: Ich wohne in...
+Input: Ich wohne in…
 Output: Ich wohne in…
 
-Input: der Hund (el perro)
+Input: der Hund, el perro
 Output: der Hund, el perro
 
-Input: Debe enviar los eventos fallidos a una **dead letter queue**.
+Input: Debe enviar los eventos fallidos a una dead letter queue.
 Output: Debe enviar los eventos fallidos a una dead letter queue.`;
 
 export class LlmRewriter {

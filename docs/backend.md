@@ -252,13 +252,38 @@ La caché de audio distingue el proveedor: los MP3 ya generados con OpenAI conse
 y siguen sirviéndose, y los de Gemini se guardan aparte con otro hash. Las escrituras de caché
 son atómicas (fichero temporal y renombrado), así que un fallo no deja audio a medias.
 
-La reescritura previa con un LLM es opcional: `RECALL_LLM_PROVIDER` (por defecto `none`, sin
-reescritura), `RECALL_LLM_KEY` y `RECALL_LLM_MODEL`. Ya no anuncia idiomas ("En inglés:", "La
-palabra inglesa:"): solo limpia símbolos, convierte "/" y paréntesis en pausas, mantiene los
-huecos como "…" y no traduce ni omite nada. La única etiqueta permitida es tras una palabra
-suelta que se escribe igual en dos idiomas ("neglect, en inglés"). La clave de la caché de
-reescrituras incluye un hash de la instrucción: al cambiarla, las reescrituras guardadas dejan
-de usarse y se regeneran (con coste del proveedor LLM). Las antiguas quedan en disco sin uso.
+Antes de sintetizar, el servidor limpia la puntuación que no se lee bien con reglas fijas
+(`preprocessForTts` en `src/server/audio/preprocess-text.ts`), iguales para OpenAI y Gemini, para
+`GET /api/v1/audio`, la cola en segundo plano y la pregeneración:
+
+- una barra con espacios a ambos lados separa alternativas y pasa a coma
+  ("sorprendido / desconcertado" → "sorprendido, desconcertado");
+- un paréntesis precedido de espacio (o al principio) pasa a inciso entre comas con las mismas
+  palabras ("Característica (feature). Otros" → "Característica, feature. Otros"); tras un punto,
+  antes de otra puntuación o al final no se añade coma, y "()" desaparece;
+- una flecha con espacios (`→`, `->`, `=>`, `⇒`) pasa a coma ("der → den" → "der, den");
+- se quitan las comillas dobles (rectas, “ ” o „ “) que solo envuelven un término o frase.
+
+No tocan lo que va pegado a una palabra (`km/h`, `TCP/IP`, `1/2`, `and/or`, URLs, fechas,
+`f(x)`, `getUser(id)`, `(re)encolar`, `a->b`), ni paréntesis anidados o sin cerrar, ni apóstrofos
+o comillas simples (`don't`, `l'eau`), ni comillas sueltas (`5"`). Tampoco traducen, reordenan,
+expanden abreviaturas ("Akk."), deletrean símbolos (`+`, `=`, `≥`) ni tocan números u ordinales.
+Nunca dejan comas dobles o colgando, y el hueco "…" y la puntuación final quedan como estaban.
+El marcador de bloque de código "(código)" se lee ahora como inciso (", código,").
+
+El nombre del MP3 depende del texto final: cambiar estas reglas cambia el texto de las caras
+afectadas, que se vuelven a sintetizar con otro nombre; los ficheros anteriores quedan huérfanos
+(lístalos con `--orphans`, ver "Ficheros huérfanos" más abajo).
+
+La reescritura posterior con un LLM es opcional y está desactivada por defecto:
+`RECALL_LLM_PROVIDER` (por defecto `none`), `RECALL_LLM_KEY` y `RECALL_LLM_MODEL`. Con Gemini no se
+recomienda: Gemini detecta los idiomas solo, y en una muestra de 24 caras el LLM tradujo una
+glosa, etiquetó expresiones inglesas sueltas ("en inglés") y dio salidas distintas entre
+ejecuciones, mientras que lo útil que hacía (la puntuación) ya lo hacen las reglas anteriores.
+Si se activa, recibe el texto ya limpio, nunca anuncia ni etiqueta idiomas (sin excepciones),
+mantiene los huecos como "…" y no traduce ni omite nada. La clave de la caché de reescrituras
+incluye un hash de la instrucción: al cambiarla, las reescrituras guardadas dejan de usarse y se
+regeneran (con coste del proveedor LLM). Las antiguas quedan en disco sin uso.
 
 Las llamadas a proveedores tienen tiempo máximo (LLM 30 s, TTS de OpenAI 60 s, TTS de Gemini
 30 s en total con reintentos); un proveedor colgado produce un error de audio en lugar de
@@ -295,7 +320,7 @@ node --env-file=/ruta/a/backend.env dist/server/pregenerate.cjs --apply --max-us
 | `--max-usd=X` | Tope de gasto de esta ejecución (estimado + real, en USD, solo TTS). No envía nada cuya estimación lo supere y se detiene en cuanto el gasto real lo alcanza. |
 | `--mode=batch\|interactive` | Por defecto `batch` con Gemini e `interactive` con OpenAI. |
 | `--limit=N` | Solo los N primeros textos pendientes (pruebas). |
-| `--batch-size=N` | Textos por lote (500). Los resultados llegan dentro de la respuesta (~400 KB por clip). |
+| `--batch-size=N` | Textos por lote (150). Los resultados llegan dentro de la respuesta (~400 KB de base64 por clip) y no se han probado lotes de más de 11 clips: súbelo con cuidado. |
 | `--concurrency=N` | Llamadas interactivas y reescrituras en paralelo (2). |
 | `--wait-minutes=N` | Espera máxima por lote (60); después deja el lote anotado y termina. |
 | `--discard-unconfirmed` | Olvida un envío interrumpido que el proveedor no lista (ver abajo). |

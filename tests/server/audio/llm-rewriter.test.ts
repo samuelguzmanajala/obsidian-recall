@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { LlmRewriter, REWRITER_SYSTEM_PROMPT, type TextFileStorage } from '../../../src/server/audio/llm-rewriter';
 import type { LlmClient } from '@context/shared/domain/llm-client';
+import { audioSource } from '../../../src/server/audio/audio-plan';
+import { markdownToVoice } from '../../../src/server/audio/markdown-to-voice';
 
 class InMemoryTextStorage implements TextFileStorage {
   files = new Map<string, string>();
@@ -116,6 +118,14 @@ describe('LlmRewriter', () => {
     expect(REWRITER_SYSTEM_PROMPT).toContain('Output: Característica, feature.');
     expect(REWRITER_SYSTEM_PROMPT).toContain('Output: 1.º localización. 2.º variabilidad.');
     expect(REWRITER_SYSTEM_PROMPT).not.toMatch(/Output: (La palabra|La frase|En inglés|En alemán)/);
+  });
+
+  it('allows no language tag at all, and its examples start from text the rules already cleaned', () => {
+    expect(REWRITER_SYSTEM_PROMPT).toMatch(/with no exception/);
+    expect(REWRITER_SYSTEM_PROMPT).not.toMatch(/neglect|Only exception/);
+    const inputs = [...REWRITER_SYSTEM_PROMPT.matchAll(/^Input: (.*)$/gm)].map(m => m[1]);
+    expect(inputs.length).toBeGreaterThan(5);
+    for (const input of inputs) expect(audioSource(markdownToVoice(input))).toBe(input);
   });
 
   it('sends the system prompt and the user input as messages', async () => {

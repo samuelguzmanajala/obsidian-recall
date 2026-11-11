@@ -19,7 +19,8 @@ GET /api/v1/audio serves. Uses the server's RECALL_* variables; opens RECALL_DB 
   --mode=batch|interactive
                          Default: batch with RECALL_TTS_PROVIDER=gemini, else interactive
   --limit=N              Only the first N missing texts (trials)
-  --batch-size=N         Texts per batch job (default 500)
+  --batch-size=N         Texts per batch job (default 150; results come back inline,
+                         ~400 KB per clip)
   --concurrency=N        Parallel interactive calls and rewrites (default 2)
   --wait-minutes=N       Wait for one batch job at most N minutes, then leave it for a
                          re-run of the same command (default 60)
@@ -37,7 +38,7 @@ function positiveInt(name: string, value: string): number {
 }
 
 export function parseArgs(argv: string[], provider: string): CliArgs {
-  const args: CliArgs = { apply: false, mode: provider === 'gemini' ? 'batch' : 'interactive', batchSize: 500, concurrency: 2,
+  const args: CliArgs = { apply: false, mode: provider === 'gemini' ? 'batch' : 'interactive', batchSize: 150, concurrency: 2,
     waitMinutes: 60, discardUnconfirmed: false, orphans: false, help: false };
   let dry = false;
   for (const arg of argv) {

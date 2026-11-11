@@ -12,6 +12,8 @@ export interface PublicServerOptions {
   ownerToken: string;
   tools?: readonly McpTool[];
   now?: () => number;
+  /** Access log sink (one line per request: method, path without query, status, user agent). Off when absent. */
+  log?: (line: string) => void;
 }
 
 class HttpError extends Error {
@@ -98,6 +100,12 @@ export function createPublicServer(service: RecallService, store: OAuthStore, op
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    if (options.log) {
+      // Path only: the query string of /oauth/authorize carries state and PKCE values.
+      const path = (req.url ?? '/').split('?')[0].slice(0, 200);
+      const agent = String(req.headers['user-agent'] ?? '-').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
+      res.on('finish', () => options.log!(`[Recall MCP] ${new Date().toISOString()} ${req.method} ${path} ${res.statusCode} "${agent}"`));
+    }
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       const path = url.pathname, method = req.method;

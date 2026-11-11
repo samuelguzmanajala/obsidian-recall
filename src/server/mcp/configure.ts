@@ -10,7 +10,7 @@ export function configureMcp(env: NodeJS.ProcessEnv, recallDb: string, service: 
   const config = readMcpConfig(env, recallDb);
   if (!config) return undefined;
   const store = new OAuthStore(config.oauthDb);
-  const server = createPublicServer(service, store, { issuer: config.issuer, resource: config.resource, ownerToken: token });
+  const server = createPublicServer(service, store, { issuer: config.issuer, resource: config.resource, ownerToken: token, log: line => console.log(line) });
   return {
     listen: () => server.listen(config.port, config.host, () => {
       console.log(`Recall MCP listening on ${config.host}:${config.port} (public URL ${config.resource})`);

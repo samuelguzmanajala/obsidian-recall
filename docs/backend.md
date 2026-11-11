@@ -288,5 +288,4 @@ cd android
 ```
 
 El APK actualizado se genera en `android/app/build/outputs/apk/debug/app-debug.apk`.
-El archivo histórico `recall-voice-latest.apk` de la raíz no se sustituye automáticamente.
 Las pruebas del backend usan bases temporales; no importan ni modifican tu vault real.

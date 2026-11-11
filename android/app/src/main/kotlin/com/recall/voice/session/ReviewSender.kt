@@ -78,7 +78,12 @@ class ReviewSender(
         delay(backoffMs(failures))
         continue
       } ?: return
-      Timing.log("review-confirm", sentAt, if (outcome is SendOutcome.Confirmed) "confirmed" else "rejected")
+      Timing.log(
+        "review-confirm",
+        sentAt,
+        (if (outcome is SendOutcome.Confirmed) "confirmed" else "rejected") +
+          (outcome.due?.let { " with-queue=${it.size}" } ?: " no-queue"),
+      )
       onOutcome(outcome)
       val pending = runCatching { outbox.pendingCount() }.getOrDefault(_status.value.pending - 1).coerceAtLeast(0)
       _status.update { SenderStatus(pending = pending) }

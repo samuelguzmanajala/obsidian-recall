@@ -1,5 +1,6 @@
 package com.recall.voice.session
 
+import com.recall.voice.api.DueItem
 import com.recall.voice.api.ReviewSubmit
 import com.recall.voice.api.ReviewResult
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,10 +21,19 @@ data class RejectedReview(val command: ReviewSubmit, val reason: String)
 /** What the server said about the command at the head of the journal. */
 sealed interface SendOutcome {
   val command: ReviewSubmit
+  /**
+   * The due queue the server computed after this command, when the request asked for it and the
+   * server sent it; null otherwise (an older server, or a post without `due`). Never stored.
+   */
+  val due: List<DueItem>?
   /** Applied by the server; removed from the journal. */
-  data class Confirmed(override val command: ReviewSubmit) : SendOutcome
+  data class Confirmed(override val command: ReviewSubmit, override val due: List<DueItem>? = null) : SendOutcome
   /** Definitively refused (400/404/409/422); archived in the rejected file and removed from the journal. */
-  data class Rejected(override val command: ReviewSubmit, val reason: String) : SendOutcome
+  data class Rejected(
+    override val command: ReviewSubmit,
+    val reason: String,
+    override val due: List<DueItem>? = null,
+  ) : SendOutcome
 }
 
 /** The server answered but did not acknowledge the command; it stays in the journal. */
@@ -103,13 +113,13 @@ class ReviewOutbox(
           }
           save(load().filterNot { it.operationId == head.operationId })
         }
-        return@withLock SendOutcome.Rejected(head, error.reason)
+        return@withLock SendOutcome.Rejected(head, error.reason, result.due?.items)
       }
       throw ReviewNotConfirmedException("Repaso pendiente de confirmacion: ${error.reason}")
     }
     if (result.applied != 1) throw ReviewNotConfirmedException("Repaso pendiente de confirmacion")
     journal { save(load().filterNot { it.operationId == head.operationId }) }
-    SendOutcome.Confirmed(head)
+    SendOutcome.Confirmed(head, result.due?.items)
   }
 
   /**

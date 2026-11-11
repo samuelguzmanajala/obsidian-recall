@@ -156,4 +156,55 @@ class ReviewOutboxTest {
     }
     assertEquals(1, box.pendingCount())
   }
+
+  // Queue carried by the response
+
+  private fun dueItem(id: String) = DueItem(id, "concept-$id", "a", "b", "a-to-b", "2026-01-01T00:00:00.000Z", 0, 0, 0.0, 0.0, voiceQuestion = "a", voiceAnswer = "b", revision = 1)
+
+  @Test fun `a confirmation carries the queue from the response, or null when absent`() = runTest {
+    val box = outbox()
+    val a = ReviewSubmit("a", Rating.Good, "op-a")
+    val b = ReviewSubmit("b", Rating.Good, "op-b")
+    box.enqueue(a); box.enqueue(b)
+    val queue = listOf(dueItem("x"), dueItem("y"))
+    assertEquals(SendOutcome.Confirmed(a, queue), box.sendNext { ReviewResult(1, emptyList(), DueResponse(queue)) })
+    val older = box.sendNext(ok)
+    assertEquals(SendOutcome.Confirmed(b), older)
+    assertNull(older!!.due)
+    assertEquals(0, box.pendingCount())
+  }
+
+  @Test fun `an empty queue is carried as empty, not as absent`() = runTest {
+    val box = outbox()
+    box.enqueue(ReviewSubmit("a", Rating.Good, "op-a"))
+    assertEquals(emptyList<DueItem>(), box.sendNext { ReviewResult(1, emptyList(), DueResponse(emptyList())) }!!.due)
+  }
+
+  @Test fun `a rejection carries the queue and is archived as before`() = runTest {
+    val box = outbox()
+    val a = ReviewSubmit("a", Rating.Good, "op-a")
+    box.enqueue(a)
+    val queue = listOf(dueItem("x"))
+    val outcome = box.sendNext { ReviewResult(0, listOf(ReviewError(0, "Stale revision", 409)), DueResponse(queue)) }
+    assertEquals(SendOutcome.Rejected(a, "Stale revision", queue), outcome)
+    assertEquals(1, box.rejectedCount())
+    assertEquals(0, box.pendingCount())
+    // The archive stores only the command and the reason, as before.
+    val archive = directory.listFiles()!!.single { it.name.startsWith("rejected-") }.readText()
+    assertFalse(archive.contains("\"x\""))
+  }
+
+  @Test fun `a queue does not make an unacknowledged answer count as saved`() = runTest {
+    val box = outbox()
+    box.enqueue(ReviewSubmit("a", Rating.Good, "op-a"))
+    try { box.sendNext { ReviewResult(0, listOf(ReviewError(0, "boom", 500)), DueResponse(listOf(dueItem("x")))) }; fail() }
+    catch (_: ReviewNotConfirmedException) { }
+    assertEquals(1, box.pendingCount())
+  }
+
+  @Test fun `the journal file format does not change`() = runTest {
+    outbox().enqueue(ReviewSubmit("a", Rating.Good, "op-a", 2))
+    val file = directory.listFiles()!!.single { it.name.startsWith("pending-") && it.extension == "json" }
+    assertEquals("""[{"studyItemId":"a","rating":"good","operationId":"op-a","expectedRevision":2}]""", file.readText())
+  }
 }

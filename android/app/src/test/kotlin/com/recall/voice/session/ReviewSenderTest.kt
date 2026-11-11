@@ -109,6 +109,34 @@ class ReviewSenderTest {
     assertEquals(listOf("op-a"), outbox().pending().map { it.operationId })
   }
 
+  @Test fun `outcomes carry the queue from the response and null from an older server`() = runTest {
+    val queue = listOf(
+      DueItem("x", "cx", "a", "b", "a-to-b", "2026-01-01T00:00:00.000Z", 0, 0, 0.0, 0.0, voiceQuestion = "a", voiceAnswer = "b"),
+    )
+    val outcomes = mutableListOf<SendOutcome>()
+    val sender = ReviewSender(outbox(), {
+      when (it.single().operationId) {
+        "op-a" -> ReviewResult(1, emptyList(), DueResponse(queue))
+        "op-b" -> ReviewResult(0, listOf(ReviewError(0, "Card is no longer due", 409)), DueResponse(emptyList()))
+        else -> ReviewResult(1, emptyList())
+      }
+    }, { outcomes += it })
+    val job = launch { sender.run() }
+    sender.enqueue(ReviewSubmit("a", Rating.Good, "op-a"))
+    sender.enqueue(ReviewSubmit("b", Rating.Good, "op-b"))
+    sender.enqueue(ReviewSubmit("c", Rating.Good, "op-c"))
+    runCurrent()
+    assertEquals(listOf("op-a", "op-b", "op-c"), outcomes.map { it.command.operationId })
+    assertTrue(outcomes[0] is SendOutcome.Confirmed)
+    assertEquals(queue, outcomes[0].due)
+    assertTrue(outcomes[1] is SendOutcome.Rejected)
+    assertEquals(emptyList<DueItem>(), outcomes[1].due)
+    assertTrue(outcomes[2] is SendOutcome.Confirmed)
+    assertNull(outcomes[2].due)
+    assertEquals(SenderStatus(pending = 0), sender.status.value)
+    job.cancel()
+  }
+
   @Test fun `backoff grows and is capped`() {
     assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L), (1..7).map(::reviewBackoffMs))
   }

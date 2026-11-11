@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.recall.voice.api.AudioSide
 import com.recall.voice.api.DueItem
+import com.recall.voice.api.DueRequest
 import com.recall.voice.api.Rating
 import com.recall.voice.api.RecallApi
 import com.recall.voice.api.ReviewSubmit
@@ -73,6 +74,8 @@ class SessionViewModel(
   private var current: DueItem? = null
   private var background: CoroutineScope? = null
   private var refreshRequests = Channel<Unit>(Channel.CONFLATED)
+  /** The first `GET /due` of the session has filled [buffer]; queues from reviews apply only after it. */
+  private var queueLoaded = false
   private val prefetched = mutableSetOf<String>()
 
   private var sessionJob: Job? = null
@@ -147,13 +150,18 @@ class SessionViewModel(
     publishStations()
     refreshRequests = Channel(Channel.CONFLATED)
 
-    val sender = ReviewSender(outbox, api::postReviews, ::onReviewOutcome)
+    queueLoaded = false
+    // Built once, valid by construction (limit is a constant in range, a null/blank deck is left
+    // out): an invalid `due` would make every send a 400 and stall the journal.
+    val dueRequest = DueRequest.of(deckId, FETCH_BATCH)
+    val sender = ReviewSender(outbox, { reviews -> api.postReviews(reviews, dueRequest) }, ::onReviewOutcome)
     sender.loadPending()
     launch { sender.run() }
     // Reviews left by an earlier session go first, so the queue below already reflects them.
     passGate(sender, ::drainGate)
 
     buffer.addAll(api.getDue(deckId = deckId, limit = FETCH_BATCH))
+    queueLoaded = true
     launch { refreshLoop() }
 
     var lastDecidedAt: Long? = null
@@ -211,14 +219,28 @@ class SessionViewModel(
       entry.status = if (outcome is SendOutcome.Confirmed) StationStatus.Confirmed else StationStatus.Rejected
       publishStations()
     }
-    refreshRequests.trySend(Unit)
+    val due = outcome.due
+    when {
+      // Older server: fetch the queue in the background, as before.
+      due == null -> refreshRequests.trySend(Unit)
+      // Reviews left by an earlier session, sent before the first load: that load follows the
+      // drain and already reflects them, so this queue is not needed.
+      !queueLoaded -> Timing.mark("queue-from-review ignored before first load fresh=${due.size}")
+      else -> {
+        applyFresh(due)
+        Timing.mark("queue-from-review fresh=${due.size} queue=${buffer.size}")
+      }
+    }
   }
 
   private fun publishStations() {
     _stations.value = passed.map { Station(it.command.rating, it.status) }
   }
 
-  /** Background `GET /due` after each confirmation; requests that pile up collapse into one. */
+  /**
+   * Background `GET /due` after a review whose response carried no queue (older server);
+   * requests that pile up collapse into one.
+   */
   private suspend fun refreshLoop() {
     for (request in refreshRequests) {
       val startedAt = Timing.now()

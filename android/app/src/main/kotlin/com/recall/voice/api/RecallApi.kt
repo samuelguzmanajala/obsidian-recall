@@ -31,7 +31,7 @@ class RecallApi(
     .callTimeout(45, TimeUnit.SECONDS)
     .build()
 
-  private val json = Json { ignoreUnknownKeys = true }
+  private val json = apiJson
   private val mediaJson = "application/json; charset=utf-8".toMediaType()
 
   suspend fun health(): Boolean = healthChecked() == null
@@ -61,9 +61,13 @@ class RecallApi(
       json.decodeFromString<DueResponse>(text).items
     }
 
-  suspend fun postReviews(reviews: List<ReviewSubmit>): ReviewResult =
+  /**
+   * Posts [reviews]. With [due], the server also answers with the queue after the batch
+   * ([ReviewResult.due]); an older server ignores it and the field stays null.
+   */
+  suspend fun postReviews(reviews: List<ReviewSubmit>, due: DueRequest? = null): ReviewResult =
     withContext(Dispatchers.IO) {
-      val body = json.encodeToString(ReviewsRequest(reviews)).toRequestBody(mediaJson)
+      val body = reviewsRequestBody(reviews, due).toRequestBody(mediaJson)
       val req = Request.Builder()
         .url(url("/reviews"))
         .post(body)
@@ -72,7 +76,7 @@ class RecallApi(
       client.newCall(req).execute().use { resp ->
         val text = resp.body?.string().orEmpty()
         if (!resp.isSuccessful) throw ApiException(resp.code, text)
-        json.decodeFromString<ReviewResult>(text)
+        decodeReviewResult(text)
       }
     }
 
@@ -111,6 +115,15 @@ class RecallApi(
     }
   }
 }
+
+/** Defaults (and so a null `deckId` or an absent `due`) are not encoded. */
+internal val apiJson = Json { ignoreUnknownKeys = true }
+
+/** The exact `POST /reviews` body. */
+internal fun reviewsRequestBody(reviews: List<ReviewSubmit>, due: DueRequest? = null): String =
+  apiJson.encodeToString(ReviewsRequest(reviews, due))
+
+internal fun decodeReviewResult(text: String): ReviewResult = apiJson.decodeFromString(text)
 
 private fun normalizeBaseUrl(raw: String): String {
   val trimmed = raw.trim().trimEnd('/')

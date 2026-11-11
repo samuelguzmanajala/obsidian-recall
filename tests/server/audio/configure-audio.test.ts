@@ -89,6 +89,17 @@ describe('configureAudio', () => {
     configureAudio({ RECALL_TTS_KEY: 'k' }, { assertFfmpeg: openAiCheck });
     expect(openAiCheck).not.toHaveBeenCalled();
   });
+
+  it('refuses to start Gemini with a leftover OpenAI voice or model', () => {
+    const gemini = (extra: Record<string, string>) => () => configureAudio({ RECALL_TTS_KEY: 'g', RECALL_TTS_PROVIDER: 'gemini', ...extra }, { convert: vi.fn() });
+    for (const voice of ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse', 'Nova']) {
+      expect(gemini({ RECALL_TTS_VOICE: voice })).toThrow(/is an OpenAI voice but RECALL_TTS_PROVIDER=gemini/);
+    }
+    expect(gemini({ RECALL_TTS_MODEL: 'gpt-4o-mini-tts' })).toThrow(/is an OpenAI model/);
+    expect(gemini({ RECALL_TTS_MODEL: 'tts-1-hd' })).toThrow(/is an OpenAI model/);
+    expect(gemini({ RECALL_TTS_VOICE: 'Kore', RECALL_TTS_MODEL: 'gemini-3.8-flash-tts' })).not.toThrow();
+    expect(() => configureAudio({ RECALL_TTS_KEY: 'k', RECALL_TTS_VOICE: 'alloy', RECALL_TTS_MODEL: 'gpt-4o-mini-tts' })).not.toThrow();
+  });
 });
 
 describe('fileStorage', () => {

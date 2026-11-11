@@ -46,15 +46,9 @@ export class GeminiTtsClient implements TtsClient {
     const key = this.getApiKey().trim();
     if (!key) throw new Error('Gemini TTS API key not configured.');
     if (req.format !== 'mp3') throw new Error(`Gemini TTS only produces mp3 here, not ${req.format}`);
-    const redact = (s: string) => s.split(key).join('[REDACTED]');
+    const redact = redactor(key);
     const model = req.model ?? DEFAULT_MODEL;
-    const part: Record<string, unknown> = { text: req.text };
-    // Gemini 3.8 reads `text` verbatim; style is optional turn-level steering.
-    if (req.instructions?.trim()) part.speech_metadata = { style: req.instructions.trim() };
-    const body = JSON.stringify({
-      contents: [{ role: 'user', parts: [part] }],
-      generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { voice: req.voice } } },
-    });
+    const body = JSON.stringify(geminiSpeechRequest(req.text, req.voice, req.instructions));
     const url = `${BASE_URL}/${encodeURIComponent(model)}:generateContent`;
     const deadline = this.now() + this.maxTotalMs;
 
@@ -90,18 +84,56 @@ export class GeminiTtsClient implements TtsClient {
   private async wavFrom(res: Response, redact: (s: string) => string): Promise<Buffer> {
     let json: any;
     try { json = await res.json(); } catch { throw new Error('Gemini TTS returned a non-JSON response'); }
-    const candidate = json?.candidates?.[0];
-    const inline = candidate?.content?.parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
-    if (!inline) {
-      throw new Error(`Gemini TTS returned no audio (finishReason=${candidate?.finishReason ?? 'none'}): ${redact(JSON.stringify(json ?? null)).slice(0, 200)}`);
-    }
-    const audio = Buffer.from(String(inline.data), 'base64');
-    if (audio.length === 0) throw new Error('Gemini TTS returned empty audio');
-    const mime = String(inline.mimeType ?? '').toLowerCase();
-    if (audio.toString('latin1', 0, 4) === 'RIFF') return audio;
-    if (mime.startsWith('audio/l16') || mime.startsWith('audio/pcm')) return pcmToWav(audio, Number(/rate=(\d+)/.exec(mime)?.[1] ?? 24000));
-    throw new Error(`Gemini TTS returned unexpected audio type "${mime}"`);
+    return wavFromResponse(json, redact);
   }
+}
+
+/** Replaces every occurrence of the API key; used on anything that may be logged or stored. */
+export function redactor(key: string): (s: string) => string {
+  return s => key ? s.split(key).join('[REDACTED]') : s;
+}
+
+/** GenerateContentRequest for speech; shared by the interactive and the batch adapters. */
+export function geminiSpeechRequest(text: string, voice: string, instructions?: string) {
+  const part: Record<string, unknown> = { text };
+  // Gemini 3.8 reads `text` verbatim; style is optional turn-level steering.
+  if (instructions?.trim()) part.speech_metadata = { style: instructions.trim() };
+  return {
+    contents: [{ role: 'user', parts: [part] }],
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { voice } } },
+  };
+}
+
+/** The WAV inside a GenerateContentResponse (interactive response or batch inlined response). */
+export function wavFromResponse(json: any, redact: (s: string) => string = s => s): Buffer {
+  const candidate = json?.candidates?.[0];
+  const inline = candidate?.content?.parts?.find((p: any) => p?.inlineData?.data)?.inlineData;
+  if (!inline) {
+    throw new Error(`Gemini TTS returned no audio (finishReason=${candidate?.finishReason ?? 'none'}): ${redact(JSON.stringify(json ?? null)).slice(0, 200)}`);
+  }
+  const audio = Buffer.from(String(inline.data), 'base64');
+  if (audio.length === 0) throw new Error('Gemini TTS returned empty audio');
+  const mime = String(inline.mimeType ?? '').toLowerCase();
+  if (audio.toString('latin1', 0, 4) === 'RIFF') return audio;
+  if (mime.startsWith('audio/l16') || mime.startsWith('audio/pcm')) return pcmToWav(audio, Number(/rate=(\d+)/.exec(mime)?.[1] ?? 24000));
+  throw new Error(`Gemini TTS returned unexpected audio type "${mime}"`);
+}
+
+/** Seconds of audio in a PCM WAV (fmt + data chunks); 0 when it cannot be read. */
+export function wavSeconds(wav: Buffer): number {
+  if (wav.length < 12 || wav.toString('latin1', 0, 4) !== 'RIFF') return 0;
+  let byteRate = 0;
+  for (let off = 12; off + 8 <= wav.length;) {
+    const id = wav.toString('latin1', off, off + 4);
+    let size = wav.readUInt32LE(off + 4);
+    if (id === 'fmt ' && off + 20 <= wav.length) byteRate = wav.readUInt32LE(off + 16);
+    if (id === 'data') {
+      if (size === 0xffffffff || off + 8 + size > wav.length) size = wav.length - off - 8;
+      return byteRate > 0 ? size / byteRate : 0;
+    }
+    off += 8 + size + (size & 1);
+  }
+  return 0;
 }
 
 /** Server-provided delay: Retry-After header, RetryInfo.retryDelay, or "retry in Ns" text. 0 means "use backoff". */

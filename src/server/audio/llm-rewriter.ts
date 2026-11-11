@@ -113,6 +113,12 @@ export class LlmRewriter {
     }
   }
 
+  /** What `rewrite` would return without calling the LLM: null when that needs a (paid) call. */
+  async cached(input: string): Promise<string | null> {
+    if (!input.trim() || !this.llm.isConfigured()) return input;
+    return (await this.storage.read(`${this.cacheDir}/${this.hash(input)}.txt`)) || null;
+  }
+
   private hash(text: string): string {
     return createHash('sha256').update(`${this.promptVersion}:${text}`).digest('hex').slice(0, 12);
   }

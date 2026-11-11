@@ -6,6 +6,8 @@ export interface BinaryFileStorage {
   read(path: string): Promise<Buffer | null>;
   /** Write [data] to [path], creating parent directories if needed. */
   write(path: string, data: Buffer): Promise<void>;
+  /** True when a non-empty file exists at [path] (falls back to `read`). */
+  exists?(path: string): Promise<boolean>;
 }
 
 const DEFAULT_VOICE = 'alloy';
@@ -26,12 +28,26 @@ export class TtsCache {
   constructor(
     private readonly storage: BinaryFileStorage,
     private readonly client: TtsClient,
-    private readonly cacheDir: string = 'recall-data/voice-cache',
-    private readonly voice: string = DEFAULT_VOICE,
-    private readonly model: string = DEFAULT_MODEL,
-    private readonly instructions: string = '',
-    private readonly provider: string = 'openai',
+    readonly cacheDir: string = 'recall-data/voice-cache',
+    readonly voice: string = DEFAULT_VOICE,
+    readonly model: string = DEFAULT_MODEL,
+    readonly instructions: string = '',
+    readonly provider: string = 'openai',
   ) {}
+
+  /** The file that `getOrGenerate(studyItemId, side, text)` reads and writes. */
+  pathOf(studyItemId: string, side: 'q' | 'a', text: string): string {
+    return this.pathFor(studyItemId, side, this.hash(text));
+  }
+
+  async has(path: string): Promise<boolean> {
+    return this.storage.exists ? this.storage.exists(path) : Boolean((await this.storage.read(path))?.length);
+  }
+
+  /** Stores audio produced elsewhere (pregeneration) under a path from `pathOf`. */
+  store(path: string, audio: Buffer): Promise<void> {
+    return this.storage.write(path, audio);
+  }
 
   /**
    * Return the audio bytes for [text]. side and studyItemId are used

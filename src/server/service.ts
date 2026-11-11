@@ -4,6 +4,7 @@ import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from './server-settings'
 import { StudyItemId } from '../context/study/domain/study-item-id';
 import { Rating } from '../context/study/domain/rating';
 import { Direction } from '../context/study/domain/direction';
+import type { Concept } from '../context/concept/domain/concept';
 import { markdownToVoice } from './audio/markdown-to-voice';
 import { RecallDatabase, payloadHash } from './database';
 
@@ -25,6 +26,11 @@ export function dueLimit(value: unknown): number {
 export function revision(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new ApiError(400, 'expectedRevision is required');
   return value as number;
+}
+export type AudioSide = 'question' | 'answer';
+function voiceSide(concept: Concept, direction: Direction, side: AudioSide): string {
+  const a = (side === 'question') === (direction === Direction.AtoB);
+  return markdownToVoice(a ? concept.sideA.content : concept.sideB.content);
 }
 function notePath(value: unknown): string {
   const path = string(value, 'path');
@@ -146,14 +152,16 @@ export class RecallService {
       return { studyItemId, revision: this.bumpRevision(studyItemId), operationId };
     }));
   }
-  async note(body: unknown) {
+  /** `onCommitted` receives the note's current study item ids after a change has been committed. */
+  async note(body: unknown, onCommitted?: (studyItemIds: string[]) => void) {
     const cmd = record(body);
     const operationId = string(cmd.operationId, 'operationId', 128);
     const path = notePath(cmd.path);
     const expectedRevision = revision(cmd.expectedRevision);
     const content = cmd.content;
     if (content !== null && (typeof content !== 'string' || Buffer.byteLength(content) > 2_000_000)) throw new ApiError(400, 'Invalid note content');
-    return this.db.transaction(() => this.once(operationId, { type: 'note', path, content, expectedRevision }, async () => {
+    let changed: string[] = [];
+    const result = await this.db.transaction(() => this.once(operationId, { type: 'note', path, content, expectedRevision }, async () => {
       const old = this.db.sql.prepare('SELECT content,revision FROM notes WHERE path=?').get(path);
       const current = old ? Number(old.revision) : 0;
       // Identical content is safe to acknowledge even with a stale revision.
@@ -164,12 +172,17 @@ export class RecallService {
       if (content === null) await c.indexer.removeFile(path);
       else await c.indexer.syncFile(path, content);
       // Invalidate queued reviews when note contents change, including remove/recreate of stable IDs.
-      for (const id of (await c.sources.get(path))?.studyItemIds ?? []) affected.add(id);
+      changed = [...(await c.sources.get(path))?.studyItemIds ?? []];
+      for (const id of changed) affected.add(id);
       for (const id of affected) this.bumpRevision(id);
       this.db.sql.prepare('INSERT INTO notes VALUES (?,?,?) ON CONFLICT(path) DO UPDATE SET content=excluded.content,revision=excluded.revision')
         .run(path, content as string | null, current + 1);
       return { path, revision: current + 1 };
     }));
+    if (changed.length && onCommitted) {
+      try { onCommitted(changed); } catch (error) { console.error('[Recall backend] note change listener failed:', error); }
+    }
+    return result;
   }
   notes() {
     return this.db.transaction(async () => ({ notes: this.db.sql.prepare('SELECT path,content,revision FROM notes ORDER BY path').all().map(row => ({
@@ -177,14 +190,28 @@ export class RecallService {
       hash: row.content === null ? null : createHash('sha256').update(row.content as string).digest('hex'),
     })) }));
   }
-  audioText(studyItemId: string, side: 'question' | 'answer') {
+  audioText(studyItemId: string, side: AudioSide) {
     return this.query(async c => {
       const item = await c.studyItemRepository.findById(new StudyItemId(studyItemId));
       if (!item) throw new ApiError(404, 'Study item not found');
       const concept = await c.conceptRepository.findById(item.conceptId);
       if (!concept) throw new ApiError(404, 'Concept not found');
-      const a = (side === 'question') === (item.direction === Direction.AtoB);
-      return markdownToVoice(a ? concept.sideA.content : concept.sideB.content);
+      return voiceSide(concept, item.direction, side);
+    });
+  }
+  /** Voice text of every side of every study item, read in one short transaction (pregeneration). */
+  audioSides() {
+    return this.query(async c => {
+      const concepts = new Map((await c.conceptRepository.findAll()).map(concept => [concept.id.value, concept]));
+      const sides: { studyItemId: string; side: AudioSide; voiceText: string }[] = [];
+      let items = 0;
+      for (const item of await c.studyItemRepository.findAll()) {
+        const concept = concepts.get(item.conceptId.value);
+        if (!concept) continue;
+        items++;
+        for (const side of ['question', 'answer'] as const) sides.push({ studyItemId: item.id.value, side, voiceText: voiceSide(concept, item.direction, side) });
+      }
+      return { concepts: concepts.size, items, sides };
     });
   }
   async renameNote(body: unknown) {

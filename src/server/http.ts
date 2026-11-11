@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { checkAuth } from './auth';
 import { sendJson } from './send-json';
-import { ApiError, RecallService, dueLimit, record, string } from './service';
-import { createHash } from 'node:crypto';
+import { ApiError, RecallService, dueLimit, record, string, type AudioSide } from './service';
 import type { ServerAudio } from './audio/configure-audio';
-import { preprocessForTts } from './audio/preprocess-text';
+import { planAudio } from './audio/audio-plan';
+import type { AudioQueue } from './audio/audio-queue';
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   if (Number(req.headers['content-length'] ?? 0) > 2_100_000) {
@@ -22,7 +22,8 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   catch { throw new ApiError(400, 'Invalid JSON'); }
 }
 
-export function createRecallServer(service: RecallService, token: string, audio?: ServerAudio) {
+/** `audioQueue`: background generation for notes that change (only when remote audio is configured). */
+export function createRecallServer(service: RecallService, token: string, audio?: ServerAudio, audioQueue?: AudioQueue) {
   if (token.length < 32) throw new Error('RECALL_TOKEN must contain at least 32 characters');
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -55,8 +56,10 @@ export function createRecallServer(service: RecallService, token: string, audio?
           return row;
         });
       } else if (req.method === 'POST' && path === '/api/v1/notes') {
-        result = await service.note(await readBody(req));
+        // Runs after the commit; enqueue() never blocks or throws.
+        result = await service.note(await readBody(req), ids => audioQueue?.enqueue(ids));
       } else if (req.method === 'POST' && path === '/api/v1/notes/rename') {
+        // No audio work: renaming keeps study item ids, and cache files are named after them.
         result = await service.renameNote(await readBody(req));
       } else if (req.method === 'POST' && path === '/api/v1/reviews') {
         const body = record(await readBody(req));
@@ -78,13 +81,12 @@ export function createRecallServer(service: RecallService, token: string, audio?
         const match = /^\/api\/v1\/audio\/([^/]+)\/(question|answer)$/.exec(path);
         if (!match) throw new ApiError(404, 'Not found');
         if (!audio) throw new ApiError(503, 'Remote TTS is not enabled; use device TTS');
-        const text = preprocessForTts(await service.audioText(match[1], match[2] as 'question' | 'answer'));
-        if (!text) throw new ApiError(422, 'Empty audio text');
         // External requests happen AFTER the database transaction has committed.
-        const rewritten = audio.rewriter ? await audio.rewriter.rewrite(text) : text;
+        const plan = await planAudio(audio, match[1], match[2] as AudioSide, await service.audioText(match[1], match[2] as AudioSide));
+        if (!plan) throw new ApiError(422, 'Empty audio text');
         let data: Buffer;
         try {
-          data = await audio.cache.getOrGenerate(createHash('sha256').update(match[1]).digest('hex'), match[2] === 'question' ? 'q' : 'a', rewritten);
+          data = await audio.cache.getOrGenerate(plan.cacheId, plan.cacheSide, plan.text);
         } catch (e) {
           console.error('[Recall backend] speech generation failed:', (e as Error)?.message ?? e);
           throw new ApiError(502, 'Speech generation failed; use device TTS');

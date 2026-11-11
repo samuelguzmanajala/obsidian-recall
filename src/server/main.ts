@@ -3,6 +3,8 @@ import { RecallDatabase } from './database';
 import { RecallService } from './service';
 import { createRecallServer } from './http';
 import { configureAudio } from './audio/configure-audio';
+import { AudioQueue } from './audio/audio-queue';
+import { ensureAudio } from './audio/audio-plan';
 
 const token = process.env.RECALL_TOKEN ?? '';
 process.umask(0o077);
@@ -23,7 +25,9 @@ const service = new RecallService(db, {
   leechThreshold: nonnegative('RECALL_LEECH_THRESHOLD', 8),
   shuffleReviews: process.env.RECALL_SHUFFLE !== 'false',
 });
-const server = createRecallServer(service, token, configureAudio());
+const audio = configureAudio();
+const audioQueue = audio && new AudioQueue((id, side) => ensureAudio(service, audio, id, side));
+const server = createRecallServer(service, token, audio, audioQueue);
 const expire = () => service.expireReceipts(receiptDays).catch(error => console.error('Receipt expiry failed:', error));
 void expire();
 const expiry = setInterval(expire, 86_400_000);
@@ -41,6 +45,7 @@ async function stop() {
   clearInterval(expiry);
   server.closeIdleConnections();
   await new Promise<void>(r => server.close(() => r()));
+  await audioQueue?.close();
   await db.close();
 }
 process.on('SIGINT', () => void stop());

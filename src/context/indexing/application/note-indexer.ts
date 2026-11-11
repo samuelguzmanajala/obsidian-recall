@@ -4,7 +4,7 @@ import { Directionality } from '@context/concept/domain/directionality';
 import { Direction } from '@context/study/domain/direction';
 import { ConceptId } from '@context/concept/domain/concept-id';
 import { DeckId } from '@context/deck/domain/deck-id';
-import { JsonFileStorage, SerializedSyncState } from '@context/shared/infrastructure/json-storage';
+import { FileIndex, SourceIndex, SourceLocation } from '../domain/source-index';
 import { StudyItemRepository } from '@context/study/domain/study-item-repository';
 import { DeckRepository } from '@context/deck/domain/deck-repository';
 import { CreateConcept } from '@context/concept/application/create-concept';
@@ -19,8 +19,8 @@ import { RemoveStudyItemFromDeck } from '@context/deck/application/remove-study-
 /** Everything the indexer needs; the composition root wires it. */
 export interface NoteIndexerDeps {
   parser: Pick<MarkdownParser, 'parse'>;
-  /** Persisted index (file → cards, tag → deck). Its format is stored by existing databases. */
-  syncState: JsonFileStorage;
+  /** Persisted index (file → cards, tag → deck). */
+  sources: SourceIndex;
   studyItemRepository: Pick<StudyItemRepository, 'findByConceptId'>;
   deckRepository: Pick<DeckRepository, 'findById'>;
   createConcept: Pick<CreateConcept, 'execute'>;
@@ -36,29 +36,11 @@ export interface NoteIndexerDeps {
 }
 
 /**
- * Tracks which concepts came from which file, so we can
- * detect additions, removals, and changes when a file is re-parsed.
- */
-interface FileIndex {
-  /** Map of "sideA|sideB|directionality" → conceptId */
-  cardKeys: Map<string, string>;
-  /** Map of conceptId → line number in the source file */
-  conceptLines: Map<string, number>;
-  /** studyItemIds created for this file */
-  studyItemIds: string[];
-  /** deckIds (leaf decks) assigned to this file's cards */
-  deckIds: string[];
-}
-
-/**
  * Translates Markdown notes into concept, study item and deck commands, and remembers
  * which cards came from which note. Card, concept and deck IDs are derived from content.
  */
 export class NoteIndexer {
-  private fileIndices = new Map<string, FileIndex>();
   private frontmatterParser = new FrontmatterParser();
-  /** tag → deckId — ensures same tag always maps to same deck */
-  private tagToDeckId = new Map<string, string>();
 
   private static readonly UNTAGGED_DECK_TAG = '__untagged__';
 
@@ -100,38 +82,8 @@ export class NoteIndexer {
   /**
    * Find which file and line a concept belongs to.
    */
-  findFileByConceptId(conceptId: string): { filePath: string; line: number } | null {
-    for (const [filePath, index] of this.fileIndices) {
-      for (const cid of index.cardKeys.values()) {
-        if (cid === conceptId) {
-          const line = index.conceptLines.get(conceptId) ?? 1;
-          return { filePath, line };
-        }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Must be called before the first syncFile to avoid duplicates on restart.
-   */
-  async initialize(): Promise<void> {
-    const state = await this.deps.syncState.read<SerializedSyncState>();
-    if (!state) return;
-
-    for (const [tag, deckId] of Object.entries(state.tagToDeckId)) {
-      this.tagToDeckId.set(tag, deckId);
-    }
-
-    for (const [filePath, serialized] of Object.entries(state.fileIndices)) {
-      const index: FileIndex = {
-        cardKeys: new Map(Object.entries(serialized.cardKeys)),
-        conceptLines: new Map(Object.entries(serialized.conceptLines ?? {})),
-        studyItemIds: serialized.studyItemIds,
-        deckIds: serialized.deckIds,
-      };
-      this.fileIndices.set(filePath, index);
-    }
+  findFileByConceptId(conceptId: string): Promise<SourceLocation | null> {
+    return this.deps.sources.locate(conceptId);
   }
 
   /**
@@ -140,11 +92,11 @@ export class NoteIndexer {
   async syncFile(filePath: string, content: string): Promise<boolean> {
     const parsedCards = this.deps.parser.parse(content, filePath);
     const tags = this.frontmatterParser.extractTags(content);
-    const previousIndex = this.fileIndices.get(filePath);
+    const previousIndex = await this.deps.sources.get(filePath);
 
     // If tag filter is active and note doesn't match, treat as removal
     if (!this.matchesTagFilter(tags)) {
-      if (this.fileIndices.has(filePath)) {
+      if (previousIndex) {
         await this.removeFile(filePath);
       }
       return false;
@@ -152,7 +104,7 @@ export class NoteIndexer {
 
     if (parsedCards.length === 0) {
       // Matching tags but no cards — remove if previously indexed
-      if (this.fileIndices.has(filePath)) {
+      if (previousIndex) {
         await this.removeFile(filePath);
       }
       return false;
@@ -192,9 +144,8 @@ export class NoteIndexer {
           const siIds = studyItems.map(si => si.id.value);
 
           // Remove from old decks
-          const retainedDecks = new Set([...this.fileIndices.entries()]
-            .filter(([path, index]) => path !== filePath && [...index.cardKeys.values()].includes(conceptId))
-            .flatMap(([, index]) => index.deckIds));
+          const retainedDecks = new Set((await this.deps.sources.otherFilesWithConcept(conceptId, filePath))
+            .flatMap(file => file.deckIds));
           for (const oldDeckId of previousIndex!.deckIds) {
             if (retainedDecks.has(oldDeckId)) continue;
             for (const siId of siIds) {
@@ -248,30 +199,23 @@ export class NoteIndexer {
       await this.removeConceptWithStudyItems(conceptId, previousIndex!.deckIds, filePath);
     }
 
-    this.fileIndices.set(filePath, newIndex);
-    await this.persistState();
+    await this.deps.sources.put(filePath, newIndex);
     return true;
   }
 
   async renameFile(oldPath: string, newPath: string): Promise<void> {
-    const index = this.fileIndices.get(oldPath);
-    if (!index) return;
-
-    this.fileIndices.delete(oldPath);
-    this.fileIndices.set(newPath, index);
-    await this.persistState();
+    await this.deps.sources.rename(oldPath, newPath);
   }
 
   async removeFile(filePath: string): Promise<void> {
-    const index = this.fileIndices.get(filePath);
+    const index = await this.deps.sources.get(filePath);
     if (!index) return;
 
     for (const conceptId of index.cardKeys.values()) {
       await this.removeConceptWithStudyItems(conceptId, index.deckIds, filePath);
     }
 
-    this.fileIndices.delete(filePath);
-    await this.persistState();
+    await this.deps.sources.remove(filePath);
   }
 
   /**
@@ -293,10 +237,10 @@ export class NoteIndexer {
           ? NoteIndexer.UNTAGGED_DECK_TAG
           : parts.slice(0, i + 1).join('/');
 
-        let deckId = this.tagToDeckId.get(fullTag);
+        let deckId = await this.deps.sources.deckForTag(fullTag);
         if (!deckId) {
           deckId = await this.computeDeterministicId(`deck:${fullTag}`);
-          this.tagToDeckId.set(fullTag, deckId);
+          await this.deps.sources.setDeckForTag(fullTag, deckId);
         }
 
         const existingDeck = await this.deps.deckRepository.findById(new DeckId(deckId));
@@ -316,8 +260,8 @@ export class NoteIndexer {
         parentId = deckId;
       }
 
-      // The last segment is the leaf
-      leafDeckIds.push(this.tagToDeckId.get(tag)!);
+      // The last segment is the leaf (its full tag is the tag itself)
+      leafDeckIds.push(parentId!);
     }
 
     return leafDeckIds;
@@ -380,9 +324,8 @@ export class NoteIndexer {
     deckIds: string[],
     excludingPath: string,
   ): Promise<void> {
-    const otherSources = [...this.fileIndices.entries()]
-      .filter(([path, index]) => path !== excludingPath && [...index.cardKeys.values()].includes(conceptId));
-    const retainedDecks = new Set(otherSources.flatMap(([, index]) => index.deckIds));
+    const otherSources = await this.deps.sources.otherFilesWithConcept(conceptId, excludingPath);
+    const retainedDecks = new Set(otherSources.flatMap(file => file.deckIds));
     const studyItems = await this.deps.studyItemRepository.findByConceptId(
       new ConceptId(conceptId),
     );
@@ -417,23 +360,5 @@ export class NoteIndexer {
     const sorted1 = [...a].sort();
     const sorted2 = [...b].sort();
     return sorted1.every((val, idx) => val === sorted2[idx]);
-  }
-
-  private async persistState(): Promise<void> {
-    const state: SerializedSyncState = {
-      fileIndices: {},
-      tagToDeckId: Object.fromEntries(this.tagToDeckId),
-    };
-
-    for (const [filePath, index] of this.fileIndices) {
-      state.fileIndices[filePath] = {
-        cardKeys: Object.fromEntries(index.cardKeys),
-        conceptLines: Object.fromEntries(index.conceptLines),
-        studyItemIds: index.studyItemIds,
-        deckIds: index.deckIds,
-      };
-    }
-
-    await this.deps.syncState.write(state);
   }
 }

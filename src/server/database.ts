@@ -1,40 +1,43 @@
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { JsonFileStorage } from '../context/shared/infrastructure/json-storage';
+import { SCHEMA_V3 } from './persistence/schema';
+import { exportDocuments, importDocuments, verifyDocuments } from './legacy-documents';
 
 /** Receipt key for a command: sha256 hex of its canonical JSON (shared by `once()` and the v1→v2 migration). */
 export function payloadHash(canonical: string): string {
   return createHash('sha256').update(canonical).digest('hex');
 }
 
+const BASE_TABLES = `
+  CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, content TEXT, revision INTEGER NOT NULL);
+`;
+
 /** One connection, serialized transactions, durable commits. No network awaits inside transactions. */
 export class RecallDatabase {
   readonly sql: DatabaseSync;
   private tail: Promise<unknown> = Promise.resolve();
-  private cache = new Map<string, unknown>();
-  private dirty = new Set<string>();
+  private statements = new Map<string, StatementSync>();
   constructor(path: string) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.sql = new DatabaseSync(path);
     const version = Number(this.sql.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version > 2) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
+    if (version > 3) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
     this.sql.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
       PRAGMA busy_timeout=5000;
     `);
-    if (version === 1) {
-      try { this.migrateV1(); } catch (error) { this.sql.close(); throw error; }
+    try {
+      if (version === 1) this.migrateV1();
+      if (version === 1 || version === 2) this.migrateV2();
+    } catch (error) { this.sql.close(); throw error; }
+    if (version === 1 || version === 2) {
       try { this.sql.exec('VACUUM'); } catch (error) { console.error('VACUUM after schema migration failed (non-fatal):', error); }
     }
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS operations (id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, content TEXT, revision INTEGER NOT NULL);
-      PRAGMA user_version=2;
-    `);
+    if (version === 0) this.sql.exec(`BEGIN; ${BASE_TABLES} ${SCHEMA_V3} PRAGMA user_version=3; COMMIT;`);
   }
   /** v1 kept full command payloads (whole notes) forever; v2 keeps only their hash. All or nothing. */
   private migrateV1() {
@@ -52,42 +55,41 @@ export class RecallDatabase {
       throw error;
     }
   }
-  document(key: string): JsonFileStorage {
-    return {
-      read: async <T>() => {
-        if (!this.sql.isTransaction) throw new Error('Document access requires a transaction');
-        if (this.cache.has(key)) return this.cache.get(key) as T | null;
-        const row = this.sql.prepare('SELECT value FROM documents WHERE key=?').get(key);
-        const value = row ? JSON.parse(row.value as string) as T : null;
-        this.cache.set(key, value);
-        return value;
-      },
-      write: async <T>(value: T) => {
-        if (!this.sql.isTransaction) throw new Error('Document access requires a transaction');
-        this.cache.set(key, value);
-        this.dirty.add(key);
-      },
-    };
+  /**
+   * v2 kept every aggregate collection as one JSON document; v3 normalizes them into tables.
+   * Before dropping the documents, the tables are exported back and compared with them. All or nothing.
+   */
+  private migrateV2() {
+    this.sql.exec('BEGIN IMMEDIATE');
+    try {
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS documents (key TEXT PRIMARY KEY, value TEXT NOT NULL); ${BASE_TABLES} ${SCHEMA_V3}`);
+      const documents: Record<string, unknown> = Object.create(null);
+      for (const row of this.sql.prepare('SELECT key,value FROM documents').iterate()) documents[row.key as string] = JSON.parse(row.value as string);
+      importDocuments(this.sql, documents);
+      verifyDocuments(documents, exportDocuments(this.sql));
+      this.sql.exec('DROP TABLE documents; PRAGMA user_version=3; COMMIT');
+    } catch (error) {
+      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  /** Cached prepared statement for storage access; only inside `transaction()`. */
+  stmt(source: string): StatementSync {
+    if (!this.sql.isTransaction) throw new Error('Storage access requires a transaction');
+    let statement = this.statements.get(source);
+    if (!statement) this.statements.set(source, statement = this.sql.prepare(source));
+    return statement;
   }
   transaction<T>(work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
       this.sql.exec('BEGIN IMMEDIATE');
-      this.cache.clear();
-      this.dirty.clear();
       try {
         const value = await work();
-        for (const key of this.dirty) {
-          this.sql.prepare('INSERT INTO documents VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-            .run(key, JSON.stringify(this.cache.get(key)));
-        }
         this.sql.exec('COMMIT');
         return value;
       } catch (error) {
         this.sql.exec('ROLLBACK');
         throw error;
-      } finally {
-        this.cache.clear();
-        this.dirty.clear();
       }
     });
     this.tail = result.catch(() => {});

@@ -22,7 +22,7 @@ export class GetStudyStats {
 
     const startOfDay = new Date(now);
     startOfDay.setHours(0, 0, 0, 0);
-    const todayReviews = await this.reviewLog.findSince(startOfDay);
+    const reviewsToday = await this.reviewLog.countSince(startOfDay);
 
     let newItems = 0;
     let learningItems = 0;
@@ -44,7 +44,7 @@ export class GetStudyStats {
       newItems,
       learningItems,
       matureItems,
-      reviewsToday: todayReviews.length,
+      reviewsToday,
     };
   }
 }

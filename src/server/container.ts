@@ -1,15 +1,14 @@
-import { JsonFileStorage } from '@context/shared/infrastructure/json-storage';
-
 // Domain ports
 import { ConceptRepository } from '@context/concept/domain/concept-repository';
 import { StudyItemRepository } from '@context/study/domain/study-item-repository';
 import { DeckRepository } from '@context/deck/domain/deck-repository';
 import { ReviewLog } from '@context/study/domain/review-log';
+import { SourceIndex } from '@context/indexing/domain/source-index';
 
 // Infrastructure implementations
-import { JsonConceptRepository } from '@context/concept/infrastructure/json-concept-repository';
-import { JsonStudyItemRepository } from '@context/study/infrastructure/json-study-item-repository';
-import { JsonDeckRepository } from '@context/deck/infrastructure/json-deck-repository';
+import type { RecallDatabase } from './database';
+import { SqliteConceptRepository, SqliteDeckRepository, SqliteReviewLog, SqliteStudyItemRepository } from './persistence/sqlite-repositories';
+import { SqliteSourceIndex } from './persistence/sqlite-source-index';
 
 // Infrastructure
 import { FsrsScheduler } from '@context/study/infrastructure/fsrs-scheduler';
@@ -34,7 +33,6 @@ import { RemoveStudyItemFromDeck } from '@context/deck/application/remove-study-
 
 // Queries
 import { GetDueStudyItems } from '@context/study/application/get-due-study-items';
-import { GetDueStudyItemsByDeck } from '@context/study/application/get-due-study-items-by-deck';
 import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { GetLeeches } from '@context/study/application/get-leeches';
@@ -42,17 +40,9 @@ import { GetLeeches } from '@context/study/application/get-leeches';
 // Indexing
 import { NoteIndexer } from '@context/indexing/application/note-indexer';
 
-export interface StorageFiles {
-  concepts: JsonFileStorage;
-  studyItems: JsonFileStorage;
-  decks: JsonFileStorage;
-  reviewLog: ReviewLog;
-  syncState: JsonFileStorage;
-}
-
 /**
- * Server composition root for one transaction: the JSON repository ports point at
- * transaction-scoped SQLite documents (see `RecallService.context()`).
+ * Server composition root, built once per service. Every adapter reads and writes SQLite rows
+ * and throws outside `RecallDatabase.transaction()`, so state is never cached between requests.
  */
 export class Container {
   // Domain ports — the ONLY way to access data from use cases and frontend
@@ -61,8 +51,7 @@ export class Container {
   readonly deckRepository: DeckRepository;
   readonly reviewLog: ReviewLog;
 
-  // Storage
-  readonly syncStateFile: JsonFileStorage;
+  readonly sources: SourceIndex;
 
   // Infrastructure
   readonly scheduler: FsrsScheduler;
@@ -87,7 +76,6 @@ export class Container {
 
   // Queries
   readonly getDueStudyItems: GetDueStudyItems;
-  readonly getDueStudyItemsByDeck: GetDueStudyItemsByDeck;
   readonly getDeckTree: GetDeckTree;
   readonly getStudyStats: GetStudyStats;
   readonly getLeeches: GetLeeches;
@@ -95,18 +83,18 @@ export class Container {
   // Markdown → domain commands
   readonly indexer: NoteIndexer;
 
-  /** `flashcardTags`: tags to index (empty = all). Call `indexer.initialize()` before use. */
-  constructor(files: StorageFiles, flashcardTags: string[] = []) {
+  /** `flashcardTags`: tags to index (empty = all). */
+  constructor(db: RecallDatabase, flashcardTags: string[] = []) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
-    this.syncStateFile = files.syncState;
 
     // Repositories — plain implementations, no cache logic
-    this.conceptRepository = new JsonConceptRepository(files.concepts);
-    this.studyItemRepository = new JsonStudyItemRepository(files.studyItems);
-    this.deckRepository = new JsonDeckRepository(files.decks);
-    this.reviewLog = files.reviewLog;
+    this.conceptRepository = new SqliteConceptRepository(db);
+    this.studyItemRepository = new SqliteStudyItemRepository(db);
+    this.deckRepository = new SqliteDeckRepository(db);
+    this.reviewLog = new SqliteReviewLog(db);
+    this.sources = new SqliteSourceIndex(db);
 
     // Use cases
     this.createConcept = new CreateConcept(this.conceptRepository);
@@ -135,12 +123,6 @@ export class Container {
     this.getDueStudyItems = new GetDueStudyItems(
       this.studyItemRepository,
       this.conceptRepository,
-      this.reviewLog,
-      this.scheduler,
-    );
-    this.getDueStudyItemsByDeck = new GetDueStudyItemsByDeck(
-      this.studyItemRepository,
-      this.conceptRepository,
       this.deckRepository,
       this.reviewLog,
       this.scheduler,
@@ -151,7 +133,7 @@ export class Container {
 
     this.indexer = new NoteIndexer({
       parser: this.parser,
-      syncState: this.syncStateFile,
+      sources: this.sources,
       studyItemRepository: this.studyItemRepository,
       deckRepository: this.deckRepository,
       createConcept: this.createConcept,

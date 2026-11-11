@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NoteIndexer } from '@context/indexing/application/note-indexer';
 import { DeckId } from '@context/deck/domain/deck-id';
-import { createIndexer } from './indexer-fixture';
+import { createIndexer, documents } from './indexer-fixture';
 
 describe('NoteIndexer', () => {
   let container: ReturnType<typeof createIndexer>;
@@ -147,7 +147,7 @@ tags:
 
   describe('sync state persistence', () => {
     it('should persist sync state after a sync', async () => {
-      const { indexer: sync, store } = createIndexer();
+      const { indexer: sync, stores } = createIndexer();
 
       const content = `---
 tags:
@@ -157,7 +157,7 @@ tags:
 
       await sync.syncFile('vocab.md', content);
 
-      const state = (store['sync-state'] ?? null) as {
+      const state = ((await documents(stores))['sync-state'] ?? null) as {
         fileIndices: Record<string, unknown>;
         tagToDeckId: Record<string, string>;
       } | null;
@@ -185,9 +185,8 @@ tags:
       expect(conceptsBefore).toHaveLength(1);
 
       // Simulate restart: new indexer and repositories, same stored documents
-      const container2 = createIndexer(container1.store);
+      const container2 = createIndexer(container1.stores);
       const sync2 = container2.indexer;
-      await sync2.initialize(); // Load persisted sync state
 
       // Re-sync the same file (as initialSync would do)
       await sync2.syncFile('vocab.md', content);

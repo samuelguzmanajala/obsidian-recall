@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { RecallDatabase } from '../../src/server/database';
 import { RecallService } from '../../src/server/service';
+import { exportDocuments } from '../../src/server/legacy-documents';
 import { Rating } from '../../src/context/study/domain/rating';
 import { HttpLlmClient } from '../../src/context/shared/infrastructure/llm-adapters';
 import { OpenAiTtsClient } from '../../src/context/shared/infrastructure/openai-tts-client';
@@ -23,7 +24,7 @@ function open(path = ':memory:') {
   return new RecallService(db, { shuffleReviews: false, dailyNewLimit: 0 });
 }
 const version = (sql: DatabaseSync) => Number(sql.prepare('PRAGMA user_version').get()!.user_version);
-const reviewCount = (s: RecallService) => JSON.parse((s.db.sql.prepare("SELECT value FROM documents WHERE key='reviews'").get()!.value as string)).length;
+const reviewCount = (s: RecallService) => s.db.sql.prepare('SELECT COUNT(*) AS n FROM reviews').get()!.n;
 const V1_DDL = `
   CREATE TABLE documents (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE operations (id TEXT PRIMARY KEY, payload TEXT NOT NULL, result TEXT NOT NULL);
@@ -31,9 +32,9 @@ const V1_DDL = `
   PRAGMA user_version=1;`;
 
 describe('operation receipts', () => {
-  it('creates v2 directly and never stores note content in receipts', async () => {
+  it('creates v3 directly and never stores note content in receipts', async () => {
     const service = open();
-    expect(version(service.db.sql)).toBe(2);
+    expect(version(service.db.sql)).toBe(3);
     expect(service.db.sql.prepare('PRAGMA table_info(operations)').all().map(c => c.name)).toEqual(['id', 'payload_hash', 'result', 'created_at']);
     const content = 'Secret question::Secret answer';
     await service.note({ operationId: randomUUID(), path: 'Test.md', content, expectedRevision: 0 });
@@ -52,7 +53,7 @@ describe('operation receipts', () => {
     const item = (await s0.due()).items[0];
     const review = { operationId: randomUUID(), studyItemId: item.studyItemId, rating: Rating.Good, expectedRevision: item.revision };
     const reviewResult = await s0.review(review);
-    const documents = source.sql.prepare('SELECT key,value FROM documents').all();
+    const documents = Object.entries(exportDocuments(source.sql)).map(([key, value]) => ({ key, value: JSON.stringify(value) }));
     const notes = source.sql.prepare('SELECT path,content,revision FROM notes').all();
     await source.close();
 
@@ -69,7 +70,7 @@ describe('operation receipts', () => {
     v1.close();
 
     const service = open(path);
-    expect(version(service.db.sql)).toBe(2);
+    expect(version(service.db.sql)).toBe(3);
     expect(service.db.sql.prepare('PRAGMA table_info(operations)').all().map(c => c.name)).toEqual(['id', 'payload_hash', 'result', 'created_at']);
     expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM operations').get()!.n).toBe(2);
     expect(await service.review(review)).toEqual(reviewResult);
@@ -77,7 +78,7 @@ describe('operation receipts', () => {
     expect(reviewCount(service)).toBe(1);
     await expect(service.review({ ...review, rating: Rating.Hard })).rejects.toMatchObject({ status: 409, message: 'operationId was already used for a different command' });
     expect(service.db.sql.prepare('SELECT path,content,revision FROM notes').all()).toEqual(notes);
-    expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM documents').get()!.n).toBe(documents.length);
+    expect(Object.keys(exportDocuments(service.db.sql))).toEqual(expect.arrayContaining(documents.map(d => d.key)));
   });
 
   it('leaves a valid v1 database when the migration fails', async () => {
@@ -94,9 +95,9 @@ describe('operation receipts', () => {
   });
 
   it('refuses a database from a newer server', async () => {
-    const path = join(await tempDir(), 'v3.sqlite');
+    const path = join(await tempDir(), 'v4.sqlite');
     const db = new DatabaseSync(path);
-    db.exec('PRAGMA user_version=3');
+    db.exec('PRAGMA user_version=4');
     db.close();
     expect(() => new RecallDatabase(path)).toThrow(/newer/);
   });

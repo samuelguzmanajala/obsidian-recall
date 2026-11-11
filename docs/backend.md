@@ -205,11 +205,13 @@ archivo `-wal`/`-shm` que siga presente, o utiliza una herramienta de backup SQL
 solo el archivo principal mientras el servidor está escribiendo. La caché de audio es
 prescindible y puede regenerarse, con posible coste del proveedor.
 
-Esta versión adapta los repositorios existentes a documentos JSON dentro de SQLite, con
-caché y escritura agrupada por transacción. Es apropiada para una instalación personal, no
-una promesa de escalado horizontal: usa un único proceso primario y disco local persistente,
-no un SQLite sincronizado por Obsidian/iCloud/NFS. Para mucho volumen, el siguiente paso sería
-normalizar tablas y consultas; para usuarios independientes, autenticación y aislamiento.
+Los repositorios del dominio se implementan sobre tablas normalizadas de SQLite (conceptos,
+tarjetas, mazos y sus elementos, historial de repasos, índice de notas, revisiones y
+contadores diarios). Cada operación lee y escribe solo las filas que necesita: un repaso ya no
+reescribe el historial completo, y el coste de las consultas no crece con los repasos
+acumulados. Es apropiada para una instalación personal, no una promesa de escalado
+horizontal: usa un único proceso primario y disco local persistente, no un SQLite sincronizado
+por Obsidian/iCloud/NFS. Para usuarios independientes harían falta autenticación y aislamiento.
 El historial se conserva sin caducidad. Los recibos de operaciones guardan solo el hash
 SHA-256 del comando (nunca el Markdown publicado) y el resultado, y caducan a los
 `RECALL_RECEIPT_DAYS` días (por defecto 90; `0` los conserva siempre). Se purgan al arrancar
@@ -217,11 +219,24 @@ y una vez al día. Es seguro: cada comando lleva `expectedRevision`, así que un
 llegue tras caducar su recibo se reevalúa y se rechaza con 409 (o, en notas con contenido
 idéntico, se reconoce) en lugar de aplicarse dos veces.
 
-El esquema actual es la versión 2. Al arrancar por primera vez, el servidor nuevo migra una
-base v1 automáticamente en una única transacción (si falla, la base queda intacta en v1),
-sustituye cada payload guardado por su hash (los reintentos pendientes siguen reconociéndose)
-y ejecuta `VACUUM` para recuperar espacio. Es irreversible: un servidor anterior rechazará
-la base migrada. Antes de actualizar, haz una copia con `scripts/backup-server.mjs`.
+El esquema actual es la versión 3. **Antes de actualizar, detén el servidor y haz una copia
+con `scripts/backup-server.mjs`.** Al arrancar, el servidor nuevo migra la base
+automáticamente, encadenando los pasos necesarios:
+
+- v1 → v2, en una transacción: sustituye cada payload de recibo por su hash (los reintentos
+  pendientes siguen reconociéndose).
+- v2 → v3, en otra transacción: convierte los documentos JSON (`concepts`, `study-items`,
+  `decks`, `reviews`, `sync-state`, `index-tags`, `revision:*`, `budget:*`) en filas de
+  tablas, conservando el orden en que la aplicación los recorría. Antes de borrar los
+  documentos, vuelve a exportar las tablas al formato antiguo y comprueba que coinciden con
+  lo que la aplicación veía (el historial de repasos deduplicado por tarjeta y marca temporal
+  y ordenado por fecha, como ya hacía). Las referencias colgantes se conservan tal cual. Una
+  clave desconocida, una fecha que no se pueda guardar en milisegundos exactos o cualquier
+  diferencia anula la migración: la base queda intacta en v2 y el servidor no arranca.
+
+Tras migrar ejecuta `VACUUM` para recuperar espacio (si falla, no es grave). Es irreversible:
+un servidor anterior rechazará la base migrada (`schema is newer`), y este servidor rechaza
+bases de una versión posterior. Para volver atrás, restaura la copia.
 
 El estudio es online. No se simula que se guardó una respuesta sin confirmación. Android
 reintenta fallos de transporte con el mismo ID; Obsidian conserva el intento en memoria para

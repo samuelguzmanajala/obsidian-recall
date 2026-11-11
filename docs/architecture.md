@@ -40,28 +40,30 @@ src/
 │   ├── concept/
 │   │   ├── domain/                  # Concept aggregate, Side VO, repository port
 │   │   ├── application/             # create, update, remove
-│   │   └── infrastructure/          # Markdown + frontmatter parsers, JSON repository
+│   │   └── infrastructure/          # Markdown + frontmatter parsers
 │   ├── study/
 │   │   ├── domain/                  # StudyItem aggregate, MemoryState, Rating, Review, ports
 │   │   ├── application/             # create, remove, review; due/stats/leech queries
-│   │   └── infrastructure/          # FSRS scheduler, JSON repository and review log
+│   │   └── infrastructure/          # FSRS scheduler
 │   ├── deck/
 │   │   ├── domain/                  # Deck aggregate (hierarchical), repository port
-│   │   ├── application/             # create, nest, remove, add/remove items; deck tree query
-│   │   └── infrastructure/          # JSON repository
+│   │   └── application/             # create, nest, remove, add/remove items; deck tree query
 │   ├── indexing/
+│   │   ├── domain/source-index.ts   # SourceIndex port (note → cards, lines, items, decks; tag → deck)
 │   │   └── application/
 │   │       └── note-indexer.ts      # NoteIndexer: note → concepts, study items, tag decks
 │   └── shared/
 │       ├── domain/                  # Identifier, LLM and TTS client ports
-│       └── infrastructure/          # JSON document port + serialized formats, HTTP LLM/TTS adapters
+│       └── infrastructure/          # HTTP LLM/TTS adapters; `/sources` wire type re-export
 ├── server/                          # Backend runtime (Node 24, node:sqlite)
 │   ├── main.ts                      # Entry point: env → ServerSettings, HTTP server
 │   ├── migrate.ts                   # One-shot importer of a legacy recall-data folder
 │   ├── http.ts                      # Routes, auth, body limits
 │   ├── service.ts                   # RecallService: transactions, receipts, revisions, limits
-│   ├── container.ts                 # Composition root for one transaction (repos, use cases, indexer)
-│   ├── database.ts                  # SQLite connection, schema, transactional JSON documents
+│   ├── container.ts                 # Composition root, built once (SQLite adapters, use cases, indexer)
+│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3)
+│   ├── legacy-documents.ts          # v2 JSON document shapes: import, export, migration verification
+│   ├── persistence/                 # Schema v3 and SQLite adapters of the domain ports
 │   ├── server-settings.ts           # ServerSettings + defaults
 │   ├── auth.ts, send-json.ts        # HTTP helpers
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
@@ -85,16 +87,31 @@ tests/                               # Mirrors src/ (tests/context, tests/server
 
 ## Server composition
 
-For every request `RecallService` opens a serialized SQLite transaction and builds a
-`Container` whose JSON repository ports read and write named documents of that transaction
-(`concepts`, `study-items`, `decks`, `reviews`, `sync-state`). The container wires the use
-cases and a `NoteIndexer` configured with the server's `flashcardTags`. Commands commit
-domain changes, revisions, daily counters and their idempotency receipt atomically.
+`RecallService` builds one `Container` at startup. Its adapters
+(`src/server/persistence/`) implement the domain ports — `ConceptRepository`,
+`StudyItemRepository`, `DeckRepository`, `ReviewLog` and the indexer's `SourceIndex` — over
+normalized SQLite tables (schema v3) and keep no state between calls; each call reads or
+writes only the rows it needs. Every request runs inside `RecallDatabase.transaction()` (a
+serialized queue of `BEGIN IMMEDIATE` transactions); adapters throw if used outside one.
+Commands commit domain changes, item revisions, daily counters and their idempotency receipt
+atomically. `node:sqlite` never appears in `src/context`.
+
+Iteration order is part of the contract (the queue with shuffling off, the deck tree,
+`/sources`, leeches): reads follow rowid order and writes use UPSERT, so an updated row keeps
+its place and a removed and re-added one goes last, exactly like the keys of the JSON
+documents the server stored before v3. The review log is unique per (study item, timestamp)
+and read by time, then insertion. Narrow port queries (`countSince`,
+`countFirstReviewedSince`, `SourceIndex.locate`, …) keep hot paths off full scans.
 
 `NoteIndexer` depends on an explicit set of ports and use cases, not on the container. It
-persists its index in the `sync-state` document (`SerializedSyncState`); concept, study item
-and deck IDs are SHA-256 hashes of content and tags, so the same card keeps its ID and its
-history across re-indexing and renames.
+reads and writes the note index through `SourceIndex` (file → card keys, lines, study items,
+leaf decks; tag → deck). Concept, study item and deck IDs are SHA-256 hashes of content and
+tags, so the same card keeps its ID and its history across re-indexing and renames.
+`GET /sources` returns `SourceIndex.snapshot()` in the historical `sync-state` shape.
+
+The in-memory doubles used by kernel tests live in `tests/context/fakes/`; a shared contract
+suite (`tests/server/persistence/contract.test.ts`) runs the same behaviour tests against them
+and the SQLite adapters.
 
 ## Plugin
 
@@ -133,7 +150,7 @@ Vault file change → plugin → RemoteNoteSync → POST /notes → RecallServic
 |---|---|---|
 | Algorithm | FSRS via ts-fsrs | Modern, proven (adopted by Anki), better retention than SM-2 |
 | Scheduling authority | Single backend | One review history; clients cannot diverge |
-| Storage | SQLite (`node:sqlite`) holding JSON documents behind repository ports | Transactions and durability now; normalized tables can replace the documents later |
+| Storage | SQLite (`node:sqlite`), normalized tables behind repository ports | Each operation touches only its rows; cost no longer grows with the history |
 | Card data in Markdown | Read-only (ACL parses, never writes scheduling back) | No frontmatter pollution |
 | IDs | Content-derived | Reviews survive re-indexing and renames |
 | Testing | Vitest | Domain and protocol tested without Obsidian |

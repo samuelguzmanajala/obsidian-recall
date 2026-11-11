@@ -45,7 +45,7 @@ export function createRecallServer(service: RecallService, token: string, audio?
         const limit = dueLimit(Number(url.searchParams.get('limit') ?? 50));
         result = await service.due(url.searchParams.get('deckId') ?? undefined, limit);
       } else if (req.method === 'GET' && path === '/api/v1/sources') {
-        result = await service.query(async c => await c.syncStateFile.read() ?? { fileIndices: {}, tagToDeckId: {} });
+        result = await service.query(c => c.sources.snapshot());
       } else if (req.method === 'GET' && path === '/api/v1/notes') {
         result = await service.notes();
       } else if (req.method === 'GET' && path === '/api/v1/note') {

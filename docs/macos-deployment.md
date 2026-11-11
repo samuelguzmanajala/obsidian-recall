@@ -286,3 +286,23 @@ copia en frio verificada, ensayo de la migracion sobre una copia de esa misma co
   autenticada desde fuera de Obsidian (el token no se leyo).
 - Android no se ha actualizado en este despliegue; el protocolo no cambia y `POST /reviews`
   acepta ya el campo opcional `due`.
+
+### Conector MCP para ChatGPT (2026-11-12)
+
+Desplegado desde la rama `worktree-agent-a14ba956bf3eba016`, commits `602bbb3` y `2d5e0ba`. Solo
+cambia `server/main.cjs`; el esquema de la base no cambia (sigue en v4).
+
+- `backend.env`: `RECALL_MCP_PORT=27125` y
+  `RECALL_MCP_PUBLIC_URL=https://mac-mini-de-samuel-2.tail431e85.ts.net`.
+- Tailscale Funnel activo en el 443 de `mac-mini-de-samuel-2`, apuntando solo a
+  `http://127.0.0.1:27125`. El 8443 (API privada) y los servicios del nombre antiguo siguen solo
+  en el tailnet. Primero se probo Funnel en el 10000: ChatGPT nunca llego a conectar por ese
+  puerto y se desactivo.
+- Comprobado por la entrada publica de Tailscale: metadatos OAuth 200, `/mcp` sin token 401 y
+  `/api/v1/health` 404. ChatGPT se registro por DCR, canjeo el codigo y llamo a `/mcp` con exito.
+- `data/recall-oauth.sqlite` guarda los clientes y los hashes de tokens; no entra en la copia
+  diaria. Quedan dos clientes registrados a mano durante las pruebas, sin tokens emitidos.
+- Copias previas: `backups/recall-2026-11-11T23-23-27-184Z.sqlite` (integridad correcta, 14.705
+  repasos, tambien en Disk2) y `backups/server-2026-11-11T23-23-27Z` (bundles y `backend.env`
+  anteriores). Para volver atras: restaurar `main.cjs` y `backend.env` de esa carpeta, reiniciar
+  el servicio y `tailscale funnel --https=443 off`.

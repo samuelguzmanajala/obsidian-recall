@@ -225,7 +225,7 @@ privado en el puerto habitual. Sin estas variables el servidor se comporta exact
 | Variable | Función |
 | --- | --- |
 | `RECALL_MCP_PORT` | Puerto del listener público (p. ej. `27125`); distinto de `RECALL_PORT` |
-| `RECALL_MCP_PUBLIC_URL` | Origen HTTPS público, sin ruta (p. ej. `https://mac.tailnet.ts.net:10000`). Es el emisor OAuth; el recurso es `<origen>/mcp` |
+| `RECALL_MCP_PUBLIC_URL` | Origen HTTPS público, sin ruta (p. ej. `https://mac.tailnet.ts.net`). Es el emisor OAuth; el recurso es `<origen>/mcp` |
 | `RECALL_MCP_HOST` | Interfaz de escucha (por defecto `127.0.0.1`) |
 | `RECALL_MCP_OAUTH_DB` | Base SQLite de OAuth (por defecto `recall-oauth.sqlite` junto a `RECALL_DB`) |
 
@@ -253,19 +253,26 @@ Funcionamiento:
 Pasos para conectar ChatGPT (manual, no se hace automáticamente):
 
 1. Añade al entorno del backend `RECALL_MCP_PORT=27125` y
-   `RECALL_MCP_PUBLIC_URL=https://<tu-máquina>.<tailnet>.ts.net:10000`, y reinicia. Comprueba en
+   `RECALL_MCP_PUBLIC_URL=https://<tu-máquina>.<tailnet>.ts.net`, y reinicia. Comprueba en
    local `curl http://127.0.0.1:27125/.well-known/oauth-protected-resource/mcp`.
-2. Publica **solo ese puerto** con Funnel, en un puerto HTTPS que Funnel admita y que no use ya
-   tu `tailscale serve` privado (443, 8443 o 10000), por ejemplo:
-   `tailscale funnel --bg --https=10000 http://127.0.0.1:27125`. **Nunca actives Funnel en el
-   puerto que apunta a `RECALL_PORT`** (en esta instalación, 8443): publicaría `/api/v1` en Internet.
-   Comprueba con `tailscale funnel status` qué se publica.
+2. Publica **solo ese puerto** con Funnel en el 443:
+   `tailscale funnel --bg --https=443 http://127.0.0.1:27125`. **Usa el 443**: con Funnel en el
+   10000 los servidores de ChatGPT no llegaron a hacer ninguna petición (el navegador sí llegaba,
+   así que la página de aprobación se abría, pero el conector se quedaba cargando). **Nunca actives
+   Funnel en el puerto que apunta a `RECALL_PORT`** (en esta instalación, 8443): publicaría
+   `/api/v1` en Internet. Comprueba con `tailscale funnel status` qué se publica. La primera vez que
+   se activa Funnel, el nombre tarda unos minutos en aparecer en el DNS público.
 3. En ChatGPT, con el modo desarrollador activado, añade un conector o servidor MCP personalizado
-   con la URL `https://<tu-máquina>.<tailnet>.ts.net:10000/mcp` y autenticación OAuth. Si pide un
-   modo de registro, elige el registro dinámico (DCR); este servidor no admite *Client ID Metadata
-   Documents*. ChatGPT abrirá la página de aprobación: escribe tu `RECALL_TOKEN` y pulsa Approve.
+   con la URL `https://<tu-máquina>.<tailnet>.ts.net/mcp` y autenticación OAuth. Elige el registro
+   dinámico (DCR); el aviso de que CIMD no está disponible es normal, este servidor no admite
+   *Client ID Metadata Documents*. ChatGPT abrirá la página de aprobación: escribe tu
+   `RECALL_TOKEN` y pulsa Approve.
 4. Pide en el chat «¿qué mazos tengo en Recall?». Para desconectar, elimina el conector en ChatGPT
-   y desactiva Funnel (`tailscale funnel --https=10000 off`).
+   y desactiva Funnel (`tailscale funnel --https=443 off`).
+
+El listener escribe una línea por petición en el registro del servidor (método, ruta sin
+parámetros, estado y agente), con el prefijo `[Recall MCP]`; sirve para seguir la conexión de un
+conector paso a paso.
 
 ChatGPT envía la lista de mazos a OpenAI al usarla. Las opciones y nombres de la interfaz de
 ChatGPT cambian a menudo; la disponibilidad del modo desarrollador y de conectores en el modo de

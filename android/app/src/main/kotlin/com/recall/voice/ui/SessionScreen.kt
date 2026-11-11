@@ -198,7 +198,8 @@ private fun CardPanel(item: DueItem, answerShown: Boolean, modifier: Modifier) {
 /**
  * The status sentence, with room reserved under it in every phase: a rejected-review notice when
  * the server turned one down, and the full-width resume button while paused. The reserve keeps the
- * card still when the session pauses or resumes.
+ * card still when the session pauses or resumes. While paused the button takes the notice's place
+ * (the rejected station stays marked on the line), so the three never stack and move the card.
  */
 @Composable
 private fun StatusArea(state: SessionState, rejected: Int, onResumeVoice: () -> Unit) {
@@ -219,7 +220,7 @@ private fun StatusArea(state: SessionState, rejected: Int, onResumeVoice: () -> 
     verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
   ) {
     StatusRow(icon, stringResource(text), MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.onSurface)
-    if (rejected > 0) StatusRow(
+    if (rejected > 0 && state !is SessionState.AwaitingConfirmation) StatusRow(
       Icons.Filled.ErrorOutline,
       pluralStringResource(R.plurals.session_rejected_notice, rejected, rejected),
       MaterialTheme.colorScheme.error,
@@ -339,7 +340,10 @@ private fun DonePanel(reviewed: Int, stations: List<Station>, onExit: () -> Unit
   }
 }
 
-/** Confirmed reviews per rating: each roundel ink with its count, and the rating's name beneath. */
+/**
+ * Confirmed reviews per rating: an ink dot beside the count, and the rating's name beneath.
+ * The count sits outside the ink, because a numeral inside an ink disc is the 1 to 4 rating key.
+ */
 @Composable
 private fun RatingTally(confirmed: List<Station>) {
   val c = Recall.colors
@@ -358,8 +362,9 @@ private fun RatingTally(confirmed: List<Station>) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp),
       ) {
-        Box(Modifier.size(40.dp).background(c.ink(rating), CircleShape), contentAlignment = Alignment.Center) {
-          Text(count.toString(), style = MaterialTheme.typography.labelLarge, color = c.onInk(rating))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Box(Modifier.size(16.dp).background(c.ink(rating), CircleShape))
+          Text(count.toString(), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
         }
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
       }

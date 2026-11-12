@@ -547,28 +547,39 @@
   cursor: pointer;
 }
 
-.recall-tag-row input:disabled + .recall-tag-name {
-  color: var(--text-muted);
-}
-
-/* Chosen by hand */
-.recall-tag-row.is-selected .recall-tag-name {
-  font-weight: 600;
+/* Explicitly selected: normal emphasis. */
+.recall-tag-row.recall-tag-selected .recall-tag-name {
   color: var(--text-normal);
+  font-weight: 600;
 }
 
-/* Followed only because a parent tag is selected */
-.recall-tag-row.is-covered label {
+/* Covered by a selected ancestor: muted row, greyed-out checked box (not the accent colour). */
+.recall-tag-row.recall-tag-covered {
+  opacity: 0.6;
+}
+
+.recall-tag-row.recall-tag-covered label {
   cursor: default;
 }
 
-.recall-tag-row.is-covered input {
-  opacity: 0.55;
+.recall-tag-row.recall-tag-covered .recall-tag-name {
+  color: var(--text-muted);
 }
 
-.recall-tag-row.is-covered .recall-tag-name {
-  color: var(--text-faint);
-  font-style: italic;
+.recall-tag-row.recall-tag-covered input[type="checkbox"]:disabled {
+  --checkbox-color: var(--text-faint);
+  --checkbox-color-hover: var(--text-faint);
+  --checkbox-border-color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.recall-tag-row.recall-tag-covered input[type="checkbox"]:disabled:checked {
+  background-color: var(--text-faint);
+  border-color: var(--text-faint);
+}
+
+.recall-tags-hidden p {
+  margin: 0 0 4px;
 }
 
 .recall-tags-summary {

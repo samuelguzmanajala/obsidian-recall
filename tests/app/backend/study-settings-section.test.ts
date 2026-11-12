@@ -42,8 +42,9 @@ class FakeEl {
   settings(): any[] { return this.all().filter(e => e.setting).map(e => e.setting); }
   button(text: string) { return this.settings().flatMap(s => s.components).find((c: any) => c.text === text); }
   field(name: string) { return this.settings().find(s => s.name === name)?.components[0]; }
-  rows() { return this.all().filter(e => e.cls.split(' ')[0] === 'recall-tag-row'); }
-  byCls(cls: string) { return this.all().find(e => e.cls.split(' ').includes(cls)); }
+  classes(): string[] { return this.cls.split(' ').filter(Boolean); }
+  rows() { return this.all().filter(e => e.classes().includes('recall-tag-row')); }
+  byCls(cls: string) { return this.all().find(e => e.classes().includes(cls)); }
   /** Tag names of the listed rows, in order. */
   order() { return this.rows().map(r => r.all().find(e => e.cls === 'recall-tag-name')!.text.trim()); }
 }
@@ -109,7 +110,7 @@ describe('Estudio settings section: states', () => {
     expect(text).toMatch(/Notas sin tags: 2 notas, 5 tarjetas\. Solo se estudian si no seleccionas ningún tag/);
     expect(rowFor(root, 'German').texts()).toMatch(/3 notas, 4 tarjetas/);
     const sub = rowFor(root, 'German/grammar');
-    expect(checkbox(sub)).toMatchObject({ checked: false, indeterminate: true, disabled: true });
+    expect(checkbox(sub)).toMatchObject({ checked: true, indeterminate: false, disabled: true });
     expect(sub.texts()).toMatch(/incluido por German/);
     expect(sub.style.paddingLeft).toBe('16px');
     expect(checkbox(rowFor(root, 'Spanish'))).toMatchObject({ checked: false, disabled: false });
@@ -143,6 +144,121 @@ describe('Estudio settings section: states', () => {
     expect(root.rows().map(r => r.texts())).toHaveLength(11); // t1, t10…t19
     filter.value = 'zzz'; filter.listeners.input();
     expect(root.texts()).toMatch(/Ningún tag coincide/);
+  });
+});
+
+describe('Estudio settings section: tag list visibility, order and covered rows', () => {
+  const tag = (name: string, cards: number, notes = 1) => ({ tag: name, notes, cards, selected: false, followed: false });
+  const LISTING: TagListing = {
+    tags: [
+      tag('German/aprendizaje', 0), tag('dev', 0), tag('Viajes', 0), tag('Viajes/Ávila', 0),
+      tag('German', 4, 3), tag('German/grammar', 3), tag('English', 2), tag('ciencia-de-datos', 5),
+      tag('árboles', 1), tag('Zoo', 1), tag('arte', 1), tag('Archivo', 0), tag('Archivo/2024', 2), tag('German-old', 1),
+    ],
+    untagged: { notes: 0, cards: 0, followed: false },
+  };
+  const names = (root: FakeEl) => root.rows().map(r => r.all().find(e => e.classes().includes('recall-tag-name'))!.text.trim());
+  const toggle = (root: FakeEl) => root.field('Mostrar tags sin tarjetas');
+  async function loaded(selected: string[] = ['German'], listing: TagListing = LISTING) {
+    const ctx = setup({
+      getStudySettings: vi.fn(async () => ({ ...structuredClone(STATE), settings: { ...STATE.settings, flashcardTags: selected } })),
+      getTags: vi.fn(async () => structuredClone(listing)),
+    });
+    await ctx.section.load();
+    return ctx;
+  }
+
+  it('hides zero-card tags by default and says how many, keeping ancestors of listed tags', async () => {
+    const { root } = await loaded();
+    expect(names(root)).not.toContain('German/aprendizaje');
+    expect(names(root)).not.toContain('dev');
+    expect(names(root)).not.toContain('Viajes/Ávila');
+    expect(names(root)).toContain('Archivo'); // 0 cards, but parent of Archivo/2024
+    expect(root.texts()).toMatch(/4 tags sin tarjetas ocultos\./);
+    expect(toggle(root).value).toBe(false);
+  });
+
+  it('a selected zero-card tag stays visible so it can be unticked, and its ancestors with it', async () => {
+    const { root } = await loaded(['Viajes/Ávila']);
+    expect(names(root)).toEqual(expect.arrayContaining(['Viajes', 'Viajes/Ávila']));
+    expect(checkbox(rowFor(root, 'Viajes/Ávila'))).toMatchObject({ checked: true, disabled: false });
+    checkbox(rowFor(root, 'Viajes/Ávila')).checked = false;
+    checkbox(rowFor(root, 'Viajes/Ávila')).listeners.change();
+    // Still listed (selected on the server), so the untick can be undone.
+    expect(names(root)).toContain('Viajes/Ávila');
+    expect(root.texts()).toMatch(/Ningún tag seleccionado/);
+  });
+
+  it('the toggle shows every tag, and the filter only reaches hidden tags when it is on', async () => {
+    const { root } = await loaded();
+    const filter = root.all().find(e => e.type === 'search')!;
+    filter.value = 'aprend'; filter.listeners.input();
+    expect(names(root)).toEqual([]);
+    expect(root.texts()).toMatch(/Ningún tag coincide/);
+    expect(root.texts()).toMatch(/4 tags sin tarjetas ocultos/); // unfiltered count: stable while typing
+    toggle(root).change(true);
+    expect(names(root)).toEqual(['German', 'German/aprendizaje']);
+    expect(root.texts()).not.toMatch(/ocultos/);
+    filter.value = ''; filter.listeners.input();
+    expect(names(root)).toHaveLength(LISTING.tags.length);
+    toggle(root).change(false);
+    expect(names(root)).toHaveLength(LISTING.tags.length - 4);
+  });
+
+  it('a filter keeps the ancestors of matching tags', async () => {
+    const { root } = await loaded();
+    const filter = root.all().find(e => e.type === 'search')!;
+    filter.value = 'grammar'; filter.listeners.input();
+    expect(names(root)).toEqual(['German', 'German/grammar']);
+  });
+
+  it('marks covered rows as muted and disabled, explicit selections as selected', async () => {
+    const { root } = await loaded();
+    const covered = rowFor(root, 'German/grammar');
+    expect(covered.classes()).toContain('recall-tag-covered');
+    expect(covered.classes()).not.toContain('recall-tag-selected');
+    expect(checkbox(covered)).toMatchObject({ checked: true, disabled: true });
+    expect(covered.texts()).toMatch(/incluido por German/);
+    const explicit = rowFor(root, 'German');
+    expect(explicit.classes()).toContain('recall-tag-selected');
+    expect(explicit.classes()).not.toContain('recall-tag-covered');
+    expect(checkbox(explicit)).toMatchObject({ checked: true, disabled: false });
+    expect(rowFor(root, 'English').classes()).toEqual(['recall-tag-row']);
+  });
+
+  it('sorts case- and accent-insensitively with parents right before their sub-tags, whatever the server order', async () => {
+    // Nothing followed, so the list is one group (with followed tags they come first: see "tag list" below).
+    const { root } = await loaded([]);
+    toggle(root).change(true);
+    const expected = ['árboles', 'Archivo', 'Archivo/2024', 'arte', 'ciencia-de-datos', 'dev', 'English', 'German', 'German/aprendizaje',
+      'German/grammar', 'German-old', 'Viajes', 'Viajes/Ávila', 'Zoo'];
+    expect(names(root)).toEqual(expected);
+    const reversed = await loaded([], { ...LISTING, tags: [...LISTING.tags].reverse() });
+    toggle(reversed.root).change(true);
+    expect(names(reversed.root)).toEqual(expected);
+  });
+
+  it('unsaved ticks and edited numbers survive toggling and filtering, and Aplicar ignores visibility', async () => {
+    const { client, root, section } = await loaded();
+    let filter = root.all().find(e => e.type === 'search')!;
+    root.field('Tarjetas nuevas por día').change('7');
+    checkbox(rowFor(root, 'English')).checked = true;
+    checkbox(rowFor(root, 'English')).listeners.change();
+    toggle(root).change(true);
+    checkbox(rowFor(root, 'dev')).checked = true;
+    checkbox(rowFor(root, 'dev')).listeners.change();
+    // Ticks redraw only the list; a full redraw keeps the toggle, the numbers and the ticks.
+    section.render();
+    expect(toggle(root).value).toBe(true);
+    expect(checkbox(rowFor(root, 'dev')).checked).toBe(true);
+    filter = root.all().find(e => e.type === 'search')!;
+    filter.value = 'zoo'; filter.listeners.input();
+    toggle(root).change(false);
+    expect(names(root)).toEqual(['Zoo']);
+    expect(root.field('Tarjetas nuevas por día').value).toBe('7');
+    expect(root.texts()).toMatch(/Seleccionados: dev, English, German\./);
+    await click(root, 'Aplicar…');
+    expect(client.updateStudySettings.mock.calls[0][0].settings).toEqual({ flashcardTags: ['English', 'German', 'dev'], dailyNewLimit: 7 });
   });
 });
 
@@ -465,8 +581,9 @@ describe('Estudio settings section: tag list', () => {
 
   it('hides tags without cards behind a toggle; a selected tag is always shown', async () => {
     const { root } = await load();
-    const toggle = root.field('Mostrar tags sin tarjetas (3)');
+    const toggle = root.field('Mostrar tags sin tarjetas');
     expect(toggle.value).toBe(false);
+    expect(root.texts()).toMatch(/^1 tag sin tarjetas oculto\.$/m); // Biology; history is a listed parent, dev is selected
     expect(root.order()).not.toContain('Biology');
     expect(root.order()).toContain('dev'); // selected, 0 cards
     toggle.change(true);
@@ -479,10 +596,11 @@ describe('Estudio settings section: tag list', () => {
   it('renders sub-tags covered by a selected parent differently from hand-selected tags', async () => {
     const { root } = await load();
     const parent = rowFor(root, 'German'), sub = rowFor(root, 'German/grammar'), free = rowFor(root, 'art');
-    expect(parent.cls).toBe('recall-tag-row is-selected');
+    expect(parent.cls).toBe('recall-tag-row is-selected recall-tag-selected');
     expect(checkbox(parent)).toMatchObject({ checked: true, indeterminate: false, disabled: false });
-    expect(sub.cls).toBe('recall-tag-row is-covered');
-    expect(checkbox(sub)).toMatchObject({ checked: false, indeterminate: true, disabled: true });
+    expect(sub.cls).toBe('recall-tag-row is-covered recall-tag-covered');
+    // Included through its parent: ticked but greyed out (see styles.css), not editable on its own.
+    expect(checkbox(sub)).toMatchObject({ checked: true, indeterminate: false, disabled: true });
     expect(sub.texts()).toMatch(/incluido por German/);
     expect(free.cls).toBe('recall-tag-row');
     expect(checkbox(free)).toMatchObject({ checked: false, indeterminate: false, disabled: false });

@@ -36,14 +36,19 @@ function ancestors(tag: string): string[] {
   const parts = tag.split('/');
   return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('/'));
 }
-/** Case-insensitive, segment by segment, so a parent is always followed by its own sub-tags. */
-function compareTags(a: string, b: string): number {
-  const x = a.toLowerCase().split('/'), y = b.toLowerCase().split('/');
+/**
+ * Tree order: path segment by segment, case- and accent-insensitive (Spanish collation), so a
+ * parent comes right before its sub-tags. Ties under that collation fall back to code units,
+ * which makes the order total and independent of the server's.
+ */
+export function compareTags(a: string, b: string): number {
+  const x = a.split('/'), y = b.split('/');
   for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const c = x[i].localeCompare(y[i]);
-    if (c) return c;
+    const order = x[i].localeCompare(y[i], 'es', { sensitivity: 'base' });
+    if (order) return order;
   }
-  return x.length - y.length || (a < b ? -1 : a > b ? 1 : 0);
+  if (x.length !== y.length) return x.length - y.length;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -72,7 +77,7 @@ export class StudySettingsSection {
   /** Text typed in the numeric fields that is not a valid number (field → text). */
   invalid = new Map<NumberKey, string>();
   filter = '';
-  /** Also list tags without cards (selected tags are always listed). */
+  /** Show tags whose notes have no cards (hidden by default; not persisted). Selected tags are always listed. */
   showEmpty = false;
   /** Dry-run answer awaiting confirmation, with the command that produced it. */
   pending: { command: SettingsUpdate; preview: SettingsUpdateResult } | null = null;
@@ -81,6 +86,8 @@ export class StudySettingsSection {
   private barEl: HTMLElement | null = null;
   private summaryEl: HTMLElement | null = null;
   private listEl: HTMLElement | null = null;
+  /** "N tags sin tarjetas ocultos", redrawn with the list. */
+  private hiddenEl: HTMLElement | null = null;
   private confirmButton: ButtonComponent | null = null;
   private listScroll: number | undefined;
 
@@ -275,7 +282,7 @@ export class StudySettingsSection {
     // A full render rebuilds the tag list: keep where it was scrolled.
     this.listScroll = this.listEl?.scrollTop;
     el.empty();
-    this.barEl = this.summaryEl = this.listEl = null;
+    this.barEl = this.summaryEl = this.listEl = this.hiddenEl = null;
     this.confirmButton = null;
     if (!this.client.isConfigured()) {
       el.createEl('p', { text: 'Configura la URL y el token del backend y recarga Recall para elegir tags y límites de estudio.', cls: 'setting-item-description' });
@@ -371,11 +378,12 @@ export class StudySettingsSection {
       const input = el.createEl('input', { type: 'search', placeholder: 'Filtrar tags…', value: this.filter, cls: 'recall-tags-filter' });
       input.addEventListener('input', () => { this.filter = input.value; this.renderTagList(); });
     }
-    const empty = tags.tags.filter(t => t.cards === 0).length;
-    if (empty) {
-      new Setting(el).setName(`Mostrar tags sin tarjetas (${empty})`).setDesc('Los tags seleccionados se muestran siempre.')
+    if (tags.tags.some(t => t.cards === 0)) {
+      // Only the list is redrawn: the filter box keeps focus and the draft is untouched.
+      new Setting(el).setName('Mostrar tags sin tarjetas').setDesc('Tags de notas que no contienen tarjetas. Los tags seleccionados se muestran siempre.')
         .addToggle(toggle => toggle.setValue(this.showEmpty).onChange(value => { this.showEmpty = value; this.renderTagList(); }));
     }
+    this.hiddenEl = el.createDiv({ cls: 'recall-tags-hidden' });
     this.listEl = el.createDiv({ cls: locked ? 'recall-tags-list is-locked' : 'recall-tags-list' });
     this.renderTagList();
     const untagged = tags.untagged;
@@ -389,27 +397,35 @@ export class StudySettingsSection {
 
   /**
    * Rows to list, in two groups: tags the server follows now (selected and their sub-tags), then
-   * the rest; each alphabetical (case-insensitive), parents before their sub-tags. Tags without
-   * cards are hidden unless `showEmpty` or selected; the filter keeps the parents of its matches.
-   * The groups come from the server state, so ticking a box does not move rows around.
+   * the rest; each in tree order (`compareTags`). Tags without cards are hidden unless `showEmpty`
+   * or selected (now or on the server, so they can be unticked or ticked back); the filter keeps
+   * the parents of its matches. The groups come from the server state, so ticking a box does not
+   * move rows around. `hidden`: card-less tags left out, counted without the filter so the number
+   * does not jump while typing.
    */
-  visibleTags(): { followed: TagSummary[]; others: TagSummary[] } {
-    if (!this.tags || !this.loaded || !this.draft) return { followed: [], others: [] };
-    const all = this.tags.tags;
-    const byTag = new Map(all.map(t => [t.tag, t]));
+  visibleTags(): { followed: TagSummary[]; others: TagSummary[]; hidden: number } {
+    if (!this.tags || !this.loaded || !this.draft) return { followed: [], others: [], hidden: 0 };
+    const all = [...this.tags.tags].sort((a, b) => compareTags(a.tag, b.tag));
+    const known = new Set(all.map(t => t.tag));
     const saved = this.loaded.settings.flashcardTags;
     const chosen = new Set([...saved, ...this.draft.flashcardTags]);
+    const pick = (query: string) => {
+      const shown = new Set<string>();
+      for (const t of all) {
+        if (!this.showEmpty && t.cards === 0 && !chosen.has(t.tag)) continue;
+        if (query && !t.tag.toLowerCase().includes(query)) continue;
+        shown.add(t.tag);
+        for (const parent of ancestors(t.tag)) if (known.has(parent)) shown.add(parent);
+      }
+      return shown;
+    };
     const query = this.filter.trim().toLowerCase();
-    const shown = new Set<string>();
-    for (const t of all) {
-      if (!this.showEmpty && t.cards === 0 && !chosen.has(t.tag)) continue;
-      if (query && !t.tag.toLowerCase().includes(query)) continue;
-      shown.add(t.tag);
-      for (const parent of ancestors(t.tag)) if (byTag.has(parent)) shown.add(parent);
-    }
-    const rows = [...shown].sort(compareTags).map(tag => byTag.get(tag)!);
+    const shown = pick(query);
+    const unfiltered = query ? pick('') : shown;
+    const hidden = this.showEmpty ? 0 : all.filter(t => !unfiltered.has(t.tag)).length;
+    const rows = all.filter(t => shown.has(t.tag));
     const isFollowed = (tag: string) => saved.includes(tag) || !!coveringTag(tag, saved);
-    return { followed: rows.filter(t => isFollowed(t.tag)), others: rows.filter(t => !isFollowed(t.tag)) };
+    return { followed: rows.filter(t => isFollowed(t.tag)), others: rows.filter(t => !isFollowed(t.tag)), hidden };
   }
 
   private renderTagList(): void {
@@ -420,7 +436,11 @@ export class StudySettingsSection {
     list.empty();
     const locked = this.isLocked();
     if (!this.tags.tags.length) { list.createEl('p', { text: 'Las notas publicadas no tienen tags.', cls: 'setting-item-description' }); return; }
-    const { followed, others } = this.visibleTags();
+    const { followed, others, hidden } = this.visibleTags();
+    if (this.hiddenEl) {
+      this.hiddenEl.empty();
+      if (hidden) this.hiddenEl.createEl('p', { cls: 'setting-item-description', text: `${hidden} ${hidden === 1 ? 'tag sin tarjetas oculto' : 'tags sin tarjetas ocultos'}.` });
+    }
     if (!followed.length && !others.length) {
       list.createEl('p', {
         cls: 'setting-item-description',
@@ -441,16 +461,16 @@ export class StudySettingsSection {
 
   private renderTagRow(list: HTMLElement, entry: TagSummary, depth: number, draft: StudySettings, locked: boolean): void {
     const selected = draft.flashcardTags.includes(entry.tag);
-    const coveredBy = coveringTag(entry.tag, draft.flashcardTags);
-    const state = selected ? ' is-selected' : coveredBy ? ' is-covered' : '';
+    const coveredBy = selected ? undefined : coveringTag(entry.tag, draft.flashcardTags);
+    // Both class sets: `is-*` (state classes) and `recall-tag-*` (what styles.css targets).
+    const state = selected ? ' is-selected recall-tag-selected' : coveredBy ? ' is-covered recall-tag-covered' : '';
     const row = list.createDiv({ cls: `recall-tag-row${state}` });
     row.style.paddingLeft = `${depth * 16}px`;
     const label = row.createEl('label');
     const box = label.createEl('input', { type: 'checkbox' });
-    box.checked = selected;
-    // Followed through its parent: not a choice of its own, so not a plain tick, and not editable.
-    box.indeterminate = !selected && !!coveredBy;
-    box.disabled = locked || (!!coveredBy && !selected);
+    // Followed through its parent: shown ticked but greyed out; unselecting it alone is not possible.
+    box.checked = selected || !!coveredBy;
+    box.disabled = locked || !!coveredBy;
     box.addEventListener('change', () => this.setTag(entry.tag, box.checked));
     label.createSpan({ text: ` ${entry.tag}`, cls: 'recall-tag-name' });
     label.createSpan({

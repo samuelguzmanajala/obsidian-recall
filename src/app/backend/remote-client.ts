@@ -1,6 +1,6 @@
 import { isBackendConfigured, type PluginSettings } from './plugin-settings';
 import type {
-  ReviewCommand, SettingsUpdate, SettingsUpdateResult, SourceLocation, StudyClient, StudySettingsState, TagListing,
+  CardProposal, ReviewCommand, SettingsUpdate, SettingsUpdateResult, SourceLocation, StudyClient, StudySettingsState, TagListing,
 } from './study-client';
 import type { DueStudyItemView } from '../../context/study/application/study-item-view';
 import type { SerializedSyncState } from '../../context/shared/infrastructure/json-storage';
@@ -128,6 +128,11 @@ export class RemoteClient implements StudyClient {
   getStudySettings(): Promise<StudySettingsState> { return this.request('/settings'); }
   getTags(): Promise<TagListing> { return this.request('/tags'); }
   updateStudySettings(command: SettingsUpdate): Promise<SettingsUpdateResult> { return this.request('/settings', command); }
+  async getProposals(): Promise<CardProposal[]> { return (await this.request<{ proposals: CardProposal[] }>('/proposals?status=pending')).proposals; }
+  async acceptProposal(id: number, notePath: string): Promise<CardProposal> {
+    return (await this.request<{ proposal: CardProposal }>('/proposals/accept', { id, notePath })).proposal;
+  }
+  async dismissProposal(id: number): Promise<CardProposal> { return (await this.request<{ proposal: CardProposal }>('/proposals/dismiss', { id })).proposal; }
   findSource(conceptId: string): SourceLocation | null { return this.sources.get(conceptId) ?? null; }
   get expandedDeckIds(): readonly string[] { return this.settings.expandedDeckIds; }
   toggleDeckExpanded(deckId: string): void {

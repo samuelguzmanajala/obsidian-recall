@@ -80,11 +80,14 @@ src/
 │   │   ├── study-client.ts          # StudyClient: the port the views depend on
 │   │   ├── remote-client.ts         # RemoteClient: StudyClient over HTTP + pending review journal
 │   │   ├── remote-note-sync.ts      # Ordered, durable Markdown publication
+│   │   ├── proposal-inbox.ts        # Accepted card proposals → inbox notes (one per deck), journaled
+│   │   ├── obsidian-inbox-vault.ts  # The plugin's only vault write: create/append inbox notes
 │   │   ├── key-debouncer.ts
 │   │   └── obsidian-fetch.ts        # fetch over Obsidian's requestUrl (no CORS)
 │   └── frontend/
 │       ├── deck-browser-view.ts     # Sidebar: decks, totals, leeches
-│       └── review-view.ts           # Review queue
+│       ├── review-view.ts           # Review queue
+│       └── proposals-view.ts        # Card proposals: accept (writes the card) or dismiss
 └── main.ts                          # Plugin entry point
 
 tests/                               # Mirrors src/ (tests/context, tests/server, tests/app)
@@ -155,6 +158,12 @@ explain that the backend must be configured. Views depend only on `StudyClient`;
 applies limits, shuffling and interval previews. Pending reviews and note publications are
 journaled in `localStorage` per vault and backend URL, and retried with their original
 operation IDs.
+
+The plugin writes to the vault in one case only: when the owner clicks Accept on a card
+proposal, it appends the card (`- A :: B` or `- A ::: B`) to `<inbox folder>/<deck>.md`, a note
+tagged with that deck (`No deck.md`, untagged, without one), creating it if missing; publication
+then turns it into a card. The written card is journaled before the write and the proposal is
+accepted after it, so a retry never appends the line twice.
 
 The plugin does not read, write or delete the vault's legacy `recall-data/` folder. Use
 `npm run migrate:server` to import it once into a new backend database.

@@ -1,6 +1,7 @@
 import { Notice, PluginSettingTab, App, Setting } from 'obsidian';
 import type RecallPlugin from './plugin';
 import { StudySettingsSection, type StudySettingsClient } from './study-settings-section';
+import { DEFAULT_SETTINGS, normalizeInboxFolder } from './plugin-settings';
 
 export * from './plugin-settings';
 
@@ -32,6 +33,11 @@ export class RecallSettingTab extends PluginSettingTab {
       .addToggle(toggle => toggle.setValue(backend.syncNotes).onChange(async value => {
         backend.syncNotes = value; await this.plugin.saveSettings();
         new Notice('Reload Recall to apply publishing settings.');
+      }));
+    new Setting(containerEl).setName('Card proposals inbox folder')
+      .setDesc('Accepting a card proposal appends it to a note in this folder, one note per deck (“German/vocabulary” → German/vocabulary.md, tagged German/vocabulary; no deck → “No deck.md”). The plugin writes nothing else in the vault.')
+      .addText(text => text.setPlaceholder(DEFAULT_SETTINGS.proposalInboxFolder).setValue(this.plugin.settings.proposalInboxFolder).onChange(async value => {
+        this.plugin.settings.proposalInboxFolder = normalizeInboxFolder(value); await this.plugin.saveSettings();
       }));
     containerEl.createEl('p', { text: 'Audio is configured on the server (see docs/backend.md). Existing local data is retained for migration only.' });
 

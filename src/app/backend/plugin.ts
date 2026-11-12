@@ -5,7 +5,10 @@ import { isExcludedPath } from './excluded-paths';
 import { KeyDebouncer } from './key-debouncer';
 import { DeckBrowserView } from '@app/frontend/deck-browser-view';
 import { ReviewView } from '@app/frontend/review-view';
-import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_REVIEW } from '@app/frontend/constants';
+import { ProposalsView } from '@app/frontend/proposals-view';
+import { VIEW_TYPE_DECK_BROWSER, VIEW_TYPE_PROPOSALS, VIEW_TYPE_REVIEW } from '@app/frontend/constants';
+import { ProposalInbox } from './proposal-inbox';
+import { obsidianInboxVault } from './obsidian-inbox-vault';
 import { PluginSettings, loadPluginSettings, RecallSettingTab } from './settings';
 import { obsidianFetch } from './obsidian-fetch';
 
@@ -26,8 +29,22 @@ export default class RecallPlugin extends Plugin {
       this.settings.expandedDeckIds = ids;
       await this.saveSettings();
     };
-    this.registerView(VIEW_TYPE_DECK_BROWSER, leaf => new DeckBrowserView(leaf, client));
+    this.registerView(VIEW_TYPE_DECK_BROWSER, leaf => new DeckBrowserView(leaf, client, () => void this.activateProposals()));
     this.registerView(VIEW_TYPE_REVIEW, leaf => new ReviewView(leaf, client));
+    // Card proposals: accepting one appends it to an inbox note (the plugin's only vault write).
+    const acceptedKey = `recall-accepted-proposals:${scope}`;
+    const inbox = new ProposalInbox(client, obsidianInboxVault(this.app.vault), () => this.settings.proposalInboxFolder, {
+      load: () => { try { return JSON.parse(localStorage.getItem(acceptedKey) ?? '{}'); } catch { return {}; } },
+      save: entries => localStorage.setItem(acceptedKey, JSON.stringify(entries)),
+    });
+    this.registerView(VIEW_TYPE_PROPOSALS, leaf => new ProposalsView(leaf, client, inbox, {
+      publishesNotes: () => client.settings.backend.syncNotes,
+      openNote: path => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile) void this.app.workspace.getLeaf('tab').openFile(file);
+      },
+    }));
+    this.addCommand({ id: 'open-card-proposals', name: 'Open card proposals', callback: () => this.activateProposals() });
     this.addRibbonIcon('brain', 'Recall', () => this.activateDeckBrowser());
     this.addCommand({ id: 'open-deck-browser', name: 'Open deck browser', callback: () => this.activateDeckBrowser() });
     this.addCommand({ id: 'start-review', name: 'Start review', callback: () => this.openReview() });
@@ -209,6 +226,13 @@ export default class RecallPlugin extends Plugin {
       await leaf.setViewState({ type: VIEW_TYPE_DECK_BROWSER, active: true });
       this.app.workspace.revealLeaf(leaf);
     }
+  }
+
+  private async activateProposals(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_PROPOSALS);
+    const leaf = existing[0] ?? this.app.workspace.getLeaf('tab');
+    if (!existing.length) await leaf.setViewState({ type: VIEW_TYPE_PROPOSALS, active: true });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   private async openReview(deckId?: string): Promise<void> {

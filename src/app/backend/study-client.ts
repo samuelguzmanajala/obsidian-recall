@@ -49,6 +49,23 @@ export interface SettingsUpdate {
 export interface TagSummary { tag: string; notes: number; cards: number; selected: boolean; followed: boolean }
 export interface TagListing { tags: TagSummary[]; untagged: { notes: number; cards: number; followed: boolean } }
 
+/** A card proposed through the MCP connector (`GET /api/v1/proposals`). Never a card until accepted and written to a note. */
+export interface CardProposal {
+  id: number;
+  /** Single line, without "::". */
+  sideA: string;
+  sideB: string;
+  directionality: 'unidirectional' | 'bidirectional';
+  /** Suggested tag/deck path without "#" ("german/vocabulary"); null if none. */
+  deck: string | null;
+  context: string | null;
+  status: 'pending' | 'accepted' | 'dismissed';
+  origin: string;
+  createdAt: string;
+  decidedAt: string | null;
+  notePath: string | null;
+}
+
 /** What the Recall views need from the backend. `RemoteClient` implements it over HTTP. */
 export interface StudyClient {
   /** False until the backend URL and token are set (they apply after a plugin reload). */
@@ -74,6 +91,13 @@ export interface StudyClient {
   getTags(): Promise<TagListing>;
   /** Rejects with status 409 when `expectedRevision` is stale. */
   updateStudySettings(command: SettingsUpdate): Promise<SettingsUpdateResult>;
+
+  /** Pending card proposals, oldest first. */
+  getProposals(): Promise<CardProposal[]>;
+  /** Idempotent; rejects with 409 if it was dismissed, 404 if unknown. */
+  acceptProposal(id: number, notePath: string): Promise<CardProposal>;
+  /** Idempotent; rejects with 409 if it was accepted, 404 if unknown. */
+  dismissProposal(id: number): Promise<CardProposal>;
 
   /** Note and line a concept was parsed from, as last reported by the backend. */
   findSource(conceptId: string): SourceLocation | null;

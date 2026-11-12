@@ -477,9 +477,11 @@ Propuestas de tarjetas. ChatGPT puede proponer una tarjeta (por ejemplo, tras co
 palabras): cada lado en una línea, sin `::`, con dirección (`unidirectional` = `::`,
 `bidirectional` = `:::`), un mazo sugerido como etiqueta (`german/vocabulary`, sin `#`) y un
 contexto opcional. Se guarda en `card_proposals` y **nunca** se convierte sola en tarjeta. Una
-propuesta igual a una tarjeta existente se rechaza. El panel del plugin (pendiente) la mostrará; al
-aceptarla escribirá la tarjeta en una nota y la publicación normal la convertirá en tarjeta: el
-vault sigue siendo la única fuente de tarjetas. API privada (mismo token y errores `{error}` que el
+propuesta igual a una tarjeta existente se rechaza. El panel «Card proposals» del plugin la
+muestra; al aceptarla añade la tarjeta a la nota del mazo en la carpeta de entrada (ajuste del
+plugin, `Recall inbox` por defecto: `Recall inbox/German/vocabulary.md` con el tag
+`German/vocabulary`) y la publicación normal la convierte en tarjeta: el vault sigue siendo la
+única fuente de tarjetas. API privada (mismo token y errores `{error}` que el
 resto):
 
 - `GET /api/v1/proposals?status=pending|accepted|dismissed|all` (por defecto `pending`) →

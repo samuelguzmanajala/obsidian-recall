@@ -17,12 +17,15 @@ export interface PluginSettings {
   backend: BackendConnection;
   /** Deck IDs the user has expanded in the sidebar. */
   expandedDeckIds: string[];
+  /** Vault folder where accepted card proposals are appended, one note per deck. */
+  proposalInboxFolder: string;
   [legacyKey: string]: unknown;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
   backend: { url: '', token: '', syncNotes: false },
   expandedDeckIds: [],
+  proposalInboxFolder: 'Recall inbox',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,7 +46,19 @@ export function loadPluginSettings(data: unknown): PluginSettings {
       syncNotes: backend.syncNotes === true,
     },
     expandedDeckIds: Array.isArray(expanded) ? expanded.filter((id): id is string => typeof id === 'string') : [],
+    proposalInboxFolder: normalizeInboxFolder(stored.proposalInboxFolder),
   };
+}
+
+/**
+ * A vault-relative folder ("Recall inbox", "Languages/Inbox"): trimmed, without leading, trailing or
+ * repeated slashes. Anything unusable (empty, "..", hidden or excluded folders) falls back to the default.
+ */
+export function normalizeInboxFolder(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_SETTINGS.proposalInboxFolder;
+  const segments = value.replace(/\\/g, '/').split('/').map(s => s.trim()).filter(s => s && s !== '.');
+  const unusable = !segments.length || segments.some(s => s === '..' || s.startsWith('.') || s === 'node_modules' || /[\u0000-\u001f:*?"<>|]/.test(s));
+  return unusable ? DEFAULT_SETTINGS.proposalInboxFolder : segments.join('/');
 }
 
 export function isBackendConfigured(settings: Pick<PluginSettings, 'backend'>): boolean {

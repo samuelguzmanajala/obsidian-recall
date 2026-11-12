@@ -349,3 +349,27 @@ Desplegado el commit `29ae69d` de la rama `worktree-agent-a14ba956bf3eba016`. So
 - Antes de desplegar, comprobar SIEMPRE que el bundle instalado no contiene trabajo que el
   nuevo no tenga (p. ej. `grep -c "Recall MCP" server/main.cjs`) y construir desde un commit
   que incluya todas las ramas desplegadas.
+
+### Herramientas de escritura del conector MCP y esquema v5 (2026-11-12, 07:41)
+
+Desplegado el commit `8a658f9` de la rama `worktree-agent-a77010419a7566ea3` (contiene
+`feat/backend-with-mcp` `f233107`). Se sustituyeron `main.cjs`, `migrate.cjs` y `pregenerate.cjs`,
+y se anadio `RECALL_MCP_WRITE=true` a `backend.env`.
+
+- La base paso de v4 a v5 al arrancar: el registro de repasos se reconstruyo con identificadores
+  estables y las columnas `origin` y `prior`, y hay dos tablas nuevas, `review_changes` (rastro de
+  correcciones) y `card_proposals` (bandeja de tarjetas propuestas). Tras migrar: 14.728 repasos,
+  mismo identificador maximo, integridad correcta.
+- Ensayo previo sobre una copia de la base real: mismos repasos, y `/decks`, `/stats`, `/leeches`,
+  `/sources`, `/settings` y `/tags` identicos byte a byte al servidor anterior. Sobre esa copia se
+  guardo, corrigio, borro y restauro un repaso por MCP (las fechas coincidieron con la prevision),
+  y se corrigieron y revirtieron 25 repasos reales de los dos ultimos dias sin rechazos. Las copias
+  de ensayo se borraron; no se escribio ningun repaso en la base personal.
+- Un servidor anterior se niega a abrir una base v5. Para volver atras hay que restaurar bundles Y
+  base: `backups/server-2026-11-12T06-41-43Z` (bundles y `backend.env` previos) y la copia en frio
+  `backups/recall-2026-11-12T06-41-43-252Z.sqlite` (tambien en Disk2). Se perderia lo repasado
+  despues.
+- Tras el reinicio: API privada correcta; por la entrada publica de Tailscale, metadatos OAuth 200,
+  `/mcp` sin token 401 y `/api/v1/proposals` 404. El registro indica `write tools enabled`.
+- Pendiente: el panel del plugin de Obsidian para aceptar o descartar las tarjetas propuestas, y
+  comprobar en ChatGPT si las herramientas de escritura piden confirmacion en modo voz.

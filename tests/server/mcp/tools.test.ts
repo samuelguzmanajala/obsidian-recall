@@ -176,13 +176,16 @@ describe('MCP tools', () => {
   });
 
   it('previews the next interval per rating like the HTTP API, in every card tool, without writing anything', async () => {
-    const { db, service, id, study } = await setup({ dailyNewLimit: 0, leechThreshold: 1 });
-    await study('der Vogel', { due: Date.now() - 2 * DAY, lapses: 1, stability: 12, difficulty: 7.2 }, [[Date.now() - DAY / 2, Rating.Again]]);
-    const before = snapshot(db);
-    // Freeze the clock so the HTTP API and the tool preview the same instant.
+    // Freeze the clock so the HTTP API and the tool preview the same instant (mid-minute, so the
+    // minute-rounded due times are unambiguous). Freeze it BEFORE seeding: new cards are due from the
+    // instant they are created, so seeding at the real time and reading at a rounded instant up to
+    // 30 s earlier left "der Hund" not yet due whenever the test ran in the second half of a minute.
     const instant = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 30_000);
     vi.useFakeTimers({ toFake: ['Date'], now: instant });
     cleanup.push(async () => vi.useRealTimers());
+    const { db, service, id, study } = await setup({ dailyNewLimit: 0, leechThreshold: 1 });
+    await study('der Vogel', { due: Date.now() - 2 * DAY, lapses: 1, stability: 12, difficulty: 7.2 }, [[Date.now() - DAY / 2, Rating.Again]]);
+    const before = snapshot(db);
     const token = 'preview-secret-'.repeat(3);
     const server = createRecallServer(service, token);
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r));

@@ -62,6 +62,11 @@ export class OAuthStore {
   countClients(): number {
     return Number(this.sql.prepare('SELECT count(*) AS n FROM oauth_clients').get()!.n);
   }
+  /** Deletes the oldest never-approved clients until at most `keep` remain; approved clients are untouched. */
+  evictOldestUnapprovedClients(keep: number): void {
+    this.sql.prepare(`DELETE FROM oauth_clients WHERE client_id IN (SELECT client_id FROM oauth_clients WHERE approved_at IS NULL
+      ORDER BY created_at, rowid LIMIT max(0, (SELECT count(*) FROM oauth_clients WHERE approved_at IS NULL) - ?))`).run(keep);
+  }
   /** Records that the owner approved this client at least once; approved clients are never pruned. */
   markApproved(clientId: string, now: number): void {
     this.sql.prepare('UPDATE oauth_clients SET approved_at=? WHERE client_id=?').run(now, clientId);

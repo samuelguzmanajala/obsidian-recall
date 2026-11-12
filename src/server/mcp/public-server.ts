@@ -12,7 +12,11 @@ export interface PublicServerOptions {
   ownerToken: string;
   tools?: readonly McpTool[];
   now?: () => number;
-  /** Access log sink (one line per request: method, path without query, status, user agent). Off when absent. */
+  failedApprovalDelayMs?: number;
+  /**
+   * Access log sink (one line per request: method, path without query, status, user agent, and for
+   * `/mcp` the `MCP-Protocol-Version` header). Off when absent.
+   */
   log?: (line: string) => void;
 }
 
@@ -82,6 +86,9 @@ export function createPublicServer(service: RecallService, store: OAuthStore, op
       sendJson(res, 405, { error: 'Method not allowed: this server is stateless and has no SSE stream' });
       return;
     }
+    // 2025-11-25: an unsupported version gets 400. A client speaking the stateless 2026-07-28 revision
+    // sends it on its first request; this generic error (not the modern -32022) tells it to fall back to
+    // `initialize`, so ChatGPT's first authenticated POST may legitimately log a 400.
     const version = req.headers['mcp-protocol-version'];
     if (typeof version === 'string' && !(SUPPORTED_PROTOCOL_VERSIONS as readonly string[]).includes(version)) {
       req.resume();
@@ -103,8 +110,10 @@ export function createPublicServer(service: RecallService, store: OAuthStore, op
     if (options.log) {
       // Path only: the query string of /oauth/authorize carries state and PKCE values.
       const path = (req.url ?? '/').split('?')[0].slice(0, 200);
-      const agent = String(req.headers['user-agent'] ?? '-').replace(/[^\x20-\x7e]/g, '?').slice(0, 120);
-      res.on('finish', () => options.log!(`[Recall MCP] ${new Date().toISOString()} ${req.method} ${path} ${res.statusCode} "${agent}"`));
+      const printable = (value: unknown, max: number) => String(value ?? '-').replace(/[^\x20-\x7e]/g, '?').replace(/"/g, "'").slice(0, max);
+      const agent = printable(req.headers['user-agent'], 120);
+      const version = path === '/mcp' ? ` mcp-protocol-version=${printable(req.headers['mcp-protocol-version'], 40).replace(/ /g, '_')}` : '';
+      res.on('finish', () => options.log!(`[Recall MCP] ${new Date().toISOString()} ${req.method} ${path} ${res.statusCode} "${agent}"${version}`));
     }
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -121,7 +130,7 @@ export function createPublicServer(service: RecallService, store: OAuthStore, op
       } else if (method === 'GET' && path === '/oauth/authorize') {
         send(res, auth.authorize(url.searchParams));
       } else if (method === 'POST' && path === '/oauth/authorize') {
-        send(res, auth.approve(await readForm(req)));
+        send(res, await auth.approve(await readForm(req)));
       } else if (method === 'POST' && path === '/oauth/token') {
         send(res, auth.token(await readForm(req), req.headers.authorization));
       } else {

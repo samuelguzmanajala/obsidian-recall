@@ -16,15 +16,23 @@ export interface AuthorizationServerOptions {
   /** `RECALL_TOKEN`: the owner types it on the approval page. */
   ownerToken: string;
   now?: () => number;
+  /** Delay before answering a wrong owner token (default `FAILED_APPROVAL_DELAY_MS`). */
+  failedApprovalDelayMs?: number;
 }
 
 export const SCOPE = 'recall';
 export const ACCESS_TOKEN_TTL_MS = 60 * 60_000;
 export const REFRESH_TOKEN_TTL_MS = 60 * 86_400_000;
 export const CODE_TTL_MS = 60_000;
-export const MAX_FAILED_APPROVALS = 5;
-export const FAILED_APPROVAL_WINDOW_MS = 15 * 60_000;
-const MAX_CLIENTS = 100;
+/**
+ * A wrong owner token is answered after this delay. There is no lockout: behind Funnel every request
+ * comes from the same local proxy, so any shared counter would let a stranger lock the owner out.
+ * The owner token (≥ 32 random characters) is what makes guessing infeasible; the delay only slows
+ * down a naive script and costs nothing to the owner, whose correct token is answered at once.
+ */
+export const FAILED_APPROVAL_DELAY_MS = 1_000;
+/** Registered clients never approved by the owner; at the cap, the oldest of them is evicted. */
+export const MAX_UNAPPROVED_CLIENTS = 100;
 const UNAPPROVED_CLIENT_TTL_MS = 86_400_000;
 const AUTH_METHODS = ['none', 'client_secret_post', 'client_secret_basic'];
 
@@ -62,7 +70,6 @@ function validRedirectUri(value: unknown): value is string {
  */
 export class AuthorizationServer {
   private readonly codes = new Map<string, AuthorizationCode>();
-  private failures: number[] = [];
   private readonly now: () => number;
   constructor(private readonly store: OAuthStore, private readonly options: AuthorizationServerOptions) {
     this.now = options.now ?? Date.now;
@@ -105,8 +112,10 @@ export class AuthorizationServer {
     const clientName = meta.client_name;
     if (clientName !== undefined && (typeof clientName !== 'string' || clientName.length > 200)) return invalid('Invalid client_name');
     const now = this.now();
+    // Registration is anonymous: never-approved clients expire, and a full table makes room by
+    // evicting the oldest of them, so nobody can block the owner from registering a new client.
     this.store.pruneUnapprovedClients(now, UNAPPROVED_CLIENT_TTL_MS);
-    if (this.store.countClients() >= MAX_CLIENTS) return oauthError(429, 'temporarily_unavailable', 'Too many registered clients');
+    this.store.evictOldestUnapprovedClients(MAX_UNAPPROVED_CLIENTS - 1);
     const clientId = randomUUID();
     const secret = method === 'none' ? undefined : random();
     const metadata = {
@@ -144,22 +153,22 @@ export class AuthorizationServer {
     if ('status' in request) return request;
     return { status: 200, html: approvalPage(request.client, request.redirectUri, p) };
   }
-  /** POST /oauth/authorize: the owner approves (with `RECALL_TOKEN`) or denies. */
-  approve(form: URLSearchParams): OAuthResponse {
+  /**
+   * POST /oauth/authorize: the owner approves (with `RECALL_TOKEN`) or denies. The right token is
+   * always accepted at once; a wrong one is answered after `failedApprovalDelayMs`, with no shared
+   * state that failures could exhaust.
+   */
+  async approve(form: URLSearchParams): Promise<OAuthResponse> {
     const request = this.validate(form);
     if ('status' in request) return request;
-    const now = this.now();
     if (form.get('decision') === 'deny') {
       return this.redirect(request.redirectUri, { error: 'access_denied', error_description: 'The owner denied access', state: request.state }, 303);
     }
-    this.failures = this.failures.filter(t => t > now - FAILED_APPROVAL_WINDOW_MS);
-    if (this.failures.length >= MAX_FAILED_APPROVALS) {
-      return { status: 429, html: errorPage('Too many failed attempts. Wait 15 minutes and try again.') };
-    }
     if (!secretEquals(form.get('owner_token') ?? '', this.options.ownerToken)) {
-      this.failures.push(now);
+      await new Promise(r => setTimeout(r, this.options.failedApprovalDelayMs ?? FAILED_APPROVAL_DELAY_MS));
       return { status: 401, html: approvalPage(request.client, request.redirectUri, form, 'Wrong token.') };
     }
+    const now = this.now();
     this.store.markApproved(request.client.clientId, now);
     for (const [key, entry] of this.codes) if (entry.expiresAt + CODE_TTL_MS < now) this.codes.delete(key);
     const code = random();

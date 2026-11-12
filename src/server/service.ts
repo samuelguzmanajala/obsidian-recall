@@ -57,7 +57,8 @@ export class RecallService {
       this.db.stmt("INSERT INTO meta VALUES ('index-tags', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(tags);
     });
   }
-  private async allowance(c: Container) {
+  /** Today's daily-limit counters (read-only; `Infinity` = unlimited). Call inside a transaction. */
+  async allowance(c: Container) {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const day = start.getTime();
     const stored = this.db.stmt('SELECT introduced, reviewed FROM daily_budgets WHERE day_start=?').get(day);

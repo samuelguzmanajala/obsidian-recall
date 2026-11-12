@@ -1,12 +1,27 @@
 import type { RecallService } from '../service';
 import { ToolInputError, type McpTool } from './tools';
 
-/** Handshake-based revisions (newest first). The first is offered when the client asks for an unknown one. */
+/**
+ * Handshake-based ("legacy") revisions, newest first. The first is offered when the client asks for an
+ * unknown one. Revision 2026-07-28 (stateless, no `initialize`) is not implemented: a dual-era client
+ * first sends a modern request, gets our 400 without the modern `UnsupportedProtocolVersionError`
+ * (-32022) and, as that revision specifies, falls back to `initialize` (see `public-server.ts`).
+ */
 export const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const;
 export const SERVER_INFO = { name: 'recall', title: 'Recall', version: '0.1.0' };
 
 type Id = string | number;
 export interface JsonRpcResponse { jsonrpc: '2.0'; id: Id | null; result?: unknown; error?: { code: number; message: string; data?: unknown } }
+
+export const INSTRUCTIONS = 'Recall is the user\'s spaced-repetition flashcard system (typically language vocabulary and grammar, '
+  + 'technical and general-knowledge cards). Act as a tutor and steer the conversation toward what the user needs '
+  + 'to review or keeps failing. list_decks shows the decks and their ids; pass a deck "id" as deckId to narrow the other tools '
+  + 'to that deck and its subdecks. get_due_cards gives what is due now (what to practise first); get_weak_cards ranks what the '
+  + 'user is shaky on, including recent failures; get_leeches lists chronic failures; search_cards checks whether a word or topic '
+  + 'already has a card; get_study_stats summarises progress. Cards have a prompt (the question side) and an answer, '
+  + 'and next: for each rating (again, hard, good, easy) when the card would come back if the user rated it now, so you can tell '
+  + 'them before they answer. Sides are Markdown, so speak their content naturally and skip formatting and image embeds. All tools are read-only: quizzing the user '
+  + 'here does not record reviews or change any schedule, so the user still reviews these cards in the Recall app.';
 
 const PARSE_ERROR = -32700, INVALID_REQUEST = -32600, METHOD_NOT_FOUND = -32601, INVALID_PARAMS = -32602, INTERNAL_ERROR = -32603;
 const failure = (id: Id | null, code: number, message: string): JsonRpcResponse => ({ jsonrpc: '2.0', id, error: { code, message } });
@@ -51,7 +66,7 @@ export class McpProtocol {
         const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.find(v => v === requested) ?? SUPPORTED_PROTOCOL_VERSIONS[0];
         return {
           protocolVersion, serverInfo: SERVER_INFO, capabilities: { tools: { listChanged: false } },
-          instructions: 'Recall is the user\'s spaced-repetition flashcard system. Use its tools to inspect decks and study progress.',
+          instructions: INSTRUCTIONS,
         };
       }
       case 'ping': return {};
@@ -62,7 +77,13 @@ export class McpProtocol {
         if (!tool) throw new ToolInputError(`Unknown tool: ${String(params.name)}`);
         const args = params.arguments === undefined ? {} : params.arguments;
         if (!isObject(args)) throw new ToolInputError('arguments must be an object');
-        return tool.call(this.service, args);
+        // Invalid tool input is a tool execution error (isError), not a protocol error, so the model
+        // sees the message and can retry (MCP 2025-11-25, server/tools "Error Handling").
+        try { return await tool.call(this.service, args); }
+        catch (e) {
+          if (e instanceof ToolInputError) return { content: [{ type: 'text', text: e.message }], isError: true };
+          throw e;
+        }
       }
       default: return undefined;
     }

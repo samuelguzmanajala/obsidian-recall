@@ -7,14 +7,16 @@ import { RecallDatabase } from '../../../src/server/database';
 import { RecallService } from '../../../src/server/service';
 import { createPublicServer } from '../../../src/server/mcp/public-server';
 import { OAuthStore } from '../../../src/server/mcp/oauth-store';
-import { ACCESS_TOKEN_TTL_MS, MAX_FAILED_APPROVALS } from '../../../src/server/mcp/oauth';
+import { ACCESS_TOKEN_TTL_MS, MAX_UNAPPROVED_CLIENTS } from '../../../src/server/mcp/oauth';
+import { RECALL_TOOLS } from '../../../src/server/mcp/tools';
 
 const OWNER = 'owner-secret-'.repeat(4);
 const REDIRECT = 'https://chatgpt.com/connector_platform_oauth_redirect';
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => { for (const f of cleanup.splice(0).reverse()) await f(); });
 
-async function serve(options: { storePath?: string; store?: OAuthStore; issuer?: string; now?: () => number } = {}) {
+async function serve(options: { storePath?: string; store?: OAuthStore; issuer?: string; now?: () => number;
+  failedApprovalDelayMs?: number; log?: (line: string) => void } = {}) {
   const db = new RecallDatabase(':memory:');
   cleanup.push(() => db.close());
   const service = new RecallService(db, { shuffleReviews: false, dailyNewLimit: 0 });
@@ -26,11 +28,12 @@ async function serve(options: { storePath?: string; store?: OAuthStore; issuer?:
   }
   // The issuer is the public URL; the test talks to the loopback port behind it, like Funnel would.
   const issuer = options.issuer ?? 'https://recall.example.ts.net:10000';
-  const server = createPublicServer(service, store, { issuer, resource: `${issuer}/mcp`, ownerToken: OWNER, now: options.now });
+  const server = createPublicServer(service, store, { issuer, resource: `${issuer}/mcp`, ownerToken: OWNER, now: options.now,
+    failedApprovalDelayMs: options.failedApprovalDelayMs ?? 0, log: options.log });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())));
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-  return { base, issuer, service };
+  return { base, issuer, service, store };
 }
 const form = (fields: Record<string, string>) => ({
   method: 'POST', redirect: 'manual' as const, body: new URLSearchParams(fields).toString(),
@@ -127,6 +130,26 @@ describe('public MCP listener: client registration', () => {
     expect((await post({ redirect_uris: [REDIRECT], token_endpoint_auth_method: 'private_key_jwt' })).status).toBe(400);
     expect((await post({ redirect_uris: [REDIRECT], grant_types: ['client_credentials'] })).status).toBe(400);
   });
+  it('never fills up: the oldest never-approved clients make room, approved clients stay', async () => {
+    let now = Date.now();
+    const { base, issuer, store } = await serve({ now: () => now });
+    const { client: owned } = await login(base, issuer); // approved by the owner
+    const strangers = [];
+    for (let i = 0; i < MAX_UNAPPROVED_CLIENTS + 20; i++) { now += 1; strangers.push((await register(base)).client_id); }
+    expect(store.countClients()).toBe(MAX_UNAPPROVED_CLIENTS + 1);
+    expect(store.findClient(strangers[19])).toBeUndefined();
+    expect(store.findClient(strangers[20])).toBeDefined();
+    expect(store.findClient(owned.client_id)).toBeDefined();
+    // The owner can still register and approve a new client right away.
+    now += 1;
+    const fresh = await register(base);
+    expect(store.findClient(strangers[20])).toBeUndefined();
+    expect((await approve(base, authorizeParams(fresh.client_id, pkce().challenge, issuer))).status).toBe(303);
+    // An evicted client is unknown: the approval page tells the owner to add the connector again.
+    const evicted = await fetch(`${base}/oauth/authorize?${new URLSearchParams(authorizeParams(strangers[0], pkce().challenge, issuer))}`);
+    expect(evicted.status).toBe(400);
+    expect(await evicted.text()).toContain('Unknown client');
+  });
 });
 
 describe('public MCP listener: authorization code + PKCE', () => {
@@ -161,26 +184,24 @@ describe('public MCP listener: authorization code + PKCE', () => {
     expect((await rpc(base, refreshed.body.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' })).status).toBe(401);
     expect((await exchange(base, { grant_type: 'refresh_token', refresh_token: refreshed.body.refresh_token, client_id: client.client_id })).status).toBe(400);
   });
-  it('rejects a wrong owner token and throttles repeated failures', async () => {
-    const { base, issuer } = await serve();
+  it('answers a wrong owner token after a delay, and failures never lock the owner out', async () => {
+    const delay = 150;
+    const { base, issuer } = await serve({ failedApprovalDelayMs: delay });
     const client = await register(base);
     const params = authorizeParams(client.client_id, pkce().challenge, issuer);
+    let start = performance.now();
     const wrong = await approve(base, params, 'x'.repeat(OWNER.length));
+    expect(performance.now() - start).toBeGreaterThanOrEqual(delay - 5);
     expect(wrong.status).toBe(401);
     expect(wrong.headers.get('location')).toBeNull();
     expect(await wrong.text()).toContain('Wrong token');
-    for (let i = 1; i < MAX_FAILED_APPROVALS; i++) expect((await approve(base, params, 'short')).status).toBe(401);
-    // Locked out: even the right token is refused until the window passes.
-    expect((await approve(base, params)).status).toBe(429);
-  });
-  it('lets the throttle window expire', async () => {
-    let now = Date.now();
-    const { base, issuer } = await serve({ now: () => now });
-    const client = await register(base);
-    const params = authorizeParams(client.client_id, pkce().challenge, issuer);
-    for (let i = 0; i < MAX_FAILED_APPROVALS; i++) await approve(base, params, 'wrong');
-    expect((await approve(base, params)).status).toBe(429);
-    now += 16 * 60_000;
+    // A stranger hammering the page (all requests come from the same local proxy behind Funnel)...
+    const flood = Array.from({ length: 30 }, () => approve(base, params, 'guess'));
+    // ...does not delay or block the owner, even while the failures are still pending.
+    start = performance.now();
+    expect((await approve(base, params)).status).toBe(303);
+    expect(performance.now() - start).toBeLessThan(delay);
+    expect((await Promise.all(flood)).map(r => r.status)).toEqual(Array(30).fill(401));
     expect((await approve(base, params)).status).toBe(303);
   });
   it('never redirects to an unregistered redirect URI', async () => {
@@ -300,9 +321,10 @@ describe('public MCP listener: MCP over Streamable HTTP', () => {
     expect(await initialized.text()).toBe('');
 
     const list = await (await rpc(base, token, { jsonrpc: '2.0', id: 2, method: 'tools/list' }, v)).json();
-    expect(list.result.tools).toHaveLength(1);
-    expect(list.result.tools[0]).toMatchObject({ name: 'list_decks', inputSchema: { type: 'object' },
-      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } });
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(RECALL_TOOLS.map(t => t.name));
+    for (const t of list.result.tools) {
+      expect(t).toMatchObject({ inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false } });
+    }
 
     const call = await (await rpc(base, token, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_decks', arguments: {} } }, v)).json();
     const expected = await service.query(async c => ({ decks: await c.getDeckTree.execute() }));
@@ -310,6 +332,26 @@ describe('public MCP listener: MCP over Streamable HTTP', () => {
     expect(call.result.structuredContent).toEqual(expected);
     expect(JSON.parse(call.result.content[0].text)).toEqual(expected);
     expect(expected.decks.length).toBeGreaterThan(0);
+
+    // Bad tool input is a tool execution error the model can read and correct, not a protocol error.
+    const bad = await (await rpc(base, token, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_due_cards', arguments: { limit: 500 } } }, v)).json();
+    expect(bad.error).toBeUndefined();
+    expect(bad.result).toEqual({ content: [{ type: 'text', text: 'limit must be an integer from 1 to 50' }], isError: true });
+    const due = await (await rpc(base, token, { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'get_due_cards', arguments: { limit: 1 } } }, v)).json();
+    expect(due.result.structuredContent.cards).toEqual([expect.objectContaining({ prompt: 'hola', answer: 'hello', state: 'new' })]);
+  });
+  it('logs one line per request, with the MCP-Protocol-Version of /mcp requests', async () => {
+    const lines: string[] = [];
+    const { base, issuer } = await serve({ log: line => lines.push(line) });
+    const { tokens } = await login(base, issuer);
+    lines.length = 0;
+    await rpc(base, tokens.access_token, { jsonrpc: '2.0', id: 1, method: 'ping' }, { 'MCP-Protocol-Version': '2026-07-28', 'User-Agent': 'probe "x"' });
+    await rpc(base, tokens.access_token, { jsonrpc: '2.0', id: 2, method: 'ping' });
+    await fetch(`${base}/.well-known/oauth-authorization-server`);
+    await new Promise(r => setTimeout(r, 20));
+    expect(lines[0]).toMatch(/^\[Recall MCP\] \S+ POST \/mcp 400 "probe 'x'" mcp-protocol-version=2026-07-28$/);
+    expect(lines[1]).toMatch(/ POST \/mcp 200 "\S+" mcp-protocol-version=-$/);
+    expect(lines[2]).toMatch(/ GET \/.well-known\/oauth-authorization-server 200 "\S+"$/);
   });
   it('negotiates unknown versions down and rejects bad requests', async () => {
     const { base, issuer } = await serve();

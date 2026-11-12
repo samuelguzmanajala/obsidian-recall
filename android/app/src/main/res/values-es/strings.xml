@@ -45,6 +45,7 @@
     <string name="session_show_answer">Mostrar respuesta</string>
     <string name="session_question">Pregunta</string>
     <string name="session_answer">Respuesta</string>
+    <string name="card_image_unavailable">Imagen «%1$s»: aún no disponible en el móvil</string>
     <string name="session_done_title">Sesión completa</string>
     <string name="session_done_zero">No había tarjetas pendientes en este mazo.</string>
     <plurals name="session_done_count">

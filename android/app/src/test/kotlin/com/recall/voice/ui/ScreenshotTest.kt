@@ -1,6 +1,8 @@
 package com.recall.voice.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -8,6 +10,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -161,6 +164,46 @@ class ScreenshotTest(private val dark: Boolean) {
     SessionState.Error("failed to connect to /192.168.1.10 (port 27124)", com.recall.voice.session.ErrorKind.ReviewsNotSaved),
     history = history + Station(Rating.Good, StationStatus.Pending) + Station(Rating.Easy, StationStatus.Pending),
   )
+
+  /** Real formulas from the user's statistics deck, mixed with Spanish text, a list, display math and an image. */
+  private val formulaCard = card.copy(
+    studyItemId = "s2",
+    sideA = "¿Por qué la media recortada se divide entre \$n-2p\$ y no entre \$n\$?",
+    sideB = "Porque se elimina un número fijo \$p\$ de valores en cada extremo. " +
+      "La media es \$\\bar{x}=\\frac{\\sum_{i=1}^n{x_i}}{n}\$ y la recortada usa solo lo que queda:\n\n" +
+      "- Características (Features / \$X\$)\n" +
+      "- Ponderada: \$\\bar{x}_w=\\frac{\\sum_{i=1}^nW_{i}X_i}{\\sum_{i=1}^nW_{i}}\$\n" +
+      "- Cuesta \$5 y \$10, sin fórmula\n\n" +
+      "\$\$\n\\bar{x}_t=\\frac{1}{n-2p}\\sum_{i=p+1}^{n-p}x_{(i)}\n\$\$\n\n" +
+      "![[media-recortada.png]]",
+  )
+
+  @Test fun sessionFormulas() = session("session-formulas", SessionState.ListeningRating(formulaCard, 7, 23))
+
+  @Test fun sessionFormulasFont130() = session(
+    "session-formulas-font130",
+    SessionState.ListeningRating(formulaCard, 7, 23),
+    fontScale = 1.3f,
+  )
+
+  /**
+   * The whole answer at full length, since the session card scrolls: checks nothing below the fold
+   * is clipped, including a display formula wider than the card.
+   */
+  @Test fun sessionFormulasFull() = shoot("session-formulas-full") {
+    val c = com.recall.voice.ui.theme.Recall.colors
+    androidx.compose.foundation.layout.Box(
+      Modifier.padding(16.dp).background(c.card, MaterialTheme.shapes.large).padding(22.dp),
+    ) {
+      CardText(
+        markdown = formulaCard.sideB + "\n\nUna fórmula ancha:\n\n" +
+          "\$\$\nS^2=\\frac{1}{n-1}\\sum_{i=1}^{n}\\left(x_i-\\bar{x}\\right)^2=\\frac{1}{n-1}\\left(\\sum_{i=1}^{n}x_i^2-n\\bar{x}^2\\right)\n\$\$\n\n" +
+          "Y una que no se puede leer: \$\\frac{1}{\$",
+        style = MaterialTheme.typography.titleLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.W500),
+        color = c.onCard,
+      )
+    }
+  }
 
   // Home
 

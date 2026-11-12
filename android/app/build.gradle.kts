@@ -84,6 +84,10 @@ dependencies {
   // Coroutines
   implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+  // TeX layout for formulas on cards, drawn on a Canvas with bundled Computer Modern fonts.
+  // GPL-2.0-or-later with the Classpath exception; see licenses/JLaTeXMath-GPL2-classpath-exception.txt.
+  implementation("ru.noties:jlatexmath-android:0.2.0")
+
   // Tests
   testImplementation("org.junit.jupiter:junit-jupiter:5.10.3")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

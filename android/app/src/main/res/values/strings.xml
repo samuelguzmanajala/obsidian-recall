@@ -48,6 +48,7 @@
     <string name="session_show_answer">Show answer</string>
     <string name="session_question">Question</string>
     <string name="session_answer">Answer</string>
+    <string name="card_image_unavailable">Image “%1$s”: not available on the phone yet</string>
     <string name="session_done_title">Session complete</string>
     <string name="session_done_zero">No cards were due in this deck.</string>
     <plurals name="session_done_count">

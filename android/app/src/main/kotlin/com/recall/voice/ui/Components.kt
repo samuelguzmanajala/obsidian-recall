@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -28,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -219,40 +224,74 @@ fun CardText(markdown: String, style: TextStyle, color: Color, modifier: Modifie
   SelectionContainer(modifier) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
       for (block in blocks) when (block) {
-        is MdBlock.Paragraph -> Text(annotate(block.spans, c), style = style, color = color)
-        is MdBlock.Heading -> Text(annotate(block.spans, c), style = style.copy(fontWeight = FontWeight.W800), color = color)
+        is MdBlock.Paragraph -> InlineMathText(block.spans, style, color, c)
+        is MdBlock.Heading -> InlineMathText(block.spans, style.copy(fontWeight = FontWeight.W800), color, c)
         is MdBlock.Item -> Row(Modifier.padding(start = (block.depth * 20).dp)) {
-          Text(block.marker, style = style, color = c.onCardMuted, modifier = Modifier.width(28.dp))
-          Text(annotate(block.spans, c), style = style, color = color)
+          // On the first line's baseline, which a tall formula pushes down.
+          Text(block.marker, style = style, color = c.onCardMuted, modifier = Modifier.width(28.dp).alignByBaseline())
+          InlineMathText(block.spans, style, color, c, Modifier.alignByBaseline())
         }
-        is MdBlock.Code -> Text(
-          block.text,
-          style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp, lineHeight = 22.sp),
-          color = color,
-          softWrap = false,
-          modifier = Modifier
-            .fillMaxWidth()
-            .background(c.cardCode, MaterialTheme.shapes.small)
-            .horizontalScroll(rememberScrollState())
-            .padding(12.dp),
-        )
+        is MdBlock.Code -> CodePanel(block.text, CardCodeStyle, color, c)
+        is MdBlock.Math -> DisplayMath(block.latex, style, color, CardCodeStyle, c)
+        is MdBlock.Image -> ImagePlaceholder(block, c)
       }
     }
   }
 }
 
-private fun annotate(spans: List<MdSpan>, c: RecallColors): AnnotatedString = buildAnnotatedString {
-  for (span in spans) {
-    val style = SpanStyle(
-      fontWeight = if (span.bold) FontWeight.W800 else null,
-      fontStyle = if (span.italic) FontStyle.Italic else null,
-      fontFamily = if (span.code) FontFamily.Monospace else null,
-      background = when {
-        span.code -> c.cardCode
-        span.mark -> c.cardMark
-        else -> Color.Unspecified
-      },
+/** Monospace for code inside card content: the one place the system leaves Encode Sans. */
+private val CardCodeStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp, lineHeight = 22.sp)
+
+/** Block code, or a formula that could not be typeset, on the card-code tone; scrolls sideways. */
+@Composable
+internal fun CodePanel(text: String, style: TextStyle, color: Color, c: RecallColors) {
+  Text(
+    text,
+    style = style,
+    color = color,
+    softWrap = false,
+    modifier = Modifier
+      .fillMaxWidth()
+      .background(c.cardCode, MaterialTheme.shapes.small)
+      .horizontalScroll(rememberScrollState())
+      .padding(12.dp),
+  )
+}
+
+/**
+ * Where an embedded image goes until the server serves attachments: an image icon and a sentence
+ * naming the file, inside a keyline so it reads as a missing picture rather than card text.
+ */
+@Composable
+private fun ImagePlaceholder(image: MdBlock.Image, c: RecallColors) {
+  Row(
+    Modifier
+      .fillMaxWidth()
+      .border(2.dp, c.cardRule, MaterialTheme.shapes.small)
+      .padding(horizontal = 16.dp, vertical = 14.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(Icons.Outlined.Image, contentDescription = null, tint = c.onCardMuted)
+    Text(
+      stringResource(R.string.card_image_unavailable, image.fileName),
+      style = MaterialTheme.typography.bodyLarge,
+      color = c.onCardMuted,
     )
-    withStyle(style) { append(span.text) }
   }
+}
+
+/** One plain span with its emphasis, code and highlight styles. */
+internal fun styled(span: MdSpan, c: RecallColors): AnnotatedString = buildAnnotatedString {
+  val style = SpanStyle(
+    fontWeight = if (span.bold) FontWeight.W800 else null,
+    fontStyle = if (span.italic) FontStyle.Italic else null,
+    fontFamily = if (span.code) FontFamily.Monospace else null,
+    background = when {
+      span.code -> c.cardCode
+      span.mark -> c.cardMark
+      else -> Color.Unspecified
+    },
+  )
+  withStyle(style) { append(span.text) }
 }

@@ -111,17 +111,31 @@ export class RecallDatabase {
     if (!statement) this.statements.set(source, statement = this.sql.prepare(source));
     return statement;
   }
+  /**
+   * Runs `hook` synchronously right after the current transaction commits; never if it rolls back.
+   * For in-memory state that must mirror committed rows (e.g. cached settings).
+   */
+  onCommit(hook: () => void): void {
+    if (!this.commitHooks) throw new Error('onCommit requires a transaction');
+    this.commitHooks.push(hook);
+  }
+  private commitHooks: (() => void)[] | null = null;
   transaction<T>(work: () => Promise<T>): Promise<T> {
     const result = this.tail.then(async () => {
       this.sql.exec(this.readOnly ? 'BEGIN' : 'BEGIN IMMEDIATE');
+      const hooks: (() => void)[] = this.commitHooks = [];
+      let value: T;
       try {
-        const value = await work();
+        value = await work();
         this.sql.exec('COMMIT');
-        return value;
       } catch (error) {
         this.sql.exec('ROLLBACK');
         throw error;
+      } finally {
+        this.commitHooks = null;
       }
+      for (const hook of hooks) hook();
+      return value;
     });
     this.tail = result.catch(() => {});
     return result;

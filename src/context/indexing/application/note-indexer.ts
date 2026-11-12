@@ -36,8 +36,11 @@ export interface NoteIndexerDeps {
   nestDeck: Pick<NestDeck, 'execute'>;
   addStudyItemToDeck: Pick<AddStudyItemToDeck, 'execute'>;
   removeStudyItemFromDeck: Pick<RemoveStudyItemFromDeck, 'execute'>;
-  /** Tags to index. Only notes with at least one matching tag (or subtag) are indexed. Empty = all. */
-  allowedTags?: string[];
+  /**
+   * Tags to index. Only notes with at least one matching tag (or subtag) are indexed. Empty = all.
+   * A function is read on every sync, so the filter can change at runtime (server study settings).
+   */
+  allowedTags?: readonly string[] | (() => readonly string[]);
 }
 
 /** A card as written in a note (or decoded from its key). */
@@ -53,11 +56,12 @@ export class NoteIndexer {
 
   private static readonly UNTAGGED_DECK_TAG = '__untagged__';
 
-  /** Tags the user configured. Empty = allow all. */
-  private readonly allowedTags: string[];
+  constructor(private readonly deps: NoteIndexerDeps) {}
 
-  constructor(private readonly deps: NoteIndexerDeps) {
-    this.allowedTags = deps.allowedTags ?? [];
+  /** Tags the user configured, as of now. Empty = allow all. */
+  private get allowedTags(): readonly string[] {
+    const tags = this.deps.allowedTags;
+    return typeof tags === 'function' ? tags() : tags ?? [];
   }
 
   /**
@@ -66,9 +70,10 @@ export class NoteIndexer {
    * → returns [dev, German] (kafka excluded)
    */
   private filterToAllowedTags(noteTags: string[]): string[] {
-    if (this.allowedTags.length === 0) return noteTags;
+    const allowedTags = this.allowedTags;
+    if (allowedTags.length === 0) return noteTags;
     return noteTags.filter(noteTag =>
-      this.allowedTags.some(allowed =>
+      allowedTags.some(allowed =>
         noteTag === allowed || noteTag.startsWith(allowed + '/'),
       ),
     );
@@ -80,9 +85,10 @@ export class NoteIndexer {
    * Empty allowedTags = everything passes.
    */
   private matchesTagFilter(noteTags: string[]): boolean {
-    if (this.allowedTags.length === 0) return true;
+    const allowedTags = this.allowedTags;
+    if (allowedTags.length === 0) return true;
     return noteTags.some(noteTag =>
-      this.allowedTags.some(allowed =>
+      allowedTags.some(allowed =>
         noteTag === allowed || noteTag.startsWith(allowed + '/'),
       ),
     );

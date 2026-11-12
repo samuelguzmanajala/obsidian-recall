@@ -1,5 +1,7 @@
 import { isBackendConfigured, type PluginSettings } from './plugin-settings';
-import type { ReviewCommand, SourceLocation, StudyClient } from './study-client';
+import type {
+  ReviewCommand, SettingsUpdate, SettingsUpdateResult, SourceLocation, StudyClient, StudySettingsState, TagListing,
+} from './study-client';
 import type { DueStudyItemView } from '../../context/study/application/study-item-view';
 import type { SerializedSyncState } from '../../context/shared/infrastructure/json-storage';
 import type { Rating } from '../../context/study/domain/rating';
@@ -123,6 +125,9 @@ export class RemoteClient implements StudyClient {
     this.savePending();
     this.notifyChanged();
   } };
+  getStudySettings(): Promise<StudySettingsState> { return this.request('/settings'); }
+  getTags(): Promise<TagListing> { return this.request('/tags'); }
+  updateStudySettings(command: SettingsUpdate): Promise<SettingsUpdateResult> { return this.request('/settings', command); }
   findSource(conceptId: string): SourceLocation | null { return this.sources.get(conceptId) ?? null; }
   get expandedDeckIds(): readonly string[] { return this.settings.expandedDeckIds; }
   toggleDeckExpanded(deckId: string): void {

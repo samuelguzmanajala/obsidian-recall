@@ -16,13 +16,16 @@ antiguo modo local: el plugin no abre `recall-data` (tampoco lo borra ni lo modi
 reproduce historiales ni sirve la API de voz. Android funciona aunque Obsidian esté cerrado,
 siempre que el servidor esté disponible.
 
-En Recall Settings solo se configuran la URL del backend, el token y la publicación de notas.
+En Recall Settings se configuran la URL del backend, el token y la publicación de notas.
 Los cambios de URL o token se aplican al recargar el plugin; mientras falten, las vistas
-indican que hay que configurar el backend. Tags, límites diarios, umbral de sanguijuelas,
-orden aleatorio y audio son variables de entorno del servidor (`RECALL_TAGS`,
-`RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`,
-`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
-tags…) se conservan sin usarse; si las necesitas, pásalas al entorno del backend.
+indican que hay que configurar el backend. Con el backend configurado, la sección **Estudio**
+de los mismos ajustes permite elegir los tags que se siguen, los límites diarios, el umbral
+de sanguijuelas y el orden aleatorio; se guardan en el servidor (ver
+[Ajustes de estudio](#ajustes-de-estudio)). Sus valores iniciales salen de las variables de
+entorno del servidor (`RECALL_TAGS`, `RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`,
+`RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`). El audio solo se configura en el entorno
+(`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
+tags…) se conservan sin usarse.
 
 Es una instalación personal (una cuenta y un vault), no un SaaS multiusuario. Todas las
 peticiones autenticadas acceden al mismo conjunto de datos. No hay autenticación de usuarios,
@@ -72,7 +75,8 @@ archivos de origen, y se niega a sobrescribir una base ya poblada.
    ```
 
 5. Configura `RECALL_DB` con ese destino y `RECALL_TAGS` con los tags que ya utilizabas
-   (separados por comas, sin `#`). Arranca el backend y comprueba mazos y estadísticas.
+   (separados por comas, sin `#`; después puedes cambiarlos desde la sección **Estudio** de
+   Recall Settings). Arranca el backend y comprueba mazos y estadísticas.
 6. Instala el plugin compilado (`main.js`, `manifest.json`, `styles.css`) y el nuevo APK.
    En Recall Settings introduce URL y token, y recarga el plugin. Repítelo en cada Obsidian
    que utilices. (El antiguo interruptor **Use standalone backend** ya no existe; si tu
@@ -121,8 +125,8 @@ Puedes conservar ambas versiones y resolverlas manualmente. Para reanudar desde 
 publica primero una copia idéntica a la versión remota (reconoce su revisión), y después tu
 edición combinada. No borres cursores para forzar una sobrescritura.
 
-Cambiar `RECALL_TAGS` y reiniciar reindexa las notas que ya están publicadas. El historial se
-mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
+Cambiar los tags seguidos (desde **Estudio** o, sin ajustes guardados, cambiando `RECALL_TAGS`
+y reiniciando) reindexa las notas que ya están publicadas. El historial se mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
 hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido, con
 una excepción para las ediciones.
 
@@ -187,6 +191,9 @@ Todas las rutas salvo health exigen `Authorization: Bearer <token>`.
 | GET `/api/v1/audio/:id/question` o `/answer` | Voz remota opcional |
 | GET `/api/v1/proposals?status=pending` | Tarjetas propuestas desde el conector MCP (ver abajo) |
 | POST `/api/v1/proposals/accept`, `/dismiss` | Aceptar o descartar una propuesta (idempotente) |
+| GET `/api/v1/settings` | Ajustes de estudio vigentes, su origen y su revisión |
+| POST `/api/v1/settings` | Cambio de ajustes de estudio (idempotente, con revisión y `dryRun`) |
+| GET `/api/v1/tags` | Tags de las notas publicadas con notas y tarjetas que cubren |
 
 Ejemplo de respuesta enviada por un cliente:
 
@@ -219,6 +226,80 @@ Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para un
 Para renombrar: `{operationId, path, newPath, expectedRevision}`. Las rutas son relativas al
 vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el renombrado.
 
+## Ajustes de estudio
+
+Tags seguidos, límites diarios, umbral de sanguijuelas y orden aleatorio son estado del
+servidor, en la tabla `meta` (clave `study-settings`, un JSON con la revisión y los cinco
+valores); no hay migración de esquema. Reglas de precedencia:
+
+- Mientras no se haya guardado nada, se aplican las variables de entorno (`RECALL_TAGS`,
+  `RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`) y
+  `GET /settings` devuelve `source: "environment"`. Arrancar no escribe nada.
+- El primer `POST /settings` guarda **los cinco** valores (los que no se envían se copian de
+  los vigentes). Desde entonces ganan los guardados (`source: "stored"`), también tras
+  reiniciar; cambiar el entorno ya no tiene efecto hasta volver a él.
+- Para volver al entorno: `POST /settings` con `"reset": true` (en Obsidian, **Volver a los
+  valores del entorno**). Se guarda `settings: null` y la revisión sigue contando, así que
+  un cliente con una revisión anterior sigue recibiendo 409.
+
+Un cambio se aplica al instante, sin reiniciar, a HTTP, Android y MCP: la siguiente consulta
+de `/due`, `/leeches` o una herramienta MCP usa los valores nuevos, y la siguiente nota
+publicada usa el filtro de tags nuevo.
+
+`GET /api/v1/settings` →
+`{"settings":{"flashcardTags":["German"],"dailyNewLimit":20,"dailyReviewLimit":0,"leechThreshold":8,"shuffleReviews":true},"source":"environment","revision":0}`
+
+`POST /api/v1/settings`:
+
+```json
+{"operationId":"uuid","expectedRevision":0,"settings":{"flashcardTags":["German","Spanish"],"dailyNewLimit":10},"dryRun":true}
+```
+
+- `settings`: uno o más de los cinco campos; un campo desconocido es un 400. `flashcardTags`:
+  hasta 200 tags de 1–200 caracteres, sin `#` ni caracteres de control; se recortan espacios,
+  se quitan duplicados y se ordenan. Una lista vacía sigue **todas** las notas con tarjetas.
+  `dailyNewLimit` y `dailyReviewLimit`: enteros 0–100000 (0 = sin límite).
+  `leechThreshold`: entero 0–1000. `shuffleReviews`: booleano.
+- `reset: true` en lugar de `settings` vuelve al entorno; enviar ambos es un 400.
+- `expectedRevision` es la `revision` leída; si otro cliente cambió los ajustes, 409
+  (`Settings changed on another device; reload them`), también en un `dryRun`.
+- `operationId` hace el cambio idempotente con el mismo mecanismo de recibos que repasos y
+  notas: un reintento devuelve el resultado original; el mismo ID con otro contenido, 409.
+- `dryRun: true` calcula exactamente lo mismo dentro de una transacción que siempre se
+  revierte: no guarda ajustes, ni recibo, ni cambia revisiones, índice o mazos. La respuesta
+  lleva `"dryRun": true`. Obsidian lo usa para pedir confirmación.
+
+Respuesta: `{"settings":{…vigentes…},"source":"stored","revision":1,"impact":{"notes":3300,"cardsBefore":5500,"cardsAfter":3000,"cardsAdded":0,"cardsRemoved":2500,"decksBefore":10,"decksAfter":4}}`.
+`notes` son las notas publicadas reindexadas (0 si los tags no cambian), `cards*` cuentan
+tarjetas (cada dirección cuenta) y `decks*` los mazos con al menos una tarjeta (los mazos que
+se quedan vacíos siguen en el árbol, como al reiniciar con otros `RECALL_TAGS`).
+
+Qué hace un cambio de tags: en la misma transacción que guarda los ajustes se vuelve a
+sincronizar cada nota publicada con el filtro nuevo, igual que el reindexado de arranque. Las
+tarjetas que dejan de seguirse desaparecen de mazos y colas, pero el historial de repasos no
+se toca; si se vuelve a seguir su tag, reaparecen con los mismos IDs y su estado
+(se reproduce su historial). Las revisiones de las tarjetas afectadas suben, así que un
+repaso en cola de una tarjeta retirada se rechaza (404/409) y los clientes refrescan. Las
+tarjetas que aparecen encolan su audio en segundo plano tras confirmar, como al publicar una
+nota. Con ~3300 notas y ~5500 tarjetas, el reindexado tarda unos 3–4 s (y otro tanto el
+`dryRun`); mientras dura, el resto de peticiones espera su turno.
+
+`GET /api/v1/tags` →
+`{"tags":[{"tag":"German","notes":3,"cards":4,"selected":true,"followed":true},{"tag":"German/grammar","notes":1,"cards":3,"selected":false,"followed":true}],"untagged":{"notes":1,"cards":1,"followed":false}}`
+
+- Cada tag del frontmatter de las notas publicadas, más sus antecesores (`German` aparece
+  aunque solo haya `German/grammar`) y los tags seleccionados que ya no tiene ninguna nota.
+  Orden por nombre (orden de código, mayúsculas antes).
+- `notes` y `cards`: lo que cubre seguir ese tag (él y sus subtags), sea cual sea el filtro
+  actual; `cards` cuenta las tarjetas que el parser encuentra en cada nota (`:::` cuenta 2).
+  Una tarjeta repetida en dos notas cuenta dos veces.
+- `selected`: está en `flashcardTags`. `followed`: sus notas se estudian con el filtro actual
+  (él o un antecesor está seleccionado, o la lista está vacía).
+- `untagged`: notas sin tags. Solo se estudian (mazo «Untagged») con la lista vacía; con
+  cualquier tag seleccionado quedan fuera, igual que las notas cuyos tags no coinciden.
+- Las notas se analizan una vez y se recuerdan por revisión: solo se vuelven a leer las que
+  cambiaron (la primera consulta con ~3300 notas tarda unos 15 ms; las siguientes, ~3 ms).
+
 ## Conector MCP para ChatGPT (opcional)
 
 El backend puede ofrecer un servidor MCP remoto (transporte Streamable HTTP) protegido con
@@ -234,7 +315,7 @@ ChatGPT» más abajo).
 | `list_decks` | — | Árbol de mazos (`id`, `name`, totales, pendientes y nuevas), como `GET /api/v1/decks` |
 | `get_due_cards` | `deckId?`, `limit?` | La cola de ahora: repasos pendientes (los más atrasados primero) y después nuevas, dentro de lo que permiten hoy los límites diarios, cada una con `next` (cuándo volvería según la nota); más los recuentos `reviewsDue`, `newCardsDue`, `reviewsLeftToday`, `newLeftToday` |
 | `get_weak_cards` | `deckId?`, `limit?`, `days?` (1–90, 30) | Tarjetas flojas, de peor a mejor (ver abajo) |
-| `get_leeches` | `deckId?`, `limit?` | Sanguijuelas: lapsos ≥ `RECALL_LEECH_THRESHOLD`, como `GET /api/v1/leeches` |
+| `get_leeches` | `deckId?`, `limit?` | Sanguijuelas: lapsos ≥ el umbral vigente (ajustes de estudio), como `GET /api/v1/leeches` |
 | `search_cards` | `query`, `deckId?`, `limit?` | Tarjetas cuyo anverso o reverso contiene el texto, con cada dirección que estudias |
 | `get_study_stats` | — | `GET /api/v1/stats` más lo que queda hoy de los límites diarios |
 

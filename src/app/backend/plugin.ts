@@ -31,7 +31,7 @@ export default class RecallPlugin extends Plugin {
     this.addRibbonIcon('brain', 'Recall', () => this.activateDeckBrowser());
     this.addCommand({ id: 'open-deck-browser', name: 'Open deck browser', callback: () => this.activateDeckBrowser() });
     this.addCommand({ id: 'start-review', name: 'Start review', callback: () => this.openReview() });
-    this.addSettingTab(new RecallSettingTab(this.app, this));
+    this.addSettingTab(new RecallSettingTab(this.app, this, client));
     const status = this.addStatusBarItem();
     if (!client.isConfigured()) {
       // Views explain the missing configuration; nothing to recover or publish until reload.

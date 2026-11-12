@@ -14,7 +14,9 @@ server and can publish your notes. The former local mode (scheduling data in the
 `recall-data/` folder and an embedded voice API) has been removed; the plugin no longer
 reads that folder and never modifies it. See **[Backend setup, safe migration and
 protocol](docs/backend.md)** to import an old `recall-data` folder and to configure the
-plugin (backend URL and token; tags, limits and audio are server environment variables).
+plugin (backend URL and token; tags to follow, daily limits, leech threshold and shuffle are
+chosen in the plugin's **Estudio** settings and stored on the server, starting from the server's
+environment variables; audio is configured on the server).
 
 The verified installation on Samuel's Mac is documented in
 [macOS deployment and recovery](docs/macos-deployment.md), including backup locations

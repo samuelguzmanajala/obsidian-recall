@@ -71,6 +71,13 @@ export function createRecallServer(service: RecallService, token: string, audio?
       } else if (req.method === 'POST' && path === '/api/v1/notes/rename') {
         // No audio work: renaming keeps study item ids, and cache files are named after them.
         result = await service.renameNote(await readBody(req));
+      } else if (req.method === 'GET' && path === '/api/v1/settings') {
+        result = await service.readSettings();
+      } else if (req.method === 'POST' && path === '/api/v1/settings') {
+        // Cards created by a tag change get their audio like a published note: after the commit, never awaited.
+        result = await service.updateSettings(await readBody(req), ids => audioQueue?.enqueue(ids));
+      } else if (req.method === 'GET' && path === '/api/v1/tags') {
+        result = await service.tags();
       } else if (req.method === 'POST' && path === '/api/v1/reviews') {
         const body = record(await readBody(req));
         if (!Array.isArray(body.reviews) || body.reviews.length < 1 || body.reviews.length > 100) throw new ApiError(400, 'Expected 1–100 reviews');

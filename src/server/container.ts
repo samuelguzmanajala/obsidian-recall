@@ -87,8 +87,8 @@ export class Container {
   // Markdown → domain commands
   readonly indexer: NoteIndexer;
 
-  /** `flashcardTags`: tags to index (empty = all). */
-  constructor(db: RecallDatabase, flashcardTags: string[] = []) {
+  /** `flashcardTags`: tags to index (empty = all); a function is read on every note sync. */
+  constructor(db: RecallDatabase, flashcardTags: readonly string[] | (() => readonly string[]) = []) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();

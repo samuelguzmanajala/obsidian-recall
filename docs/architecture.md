@@ -26,7 +26,7 @@ requires `obsidian`.
 
 - **DDD** — aggregates, value objects and repository ports
 - **CQRS** — commands change aggregates; queries return read models (`DueStudyItemView`,
-  `DeckTreeNode`, `StudyStats`, `LeechView`)
+  `DeckTreeNode`, `StudyStats`, `LeechView`, `WeakStudyItemView`)
 - **Vertical slicing** — each aggregate owns its domain, application and infrastructure code
 - **Hexagonal architecture** — the domain defines ports, infrastructure provides adapters
 - **ACL (Anti-Corruption Layer)** — the parser and the note indexer translate Markdown into
@@ -43,7 +43,7 @@ src/
 │   │   └── infrastructure/          # Markdown + frontmatter parsers
 │   ├── study/
 │   │   ├── domain/                  # StudyItem aggregate, MemoryState, Rating, Review, ports
-│   │   ├── application/             # create, remove, review; due/stats/leech queries
+│   │   ├── application/             # create, remove, review; due/stats/leech/weak queries
 │   │   └── infrastructure/          # FSRS scheduler
 │   ├── deck/
 │   │   ├── domain/                  # Deck aggregate (hierarchical), repository port
@@ -66,6 +66,7 @@ src/
 │   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
 │   ├── server-settings.ts           # ServerSettings + defaults
 │   ├── auth.ts, send-json.ts        # HTTP helpers
+│   ├── mcp/                         # Optional public listener: MCP tools + single-user OAuth (own SQLite file)
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
 ├── app/                             # Obsidian plugin (backend client only)
 │   ├── backend/

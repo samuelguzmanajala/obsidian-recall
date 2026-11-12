@@ -10,7 +10,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.Locale
 import kotlin.coroutines.resume
 
-class TtsEngine(context: Context) {
+class TtsEngine(context: Context, private val speechRate: Float = 1f) {
 
   private val initSignal = CompletableDeferred<Boolean>()
   private val tts: TextToSpeech = TextToSpeech(context.applicationContext) { status ->
@@ -28,6 +28,7 @@ class TtsEngine(context: Context) {
   suspend fun speak(text: String, locale: Locale): Boolean = suspendCancellableCoroutine { cont ->
     val id = "u-${System.nanoTime()}"
     tts.language = locale
+    tts.setSpeechRate(speechRate)
     tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
       override fun onStart(utteranceId: String?) {}
       override fun onDone(utteranceId: String?) {

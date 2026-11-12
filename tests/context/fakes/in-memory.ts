@@ -4,6 +4,7 @@
 import type { ConceptRepository } from '@context/concept/domain/concept-repository';
 import { Concept } from '@context/concept/domain/concept';
 import type { ConceptId } from '@context/concept/domain/concept-id';
+import { foldText, sidesContain } from '@context/concept/domain/text-match';
 import type { StudyItemRepository } from '@context/study/domain/study-item-repository';
 import { StudyItem } from '@context/study/domain/study-item';
 import type { StudyItemId } from '@context/study/domain/study-item-id';
@@ -23,6 +24,10 @@ export class InMemoryConceptRepository implements ConceptRepository {
   async save(concept: Concept) { this.rows.set(concept.id.value, copyConcept(concept)); }
   async findById(id: ConceptId) { const c = this.rows.get(id.value); return c ? copyConcept(c) : null; }
   async findAll() { return [...this.rows.values()].map(copyConcept); }
+  async findContaining(text: string) {
+    const folded = foldText(text);
+    return (await this.findAll()).filter(c => sidesContain(c.sideA.content, c.sideB.content, folded));
+  }
   async remove(id: ConceptId) { this.rows.delete(id.value); }
 }
 

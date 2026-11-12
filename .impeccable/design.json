@@ -1,0 +1,683 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T23:08:00Z",
+  "title": "Design System: Recall",
+  "extensions": {
+    "colorMeta": {
+      "midnight": {
+        "role": "primary",
+        "displayName": "Midnight Enamel",
+        "canonical": "#0B1230",
+        "tonalRamp": [
+          "#070A16",
+          "#202638",
+          "#39415A",
+          "#576282",
+          "#7885AA",
+          "#9EAACB",
+          "#C3CDEA",
+          "#E8EEFE"
+        ]
+      },
+      "midnight-low": {
+        "role": "neutral",
+        "displayName": "Midnight Low",
+        "canonical": "#111A40",
+        "tonalRamp": [
+          "#060A19",
+          "#1E253C",
+          "#37415F",
+          "#556288",
+          "#7584B2",
+          "#9CAAD2",
+          "#C1CDF0",
+          "#E8EEFF"
+        ]
+      },
+      "midnight-raised": {
+        "role": "neutral",
+        "displayName": "Midnight Raised",
+        "canonical": "#172052",
+        "tonalRamp": [
+          "#06091C",
+          "#1D2441",
+          "#354066",
+          "#526091",
+          "#7283BC",
+          "#99A9DB",
+          "#BECCF8",
+          "#E9EEFE"
+        ]
+      },
+      "midnight-high": {
+        "role": "neutral",
+        "displayName": "Midnight High",
+        "canonical": "#1E2962",
+        "tonalRamp": [
+          "#05091E",
+          "#1C2443",
+          "#343F69",
+          "#516096",
+          "#7082C2",
+          "#97A8E0",
+          "#BDCCFC",
+          "#E9EEFE"
+        ]
+      },
+      "midnight-highest": {
+        "role": "neutral",
+        "displayName": "Midnight Highest",
+        "canonical": "#263272",
+        "tonalRamp": [
+          "#05091F",
+          "#1B2346",
+          "#333F6D",
+          "#4F5F9A",
+          "#6F82C7",
+          "#96A8E5",
+          "#BDCCFD",
+          "#E9EEFE"
+        ]
+      },
+      "midnight-seam": {
+        "role": "neutral",
+        "displayName": "Midnight Seam",
+        "canonical": "#34407A",
+        "tonalRamp": [
+          "#06091D",
+          "#1D2443",
+          "#353F68",
+          "#526095",
+          "#7282C0",
+          "#99A8DF",
+          "#BECCFB",
+          "#E9EEFE"
+        ]
+      },
+      "porcelain": {
+        "role": "primary",
+        "displayName": "Porcelain",
+        "canonical": "#F4F6FB",
+        "tonalRamp": [
+          "#0B0B0C",
+          "#252628",
+          "#414245",
+          "#626367",
+          "#84868A",
+          "#A9ABAE",
+          "#CCCED1",
+          "#EDEEF1"
+        ]
+      },
+      "porcelain-dim": {
+        "role": "neutral",
+        "displayName": "Porcelain Dim",
+        "canonical": "#B9C1E8",
+        "tonalRamp": [
+          "#080A15",
+          "#222536",
+          "#3C4158",
+          "#5B617F",
+          "#7D84A7",
+          "#A2A9C8",
+          "#C6CCE7",
+          "#EAEEFE"
+        ]
+      },
+      "porcelain-rule": {
+        "role": "neutral",
+        "displayName": "Porcelain Rule",
+        "canonical": "#C5CBE3",
+        "tonalRamp": [
+          "#090B11",
+          "#232630",
+          "#3E4250",
+          "#5E6275",
+          "#80859B",
+          "#A5AABD",
+          "#C9CDDE",
+          "#EAEEFC"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "#4A5385",
+        "tonalRamp": [
+          "#07091A",
+          "#20243E",
+          "#394062",
+          "#57608C",
+          "#7882B7",
+          "#9EA8D6",
+          "#C2CCF4",
+          "#E9EEFF"
+        ]
+      },
+      "paper-white": {
+        "role": "neutral",
+        "displayName": "Paper White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#0B0B0B",
+          "#262626",
+          "#424242",
+          "#636363",
+          "#868686",
+          "#ABABAB",
+          "#CECECE",
+          "#EEEEEE"
+        ]
+      },
+      "day-low": {
+        "role": "neutral",
+        "displayName": "Day Low",
+        "canonical": "#EDF0F9",
+        "tonalRamp": [
+          "#0A0B0E",
+          "#25262A",
+          "#404247",
+          "#61636A",
+          "#83868E",
+          "#A8ABB1",
+          "#CBCDD3",
+          "#EDEEF3"
+        ]
+      },
+      "day-container": {
+        "role": "neutral",
+        "displayName": "Day Container",
+        "canonical": "#E4E8F5",
+        "tonalRamp": [
+          "#0A0B0F",
+          "#25262C",
+          "#40424A",
+          "#60636D",
+          "#828691",
+          "#A7AAB5",
+          "#CBCDD6",
+          "#ECEEF6"
+        ]
+      },
+      "day-high": {
+        "role": "neutral",
+        "displayName": "Day High",
+        "canonical": "#DCE2F5",
+        "tonalRamp": [
+          "#090B10",
+          "#24262E",
+          "#3F424D",
+          "#5E6371",
+          "#808696",
+          "#A6AAB9",
+          "#C9CDDA",
+          "#EBEEF9"
+        ]
+      },
+      "day-highest": {
+        "role": "neutral",
+        "displayName": "Day Highest",
+        "canonical": "#D3DAF0",
+        "tonalRamp": [
+          "#090B11",
+          "#232630",
+          "#3E424F",
+          "#5D6373",
+          "#7F8699",
+          "#A5AABC",
+          "#C8CDDC",
+          "#EAEEFB"
+        ]
+      },
+      "outline-night": {
+        "role": "neutral",
+        "displayName": "Outline, night",
+        "canonical": "#7C88BD",
+        "tonalRamp": [
+          "#07091A",
+          "#1F243E",
+          "#394062",
+          "#57608C",
+          "#7783B6",
+          "#9DA8D6",
+          "#C2CCF3",
+          "#E9EEFF"
+        ]
+      },
+      "outline-day": {
+        "role": "neutral",
+        "displayName": "Outline, day",
+        "canonical": "#6B76A8",
+        "tonalRamp": [
+          "#070A19",
+          "#20243D",
+          "#394061",
+          "#57608B",
+          "#7883B5",
+          "#9EA8D4",
+          "#C2CCF2",
+          "#E9EEFE"
+        ]
+      },
+      "card-code-night": {
+        "role": "neutral",
+        "displayName": "Card Code, night",
+        "canonical": "#E3E8F6",
+        "tonalRamp": [
+          "#0A0B0F",
+          "#24262C",
+          "#3F424A",
+          "#5F636D",
+          "#818692",
+          "#A7ABB5",
+          "#CACDD7",
+          "#EBEEF6"
+        ]
+      },
+      "card-code-day": {
+        "role": "neutral",
+        "displayName": "Card Code, day",
+        "canonical": "#EDF0F9",
+        "tonalRamp": [
+          "#0A0B0E",
+          "#25262A",
+          "#404247",
+          "#61636A",
+          "#83868E",
+          "#A8ABB1",
+          "#CBCDD3",
+          "#EDEEF3"
+        ]
+      },
+      "card-mark": {
+        "role": "neutral",
+        "displayName": "Card Mark",
+        "canonical": "#FFE08A",
+        "tonalRamp": [
+          "#110A00",
+          "#312500",
+          "#514006",
+          "#78600E",
+          "#9F832D",
+          "#C1A965",
+          "#E1CC94",
+          "#FFEEBF"
+        ]
+      },
+      "ink-again": {
+        "role": "secondary",
+        "displayName": "Scarlet (Again, 1)",
+        "canonical": "#E5322D",
+        "tonalRamp": [
+          "#200000",
+          "#4E0204",
+          "#820006",
+          "#B61C1B",
+          "#E93E36",
+          "#FB8275",
+          "#FCBBB3",
+          "#FFE9E5"
+        ]
+      },
+      "ink-hard": {
+        "role": "secondary",
+        "displayName": "Amber (Hard, 2)",
+        "canonical": "#FFB000",
+        "tonalRamp": [
+          "#140800",
+          "#362201",
+          "#593C08",
+          "#835A11",
+          "#B27A03",
+          "#DD9D2E",
+          "#F9C372",
+          "#FFEBD0"
+        ]
+      },
+      "ink-good": {
+        "role": "secondary",
+        "displayName": "Green (Good, 3)",
+        "canonical": "#178F4B",
+        "tonalRamp": [
+          "#001003",
+          "#003014",
+          "#085027",
+          "#11773D",
+          "#339D5A",
+          "#6DC085",
+          "#9CE1AE",
+          "#C7FFD4"
+        ]
+      },
+      "ink-easy": {
+        "role": "secondary",
+        "displayName": "Cobalt (Easy, 4)",
+        "canonical": "#2F6BFF",
+        "tonalRamp": [
+          "#000134",
+          "#031B66",
+          "#103699",
+          "#2356D3",
+          "#497EF6",
+          "#82A9FA",
+          "#B7CEFC",
+          "#E7EFFE"
+        ]
+      },
+      "error-night": {
+        "role": "tertiary",
+        "displayName": "Signal Coral",
+        "canonical": "#FF8A80",
+        "tonalRamp": [
+          "#1F0001",
+          "#47100F",
+          "#6F2723",
+          "#9E413C",
+          "#CD6058",
+          "#EC8C83",
+          "#FCBBB4",
+          "#FEE9E6"
+        ]
+      },
+      "error-day": {
+        "role": "tertiary",
+        "displayName": "Signal Red",
+        "canonical": "#B3211C",
+        "tonalRamp": [
+          "#200000",
+          "#4E0203",
+          "#791914",
+          "#AB3229",
+          "#DC5044",
+          "#FB8274",
+          "#FCBCB2",
+          "#FFE9E5"
+        ]
+      },
+      "error-container-night": {
+        "role": "tertiary",
+        "displayName": "Error Container, night",
+        "canonical": "#5A1512",
+        "tonalRamp": [
+          "#1A0403",
+          "#3F1916",
+          "#64322C",
+          "#8F4E47",
+          "#BA6E65",
+          "#DB978E",
+          "#F8BDB5",
+          "#FFE9E6"
+        ]
+      },
+      "on-error-container-night": {
+        "role": "tertiary",
+        "displayName": "On Error Container, night",
+        "canonical": "#FFDAD6",
+        "tonalRamp": [
+          "#120807",
+          "#322220",
+          "#513C3A",
+          "#775B59",
+          "#9D7D7A",
+          "#C0A3A0",
+          "#E0C7C4",
+          "#FEE9E7"
+        ]
+      },
+      "error-container-day": {
+        "role": "tertiary",
+        "displayName": "Error Container, day",
+        "canonical": "#FFDAD6",
+        "tonalRamp": [
+          "#120807",
+          "#322220",
+          "#513C3A",
+          "#775B59",
+          "#9D7D7A",
+          "#C0A3A0",
+          "#E0C7C4",
+          "#FEE9E7"
+        ]
+      },
+      "on-error-container-day": {
+        "role": "tertiary",
+        "displayName": "On Error Container, day",
+        "canonical": "#410002",
+        "tonalRamp": [
+          "#1A0403",
+          "#3E1A17",
+          "#62332E",
+          "#8D4F49",
+          "#B86F67",
+          "#D99890",
+          "#F6BEB6",
+          "#FEE9E6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display-small": {
+        "displayName": "Display",
+        "purpose": "Defined in the theme; not used by any shipped screen."
+      },
+      "headline-large": {
+        "displayName": "Headline large",
+        "purpose": "Numeral in a rating roundel; session-complete title."
+      },
+      "headline-medium": {
+        "displayName": "Headline medium",
+        "purpose": "One summary line per screen; empty and error titles."
+      },
+      "headline-small": {
+        "displayName": "Headline small",
+        "purpose": "Question on the card; tally counts."
+      },
+      "title-large": {
+        "displayName": "Title large",
+        "purpose": "Top bar title, session counter, show-answer label; card answer at weight 500."
+      },
+      "title-medium": {
+        "displayName": "Title medium",
+        "purpose": "Primary button labels, status sentences, section headings, next interval, non-zero counts."
+      },
+      "title-small": {
+        "displayName": "Title small",
+        "purpose": "Outlined and tonal button labels in settings."
+      },
+      "body-large": {
+        "displayName": "Body large",
+        "purpose": "Deck names, setting names, explanatory text."
+      },
+      "body-medium": {
+        "displayName": "Body medium",
+        "purpose": "Supporting text, banners, hints."
+      },
+      "body-small": {
+        "displayName": "Body small",
+        "purpose": "Raw technical detail under an error."
+      },
+      "label-large": {
+        "displayName": "Label large",
+        "purpose": "Material default label slot (stock button text where no style is passed)."
+      },
+      "label-medium": {
+        "displayName": "Label medium",
+        "purpose": "Rating names under roundels and in the tally."
+      },
+      "label-small": {
+        "displayName": "Column head",
+        "purpose": "Semi-condensed tracked capitals over numeric list columns only."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Platform monospace for code inside card content only."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "station-advance",
+        "value": "320ms tween",
+        "purpose": "The interchange ring slides to the next station."
+      },
+      {
+        "name": "listening-halo",
+        "value": "1400ms linear, repeating; radius 13dp to 22dp, opacity 0.35 to 0",
+        "purpose": "Halo around the current station while the app is listening."
+      },
+      {
+        "name": "skeleton-pulse",
+        "value": "900ms, reversing; opacity 0.55 to 1",
+        "purpose": "Loading skeleton on the home screen."
+      },
+      {
+        "name": "rating-dim",
+        "value": "opacity 1 to 0.35, default spring",
+        "purpose": "Roundels not chosen while a rating is being saved."
+      }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Shell top bar with session line",
+      "kind": "nav",
+      "refersTo": "shell-top-bar",
+      "description": "The midnight shell shared by every screen, constant in both themes; on the session screen the line runs under it. Shown: two confirmed stops, one rejected, one pending, the current interchange, ticks ahead.",
+      "html": "<div class=\"ds-shell\"><div class=\"ds-shell-bar\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z\" fill=\"#F4F6FB\"/></svg><span class=\"ds-shell-title\">Kotlin</span><span class=\"ds-shell-count\">6 / 12</span></div><svg class=\"ds-shell-line\" viewBox=\"0 0 360 44\" role=\"img\" aria-label=\"Card 6 of 12. 1 review still being saved. 1 review rejected.\"><line x1=\"16\" y1=\"22\" x2=\"344\" y2=\"22\" stroke=\"#34407A\" stroke-width=\"8\" stroke-linecap=\"round\"/><line x1=\"16\" y1=\"22\" x2=\"46\" y2=\"22\" stroke=\"#178F4B\" stroke-width=\"8\"/><line x1=\"46\" y1=\"22\" x2=\"76\" y2=\"22\" stroke=\"#E5322D\" stroke-width=\"8\"/><line x1=\"106\" y1=\"22\" x2=\"136\" y2=\"22\" stroke=\"#FFB000\" stroke-width=\"3\"/><line x1=\"136\" y1=\"22\" x2=\"166\" y2=\"22\" stroke=\"#2F6BFF\" stroke-width=\"8\"/><circle cx=\"16\" cy=\"22\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"16\" cy=\"22\" r=\"6.5\" fill=\"#178F4B\"/><circle cx=\"46\" cy=\"22\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"46\" cy=\"22\" r=\"6.5\" fill=\"#E5322D\"/><circle cx=\"76\" cy=\"22\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"76\" cy=\"22\" r=\"6.5\" fill=\"#F4F6FB\"/><line x1=\"71.3\" y1=\"26.7\" x2=\"80.7\" y2=\"17.3\" stroke=\"#0B1230\" stroke-width=\"2.5\" stroke-linecap=\"round\"/><circle cx=\"106\" cy=\"22\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"106\" cy=\"22\" r=\"5.25\" fill=\"none\" stroke=\"#FFB000\" stroke-width=\"2.5\"/><circle cx=\"136\" cy=\"22\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"136\" cy=\"22\" r=\"6.5\" fill=\"#2F6BFF\"/><circle class=\"ds-shell-halo\" cx=\"166\" cy=\"22\" r=\"13\" fill=\"#F4F6FB\"/><circle cx=\"166\" cy=\"22\" r=\"13\" fill=\"#F4F6FB\"/><circle cx=\"166\" cy=\"22\" r=\"7\" fill=\"#0B1230\"/><g stroke=\"#F4F6FB\" stroke-width=\"2.5\" stroke-linecap=\"round\"><line x1=\"196\" y1=\"16\" x2=\"196\" y2=\"28\"/><line x1=\"226\" y1=\"16\" x2=\"226\" y2=\"28\"/><line x1=\"256\" y1=\"16\" x2=\"256\" y2=\"28\"/><line x1=\"286\" y1=\"16\" x2=\"286\" y2=\"28\"/><line x1=\"316\" y1=\"16\" x2=\"316\" y2=\"28\"/><line x1=\"344\" y1=\"16\" x2=\"344\" y2=\"28\"/></g></svg></div>",
+      "css": ".ds-shell { background: #0B1230; color: #F4F6FB; width: 360px; padding-bottom: 8px; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-shell-bar { display: flex; align-items: center; gap: 16px; height: 64px; padding: 0 16px; } .ds-shell-title { flex: 1; font-size: 22px; line-height: 30px; font-weight: 700; white-space: nowrap; } .ds-shell-count { font-size: 22px; line-height: 30px; font-weight: 700; } .ds-shell-line { display: block; width: 100%; height: 44px; } .ds-shell-halo { transform-origin: 166px 22px; opacity: 0; animation: ds-shell-listen 1400ms linear infinite; } @keyframes ds-shell-listen { from { transform: scale(1); opacity: 0.35; } to { transform: scale(1.69); opacity: 0; } } @media (prefers-reduced-motion: reduce) { .ds-shell-halo { animation: none; } }"
+    },
+    {
+      "name": "Rating roundels",
+      "kind": "custom",
+      "refersTo": "rating-roundel-again",
+      "description": "The four numbered roundels in the line inks, each with its name and next interval. A numeral inside an ink disc always means the 1 to 4 rating key.",
+      "html": "<div class=\"ds-rate\"><button class=\"ds-rate-cell\" aria-label=\"1, Again. Next review in &lt;10m\"><span class=\"ds-rate-disc ds-rate-again\">1</span><span class=\"ds-rate-name\">Again</span><span class=\"ds-rate-next\">&lt;10m</span></button><button class=\"ds-rate-cell\" aria-label=\"2, Hard. Next review in 18d\"><span class=\"ds-rate-disc ds-rate-hard\">2</span><span class=\"ds-rate-name\">Hard</span><span class=\"ds-rate-next\">18d</span></button><button class=\"ds-rate-cell\" aria-label=\"3, Good. Next review in 2mo\"><span class=\"ds-rate-disc ds-rate-good\">3</span><span class=\"ds-rate-name\">Good</span><span class=\"ds-rate-next\">2mo</span></button><button class=\"ds-rate-cell\" aria-label=\"4, Easy. Next review in 6mo\"><span class=\"ds-rate-disc ds-rate-easy\">4</span><span class=\"ds-rate-name\">Easy</span><span class=\"ds-rate-next\">6mo</span></button></div>",
+      "css": ".ds-rate { display: flex; gap: 8px; width: 328px; padding: 12px 16px; background: #0B1230; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-rate-cell { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 4px 0; background: none; border: none; border-radius: 14px; cursor: pointer; font: inherit; transition: background 150ms; } .ds-rate-cell:hover, .ds-rate-cell:active { background: rgba(244, 246, 251, 0.10); } .ds-rate-cell:focus-visible { outline: 3px solid #F4F6FB; outline-offset: 2px; } .ds-rate-disc { width: 56px; height: 56px; border: 4px solid #F4F6FB; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; line-height: 36px; font-weight: 800; letter-spacing: -0.01em; color: #FFFFFF; } .ds-rate-again { background: #E5322D; } .ds-rate-hard { background: #FFB000; color: #0B1230; } .ds-rate-good { background: #178F4B; } .ds-rate-easy { background: #2F6BFF; } .ds-rate-name { margin-top: 6px; font-size: 14px; line-height: 18px; font-weight: 600; color: #B9C1E8; } .ds-rate-next { font-size: 18px; line-height: 24px; font-weight: 600; color: #F4F6FB; }"
+    },
+    {
+      "name": "Card panel",
+      "kind": "card",
+      "refersTo": "card-panel-night",
+      "description": "The one bright panel of the session screen: question, rule, answer. Porcelain on midnight at night; white with a 1dp porcelain-rule keyline on porcelain by day.",
+      "html": "<div class=\"ds-card-ground\"><article class=\"ds-card\"><p class=\"ds-card-q\">What is the difference between <code>val</code> and <code>var</code>?</p><hr class=\"ds-card-rule\"><p class=\"ds-card-a\"><code>val</code> is assigned once; <code>var</code> can be reassigned.</p></article></div>",
+      "css": ".ds-card-ground { background: #0B1230; padding: 12px 16px; width: 328px; } .ds-card { background: #F4F6FB; color: #0B1230; border-radius: 18px; padding: 22px; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-card-q { margin: 0; font-size: 24px; line-height: 31px; font-weight: 700; } .ds-card-a { margin: 0; font-size: 22px; line-height: 30px; font-weight: 500; } .ds-card-rule { border: none; height: 2px; background: #C5CBE3; margin: 20px 0; } .ds-card code { font-family: ui-monospace, monospace; font-weight: 400; background: #E3E8F6; }"
+    },
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary-night",
+      "description": "The one filled action per screen. Porcelain with midnight text at night (shown); midnight with porcelain text by day. Minimum height, never fixed.",
+      "html": "<div class=\"ds-btnp-ground\"><button class=\"ds-btnp\">Study all decks</button></div>",
+      "css": ".ds-btnp-ground { background: #0B1230; padding: 16px 20px; width: 320px; } .ds-btnp { width: 100%; min-height: 64px; background: #F4F6FB; color: #0B1230; border: none; border-radius: 18px; padding: 8px 24px; cursor: pointer; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 18px; line-height: 24px; font-weight: 600; transition: background 150ms; } .ds-btnp:hover { background: #E3E8F6; } .ds-btnp:active { background: #C5CBE3; } .ds-btnp:focus-visible { outline: 3px solid #B9C1E8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Show answer button",
+      "kind": "button",
+      "refersTo": "button-show-answer-night",
+      "description": "Takes the roundels' place before the answer is revealed and fills the whole controls area, so the card does not move on reveal.",
+      "html": "<div class=\"ds-btns-ground\"><button class=\"ds-btns\">Show answer</button></div>",
+      "css": ".ds-btns-ground { background: #0B1230; padding: 0 16px 12px; width: 328px; } .ds-btns { width: 100%; min-height: 120px; background: #172052; color: #F4F6FB; border: 3px solid #F4F6FB; border-radius: 18px; cursor: pointer; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 22px; line-height: 30px; font-weight: 700; transition: background 150ms; } .ds-btns:hover { background: #1E2962; } .ds-btns:active { background: #263272; } .ds-btns:focus-visible { outline: 3px solid #B9C1E8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Outlined button",
+      "kind": "button",
+      "refersTo": "button-outlined-night",
+      "description": "Secondary actions: test connection, clear audio, back to decks.",
+      "html": "<div class=\"ds-btno-ground\"><button class=\"ds-btno\">Test connection</button></div>",
+      "css": ".ds-btno-ground { background: #0B1230; padding: 16px 20px; width: 320px; } .ds-btno { width: 100%; min-height: 56px; background: transparent; color: #F4F6FB; border: 1px solid #7C88BD; border-radius: 18px; padding: 8px 24px; cursor: pointer; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 15px; line-height: 20px; font-weight: 600; transition: background 150ms; } .ds-btno:hover { background: rgba(244, 246, 251, 0.08); } .ds-btno:active { background: rgba(244, 246, 251, 0.12); } .ds-btno:focus-visible { outline: 3px solid #B9C1E8; outline-offset: 3px; }"
+    },
+    {
+      "name": "Status row and rejection notice",
+      "kind": "custom",
+      "refersTo": "banner-rejected-night",
+      "description": "State told in words with an icon: one status sentence per phase, and a written notice in the error colour when the server rejected a review.",
+      "html": "<div class=\"ds-status\"><div class=\"ds-status-row\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z\" fill=\"#B9C1E8\"/></svg><span>Listening: say 1, 2, 3 or 4</span></div><div class=\"ds-status-row ds-status-error\"><svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z\" fill=\"#FF8A80\"/></svg><span>The server rejected 1 review</span></div></div>",
+      "css": ".ds-status { background: #0B1230; width: 320px; padding: 8px 20px; display: flex; flex-direction: column; gap: 8px; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-status-row { display: flex; align-items: center; gap: 12px; color: #F4F6FB; font-size: 18px; line-height: 24px; font-weight: 600; } .ds-status-error { color: #FF8A80; }"
+    },
+    {
+      "name": "Deck list",
+      "kind": "custom",
+      "refersTo": "deck-row",
+      "description": "The deck tree as a branching line with tabular due and new counts under tracked-caps column heads. Shown in the day theme: porcelain ground under the constant midnight shell.",
+      "html": "<div class=\"ds-deck\"><div class=\"ds-deck-heads\"><span class=\"ds-deck-title\">Decks</span><span class=\"ds-deck-head\">Due</span><span class=\"ds-deck-head\">New</span></div><button class=\"ds-deck-row\"><svg width=\"76\" height=\"56\" viewBox=\"0 0 76 56\" aria-hidden=\"true\"><line x1=\"24\" y1=\"28\" x2=\"24\" y2=\"56\" stroke=\"#C5CBE3\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"24\" cy=\"28\" r=\"8\" fill=\"#0B1230\"/><circle cx=\"24\" cy=\"28\" r=\"4\" fill=\"#F4F6FB\"/><path d=\"M46.6 24.6 52 30l5.4-5.4L59 26l-7 7-7-7z\" fill=\"#4A5385\"/></svg><span class=\"ds-deck-name\">Philosophy</span><span class=\"ds-deck-count\">10</span><span class=\"ds-deck-count\">2</span></button><button class=\"ds-deck-row\"><svg width=\"76\" height=\"56\" viewBox=\"0 0 76 56\" aria-hidden=\"true\"><line x1=\"24\" y1=\"0\" x2=\"24\" y2=\"56\" stroke=\"#C5CBE3\" stroke-width=\"4\" stroke-linecap=\"round\"/><line x1=\"24\" y1=\"28\" x2=\"44\" y2=\"28\" stroke=\"#C5CBE3\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"44\" cy=\"28\" r=\"7\" fill=\"#F4F6FB\"/><circle cx=\"44\" cy=\"28\" r=\"5\" fill=\"#0B1230\"/></svg><span class=\"ds-deck-name\">Kant</span><span class=\"ds-deck-count\">3</span><span class=\"ds-deck-count ds-deck-zero\">0</span></button><button class=\"ds-deck-row\"><svg width=\"76\" height=\"56\" viewBox=\"0 0 76 56\" aria-hidden=\"true\"><line x1=\"24\" y1=\"0\" x2=\"24\" y2=\"28\" stroke=\"#C5CBE3\" stroke-width=\"4\" stroke-linecap=\"round\"/><line x1=\"24\" y1=\"28\" x2=\"44\" y2=\"28\" stroke=\"#C5CBE3\" stroke-width=\"4\" stroke-linecap=\"round\"/><circle cx=\"44\" cy=\"28\" r=\"7\" fill=\"#F4F6FB\"/><circle cx=\"44\" cy=\"28\" r=\"5\" fill=\"#0B1230\"/></svg><span class=\"ds-deck-name\">Aristotle</span><span class=\"ds-deck-count\">2</span><span class=\"ds-deck-count\">1</span></button></div>",
+      "css": ".ds-deck { background: #F4F6FB; color: #0B1230; width: 360px; padding-bottom: 16px; font-family: 'Encode Sans', system-ui, sans-serif; font-variant-numeric: tabular-nums; } .ds-deck-heads { display: flex; align-items: flex-end; padding: 24px 16px 4px 20px; } .ds-deck-title { flex: 1; font-size: 18px; line-height: 24px; font-weight: 600; } .ds-deck-head { width: 64px; text-align: right; color: #4A5385; font-size: 13px; line-height: 16px; font-weight: 700; font-stretch: 87.5%; letter-spacing: 0.08em; text-transform: uppercase; } .ds-deck-row { display: flex; align-items: center; width: 100%; min-height: 56px; padding: 0 16px 0 0; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background 150ms; } .ds-deck-row:hover, .ds-deck-row:active { background: rgba(11, 18, 48, 0.08); } .ds-deck-row:focus-visible { outline: 3px solid #0B1230; outline-offset: -3px; } .ds-deck-name { flex: 1; font-size: 17px; line-height: 25px; font-weight: 500; } .ds-deck-count { width: 64px; text-align: right; font-size: 18px; line-height: 24px; font-weight: 600; } .ds-deck-zero { font-size: 17px; font-weight: 500; color: #6B76A8; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Línea nocturna",
+    "overview": "A review session is a transit line seen at night and every card is a station on it. The top of every screen is a slab of midnight enamel carrying the name of where you are; on the session screen the line runs across that enamel, and each stop you leave keeps the ink of the rating you gave it. The four ratings are the four line inks, and the same four inks sit below the card as numbered roundels, so the answer you tap and the mark it leaves on the line are visibly the same thing.\n\nThe system is built for two situations: a phone glanced at from arm's length in a car, by day or by night, and a phone held in the hand to read dense cards. So the type is heavy and large, the controls are tall, contrast between ground and text is high, and nothing that matters is told by colour alone. The card is the only bright panel on the session screen and nothing competes with it.\n\nEverything else is ordinary Material 3: stock buttons, outlined fields, segmented buttons, switch, top app bar and system Back, re-tinted by the scheme and never restyled by hand. The world lives in the shell, the line, the inks and the type, and does not need custom widgets to be recognised.",
+    "keyCharacteristics": [
+      "Midnight shell on every screen in both themes; only the content ground under it changes.",
+      "Four inks, four ratings, one meaning each.",
+      "Lines are thick, round-capped strokes; stations are discs, rings and ticks drawn on a canvas.",
+      "One typeface (Encode Sans, variable), weights 500 to 800, tabular figures.",
+      "Flat: depth is tone and keyline, never shadow.",
+      "State is always carried by shape or words as well as colour.",
+      "Spanish and English from string resources, following the system language."
+    ],
+    "rules": [
+      {
+        "name": "The Four Inks Rule",
+        "body": "Scarlet, amber, green and cobalt each mean one rating (Again, Hard, Good, Easy) and nothing else. They are never used for emphasis, errors, links, success, branding accents or decoration inside the app. Errors have their own coral and red.",
+        "section": "colors"
+      },
+      {
+        "name": "The Roundel Rule",
+        "body": "A numeral inside an ink disc is the 1 to 4 rating key, the number you say or tap. Any other number shown with an ink (a count, a total) sits beside the ink, never inside it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Constant Shell Rule",
+        "body": "The shell is midnight with porcelain text in the night theme and in the day theme. Switching theme changes the content ground and the card (midnight ground with a porcelain card at night; porcelain ground with a white, keylined card by day) and nothing above them. The session line is always drawn on midnight.",
+        "section": "colors"
+      },
+      {
+        "name": "The Never By Colour Alone Rule",
+        "body": "Every state has a second carrier. On the line: confirmed is a filled dot with a full-width inked segment; still saving is a hollow ring with a thin segment; rejected is a porcelain dot cut by a midnight slash with its segment left as bare track. Elsewhere: an icon plus a sentence. A rating always shows its numeral and its name with the ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Figures are tabular everywhere (`tnum` on every style of the main cut), so counts align in columns and the session counter does not shift as it advances.",
+        "section": "typography"
+      },
+      {
+        "name": "The Column Head Rule",
+        "body": "Tracked semi-condensed capitals appear in one place: the heads of numeric columns in a list. They are not placed above headings or used to label sections; section headings are title medium in sentence case.",
+        "section": "typography"
+      },
+      {
+        "name": "The Scale With The Reader Rule",
+        "body": "All type is in sp and every container that holds text takes a minimum height, not a fixed one, so the layout survives a 130% system font scale without clipping.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Shadow Rule",
+        "body": "Nothing casts a shadow. If a surface needs to separate from its ground, change its tone or give it a keyline.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour from the theme (`Recall.colors` for the shell, card and inks; `MaterialTheme.colorScheme` for everything on the content ground). No colour literals in screens.",
+      "Do get a rating's colour from `Recall.colors.ink(rating)` and its numeral colour from `onInk(rating)`, and show the numeral and the rating's name with it.",
+      "Do keep the shell midnight with porcelain content in both themes, and draw anything that carries inks as a line on that shell.",
+      "Do give every state a shape, icon or sentence as well as a colour: hollow ring for pending, slashed dot for rejected, a written notice for failures.",
+      "Do size controls with a minimum height (`heightIn(min = ...)`, 48dp or more; 56 to 64dp for primary actions) so they grow with the font scale.",
+      "Do put every visible and spoken string in `res/values/strings.xml` and `res/values-es/strings.xml`, with plurals where a count is involved.",
+      "Do use Material 3 components as they come and let the scheme, type scale and shapes tint them.",
+      "Do separate layers with tone or a keyline."
+    ],
+    "donts": [
+      "Don't use scarlet, amber, green or cobalt for anything that is not one of the four ratings.",
+      "Don't put a count or any other number inside an ink disc; a numeral in ink is the 1 to 4 rating key.",
+      "Don't add shadows or elevation.",
+      "Don't let the shell follow the theme; only the content ground and the card switch.",
+      "Don't signal a state by colour or opacity alone.",
+      "Don't fix the height of anything that holds text.",
+      "Don't write interface text in code.",
+      "Don't set tracked capitals anywhere but the heads of numeric list columns.",
+      "Don't introduce a second typeface; monospace is for code inside card content only."
+    ]
+  }
+}

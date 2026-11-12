@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="action_back">Atrás</string>
+    <string name="action_refresh">Actualizar</string>
+    <string name="action_settings">Ajustes</string>
+    <string name="action_retry">Reintentar</string>
+    <string name="action_exit">Salir</string>
+
+    <string name="home_due_title_zero">Nada pendiente hoy</string>
+    <plurals name="home_due_title">
+        <item quantity="one">%d tarjeta pendiente</item>
+        <item quantity="other">%d tarjetas pendientes</item>
+    </plurals>
+    <string name="home_due_detail">%1$d nuevas · %2$d en total</string>
+    <string name="home_start_all">Estudiar todos los mazos</string>
+    <string name="home_decks">Mazos</string>
+    <string name="home_col_due">Pend.</string>
+    <string name="home_col_new">Nuevas</string>
+    <string name="home_all_decks">Todos los mazos</string>
+    <string name="home_expand">Desplegar %1$s</string>
+    <string name="home_collapse">Plegar %1$s</string>
+    <string name="home_deck_row">%1$s, %2$d pendientes, %3$d nuevas</string>
+    <plurals name="home_rejected">
+        <item quantity="one">El servidor rechazó %d repaso y no se aplicó. Se conserva en el registro local.</item>
+        <item quantity="other">El servidor rechazó %d repasos y no se aplicaron. Se conservan en el registro local.</item>
+    </plurals>
+    <string name="home_stale">Sin conexión. Estas cifras pueden estar desactualizadas.</string>
+    <string name="home_error_title">No se pudieron cargar tus mazos</string>
+    <string name="home_error_unknown">El servidor no respondió.</string>
+    <string name="home_open_settings">Revisar ajustes</string>
+    <string name="home_empty_title">Aún no hay mazos</string>
+    <string name="home_empty_body">Publica tus notas desde Obsidian con «Recall: Publish notes to backend» y aparecerán aquí.</string>
+    <string name="home_loading">Cargando mazos</string>
+
+    <string name="session_progress_desc">Tarjeta %1$d de %2$d</string>
+    <string name="session_fetching">Cargando tarjetas…</string>
+    <string name="session_reading_question">Leyendo la pregunta</string>
+    <string name="session_listening_reveal">Di «siguiente» o toca para ver la respuesta</string>
+    <string name="session_reading_answer">Leyendo la respuesta</string>
+    <string name="session_listening_rating">Escuchando: di 1, 2, 3 o 4</string>
+    <string name="session_paused">En pausa. No se ha enviado nada.</string>
+    <string name="session_resume">Volver a escuchar</string>
+    <string name="session_submitting">Guardando…</string>
+    <string name="session_preparing_audio">Preparando el audio…</string>
+    <string name="session_show_answer">Mostrar respuesta</string>
+    <string name="session_question">Pregunta</string>
+    <string name="session_answer">Respuesta</string>
+    <string name="session_done_title">Sesión completa</string>
+    <string name="session_done_zero">No había tarjetas pendientes en este mazo.</string>
+    <plurals name="session_done_count">
+        <item quantity="one">%d tarjeta repasada</item>
+        <item quantity="other">%d tarjetas repasadas</item>
+    </plurals>
+    <string name="session_done_back">Volver a los mazos</string>
+    <string name="session_error_title">La sesión se ha detenido</string>
+    <string name="session_error_hint">Tu última valoración solo cuenta si el servidor la confirmó.</string>
+    <string name="session_error_unsaved">Tus repasos no llegan al servidor. Los que aún no se han guardado se conservan en el teléfono y se enviarán cuando vuelva la conexión.</string>
+
+    <string name="session_error_generic">No se pudo completar la petición al servidor. Comprueba la conexión y reintenta.</string>
+    <string name="session_error_voice">La voz del teléfono no está disponible. Revisa el motor de texto a voz en los ajustes de Android y reintenta.</string>
+    <plurals name="session_line_pending">
+        <item quantity="one">%d sin confirmar</item>
+        <item quantity="other">%d sin confirmar</item>
+    </plurals>
+    <plurals name="session_line_rejected">
+        <item quantity="one">%d rechazada</item>
+        <item quantity="other">%d rechazadas</item>
+    </plurals>
+    <plurals name="session_rejected_notice">
+        <item quantity="one">El servidor rechazó %d repaso</item>
+        <item quantity="other">El servidor rechazó %d repasos</item>
+    </plurals>
+    <string name="session_done_tally_desc">%1$s, %2$d</string>
+
+    <string name="rating_again">Otra vez</string>
+    <string name="rating_hard">Difícil</string>
+    <string name="rating_good">Bien</string>
+    <string name="rating_easy">Fácil</string>
+    <string name="rating_desc">%1$s, %2$s. Próximo repaso en %3$s</string>
+
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_intro">Recall repasa las tarjetas de tu vault de Obsidian. Indica la dirección y el token de tu servidor Recall para empezar.</string>
+    <string name="settings_server">Servidor</string>
+    <string name="settings_url">Dirección del servidor</string>
+    <string name="settings_token">Token de acceso</string>
+    <string name="settings_token_show">Mostrar token</string>
+    <string name="settings_token_hide">Ocultar token</string>
+    <string name="settings_test">Probar conexión</string>
+    <string name="settings_testing">Probando…</string>
+    <string name="settings_test_ok">Conectado</string>
+    <string name="settings_test_fail">Sin conexión: %1$s</string>
+    <string name="settings_voice">Voz</string>
+    <string name="settings_language">Idioma de las tarjetas y de la voz</string>
+    <string name="settings_lang_es">Español</string>
+    <string name="settings_lang_en">Inglés</string>
+    <string name="settings_cloud_tts">Voz del servidor</string>
+    <string name="settings_cloud_tts_desc">Usa la voz multilingüe del servidor. Si está desactivada o no responde, lee la tarjeta la voz del propio teléfono.</string>
+    <string name="settings_voice_speed">Velocidad de la voz</string>
+    <string name="settings_speed_100">1x</string>
+    <string name="settings_speed_125">1,25x</string>
+    <string name="settings_speed_150">1,5x</string>
+    <string name="settings_clear_audio">Borrar el audio descargado</string>
+    <string name="settings_clear_audio_desc">Úsalo si ha cambiado la voz del servidor. El audio se vuelve a descargar cuando haga falta.</string>
+    <string name="settings_clear_audio_done">Audio descargado borrado.</string>
+    <string name="settings_unrecognized">Si no se reconoce una valoración dicha en voz alta, la sesión se pausa y no se envía nada.</string>
+    <string name="settings_mic_title">Micrófono</string>
+    <string name="settings_mic_desc">Hace falta para empezar una sesión y oír tus valoraciones dichas en voz alta.</string>
+    <string name="settings_mic_grant">Permitir micrófono</string>
+    <string name="settings_done">Ir a los mazos</string>
+</resources>

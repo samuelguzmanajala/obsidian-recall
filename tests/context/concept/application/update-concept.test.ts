@@ -20,6 +20,7 @@ describe('UpdateConcept', () => {
       save: vi.fn(),
       findById: vi.fn().mockResolvedValue(existingConcept),
       findAll: vi.fn(),
+      findContaining: vi.fn(),
       remove: vi.fn(),
     };
     const useCase = new UpdateConcept(mockRepository);
@@ -42,6 +43,7 @@ describe('UpdateConcept', () => {
       save: vi.fn(),
       findById: vi.fn().mockResolvedValue(null),
       findAll: vi.fn(),
+      findContaining: vi.fn(),
       remove: vi.fn(),
     };
     const useCase = new UpdateConcept(mockRepository);

@@ -8,6 +8,7 @@ describe('CreateConcept', () => {
     save: vi.fn(),
     findById: vi.fn(),
     findAll: vi.fn(),
+    findContaining: vi.fn(),
     remove: vi.fn(),
   };
 

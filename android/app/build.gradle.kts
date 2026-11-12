@@ -49,6 +49,10 @@ android {
     }
   }
 
+  testOptions {
+    unitTests.isIncludeAndroidResources = true
+  }
+
   sourceSets["main"].java.srcDirs("src/main/kotlin")
   sourceSets["test"].java.srcDirs("src/test/kotlin")
 }
@@ -83,8 +87,21 @@ dependencies {
   // Tests
   testImplementation("org.junit.jupiter:junit-jupiter:5.10.3")
   testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+
+  // Screenshot tests: JUnit 4 Robolectric tests run on the JUnit Platform through the vintage engine.
+  testImplementation(composeBom)
+  testImplementation("junit:junit:4.13.2")
+  testRuntimeOnly("org.junit.vintage:junit-vintage-engine:5.10.3")
+  testImplementation("org.robolectric:robolectric:4.13")
+  testImplementation("io.github.takahirom.roborazzi:roborazzi:1.26.0")
+  testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.26.0")
+  testImplementation("androidx.compose.ui:ui-test-junit4")
+  debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 tasks.withType<Test> {
   useJUnitPlatform()
+  // Screenshot tests write their PNGs on every run instead of comparing against goldens.
+  systemProperty("roborazzi.test.record", "true")
+  systemProperty("recall.review.dir", rootProject.file("../.impeccable/review").absolutePath)
 }

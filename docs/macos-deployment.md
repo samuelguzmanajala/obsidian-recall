@@ -286,3 +286,40 @@ copia en frio verificada, ensayo de la migracion sobre una copia de esa misma co
   autenticada desde fuera de Obsidian (el token no se leyo).
 - Android no se ha actualizado en este despliegue; el protocolo no cambia y `POST /reviews`
   acepta ya el campo opcional `due`.
+
+### Conector MCP para ChatGPT (2026-11-12)
+
+Desplegado desde la rama `worktree-agent-a14ba956bf3eba016`, commits `602bbb3` y `2d5e0ba`. Solo
+cambia `server/main.cjs`; el esquema de la base no cambia (sigue en v4).
+
+- `backend.env`: `RECALL_MCP_PORT=27125` y
+  `RECALL_MCP_PUBLIC_URL=https://mac-mini-de-samuel-2.tail431e85.ts.net`.
+- Tailscale Funnel activo en el 443 de `mac-mini-de-samuel-2`, apuntando solo a
+  `http://127.0.0.1:27125`. El 8443 (API privada) y los servicios del nombre antiguo siguen solo
+  en el tailnet. Primero se probo Funnel en el 10000: ChatGPT nunca llego a conectar por ese
+  puerto y se desactivo.
+- Comprobado por la entrada publica de Tailscale: metadatos OAuth 200, `/mcp` sin token 401 y
+  `/api/v1/health` 404. ChatGPT se registro por DCR, canjeo el codigo y llamo a `/mcp` con exito.
+- `data/recall-oauth.sqlite` guarda los clientes y los hashes de tokens; no entra en la copia
+  diaria. Quedan dos clientes registrados a mano durante las pruebas, sin tokens emitidos.
+- Copias previas: `backups/recall-2026-11-11T23-23-27-184Z.sqlite` (integridad correcta, 14.705
+  repasos, tambien en Disk2) y `backups/server-2026-11-11T23-23-27Z` (bundles y `backend.env`
+  anteriores). Para volver atras: restaurar `main.cjs` y `backend.env` de esa carpeta, reiniciar
+  el servicio y `tailscale funnel --https=443 off`.
+
+### Herramientas de lectura del conector MCP (2026-11-12, madrugada)
+
+Desplegado el commit `29ae69d` de la rama `worktree-agent-a14ba956bf3eba016`. Solo cambia
+`server/main.cjs` (y `migrate.cjs`, recompilado); sin cambios de esquema ni de `backend.env`.
+
+- Herramientas nuevas, todas de solo lectura: `get_due_cards`, `get_weak_cards`, `get_leeches`,
+  `search_cards` y `get_study_stats`, con la prevision del proximo intervalo por valoracion.
+- La pagina de aprobacion ya no se bloquea tras varios fallos y el registro de clientes ya no
+  rechaza altas cuando la tabla esta llena.
+- Ensayo previo sobre una copia de la base real en puertos temporales: las seis herramientas
+  respondieron en menos de 30 ms. La copia de ensayo se borro.
+- Tras el reinicio, por la entrada publica de Tailscale: metadatos OAuth 200, `/mcp` sin token 401
+  y `/api/v1/health` 404. El conector de ChatGPT conserva su autorizacion (los tokens estan en
+  `data/recall-oauth.sqlite`).
+- Copias previas: `backups/recall-2026-11-12T00-03-47-588Z.sqlite` y
+  `backups/server-2026-11-12T00-03-47Z` (bundles anteriores).

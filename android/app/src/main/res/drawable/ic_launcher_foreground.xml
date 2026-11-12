@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Authored for Recall: one line bending at 45 degrees through an interchange ring. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M28,74 L42,74 L54,54" android:strokeColor="#E5322D" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M54,54 L66,34 L80,34" android:strokeColor="#2F6BFF" android:strokeWidth="6" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M54,54 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" android:fillColor="#0B1230" android:strokeColor="#F4F6FB" android:strokeWidth="5" />
+    <path android:pathData="M28,74 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" android:fillColor="#F4F6FB" />
+    <path android:pathData="M80,34 m-3.5,0 a3.5,3.5 0 1,0 7,0 a3.5,3.5 0 1,0 -7,0" android:fillColor="#F4F6FB" />
+</vector>

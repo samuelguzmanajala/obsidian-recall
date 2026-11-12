@@ -1,4 +1,114 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Recall Voice</string>
+    <string name="app_name">Recall</string>
+
+    <string name="action_back">Back</string>
+    <string name="action_refresh">Refresh</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_exit">Exit</string>
+
+    <string name="home_due_title_zero">Nothing due today</string>
+    <plurals name="home_due_title">
+        <item quantity="one">%d card due</item>
+        <item quantity="other">%d cards due</item>
+    </plurals>
+    <string name="home_due_detail">%1$d new · %2$d in total</string>
+    <string name="home_start_all">Study all decks</string>
+    <string name="home_decks">Decks</string>
+    <string name="home_col_due">Due</string>
+    <string name="home_col_new">New</string>
+    <string name="home_all_decks">All decks</string>
+    <string name="home_expand">Expand %1$s</string>
+    <string name="home_collapse">Collapse %1$s</string>
+    <string name="home_deck_row">%1$s, %2$d due, %3$d new</string>
+    <plurals name="home_rejected">
+        <item quantity="one">%d review was rejected by the server and not applied. It is kept in the local log.</item>
+        <item quantity="other">%d reviews were rejected by the server and not applied. They are kept in the local log.</item>
+    </plurals>
+    <string name="home_stale">No connection. These counts may be out of date.</string>
+    <string name="home_error_title">Could not load your decks</string>
+    <string name="home_error_unknown">The server did not respond.</string>
+    <string name="home_open_settings">Check settings</string>
+    <string name="home_empty_title">No decks yet</string>
+    <string name="home_empty_body">Publish your notes from Obsidian with “Recall: Publish notes to backend” and they will appear here.</string>
+    <string name="home_loading">Loading decks</string>
+
+    <string name="session_progress">%1$d / %2$d</string>
+    <string name="session_progress_desc">Card %1$d of %2$d</string>
+    <string name="session_fetching">Loading cards…</string>
+    <string name="session_reading_question">Reading the question</string>
+    <string name="session_listening_reveal">Say “next” or tap to see the answer</string>
+    <string name="session_reading_answer">Reading the answer</string>
+    <string name="session_listening_rating">Listening: say 1, 2, 3 or 4</string>
+    <string name="session_paused">Paused. Nothing has been sent.</string>
+    <string name="session_resume">Listen again</string>
+    <string name="session_submitting">Saving…</string>
+    <string name="session_preparing_audio">Preparing audio…</string>
+    <string name="session_show_answer">Show answer</string>
+    <string name="session_question">Question</string>
+    <string name="session_answer">Answer</string>
+    <string name="session_done_title">Session complete</string>
+    <string name="session_done_zero">No cards were due in this deck.</string>
+    <plurals name="session_done_count">
+        <item quantity="one">%d card reviewed</item>
+        <item quantity="other">%d cards reviewed</item>
+    </plurals>
+    <string name="session_done_back">Back to decks</string>
+    <string name="session_error_title">The session stopped</string>
+    <string name="session_error_hint">Your last rating was not counted unless the server confirmed it.</string>
+    <string name="session_error_unsaved">Your reviews are not reaching the server. The ones not yet saved are kept on this phone and will be sent when the connection returns.</string>
+
+    <string name="session_error_generic">The request to the server failed. Check the connection and try again.</string>
+    <string name="session_error_voice">The phone voice is not available. Check the text-to-speech engine in Android settings and try again.</string>
+    <plurals name="session_line_pending">
+        <item quantity="one">%d not yet confirmed</item>
+        <item quantity="other">%d not yet confirmed</item>
+    </plurals>
+    <plurals name="session_line_rejected">
+        <item quantity="one">%d rejected</item>
+        <item quantity="other">%d rejected</item>
+    </plurals>
+    <plurals name="session_rejected_notice">
+        <item quantity="one">The server rejected %d review</item>
+        <item quantity="other">The server rejected %d reviews</item>
+    </plurals>
+    <string name="session_done_tally_desc">%1$s, %2$d</string>
+
+    <string name="rating_again">Again</string>
+    <string name="rating_hard">Hard</string>
+    <string name="rating_good">Good</string>
+    <string name="rating_easy">Easy</string>
+    <string name="rating_desc">%1$s, %2$s. Next review in %3$s</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_intro">Recall studies the cards from your Obsidian vault. Enter the address and token of your Recall server to begin.</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_url">Server address</string>
+    <string name="settings_url_hint">http://192.168.1.10:27124</string>
+    <string name="settings_token">Access token</string>
+    <string name="settings_token_show">Show token</string>
+    <string name="settings_token_hide">Hide token</string>
+    <string name="settings_test">Test connection</string>
+    <string name="settings_testing">Testing…</string>
+    <string name="settings_test_ok">Connected</string>
+    <string name="settings_test_fail">No connection: %1$s</string>
+    <string name="settings_voice">Voice</string>
+    <string name="settings_language">Card and voice language</string>
+    <string name="settings_lang_es">Spanish</string>
+    <string name="settings_lang_en">English</string>
+    <string name="settings_cloud_tts">Server voice</string>
+    <string name="settings_cloud_tts_desc">Use the server’s multilingual voice. When it is off or unavailable, the phone’s own voice reads the card.</string>
+    <string name="settings_voice_speed">Voice speed</string>
+    <string name="settings_speed_100">1x</string>
+    <string name="settings_speed_125">1.25x</string>
+    <string name="settings_speed_150">1.5x</string>
+    <string name="settings_clear_audio">Delete downloaded audio</string>
+    <string name="settings_clear_audio_desc">Use this if the server voice has changed. Audio downloads again when needed.</string>
+    <string name="settings_clear_audio_done">Downloaded audio deleted.</string>
+    <string name="settings_unrecognized">If a spoken rating is not recognised, the session pauses and nothing is sent.</string>
+    <string name="settings_mic_title">Microphone</string>
+    <string name="settings_mic_desc">Needed to start a session and hear your spoken ratings.</string>
+    <string name="settings_mic_grant">Allow microphone</string>
+    <string name="settings_done">Go to decks</string>
 </resources>

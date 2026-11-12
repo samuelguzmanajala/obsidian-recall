@@ -36,6 +36,7 @@ import { GetDueStudyItems } from '@context/study/application/get-due-study-items
 import { GetDeckTree } from '@context/deck/application/get-deck-tree';
 import { GetStudyStats } from '@context/study/application/get-study-stats';
 import { GetLeeches } from '@context/study/application/get-leeches';
+import { GetWeakStudyItems } from '@context/study/application/get-weak-study-items';
 
 // Indexing
 import { NoteIndexer } from '@context/indexing/application/note-indexer';
@@ -79,6 +80,7 @@ export class Container {
   readonly getDeckTree: GetDeckTree;
   readonly getStudyStats: GetStudyStats;
   readonly getLeeches: GetLeeches;
+  readonly getWeakStudyItems: GetWeakStudyItems;
 
   // Markdown → domain commands
   readonly indexer: NoteIndexer;
@@ -130,6 +132,7 @@ export class Container {
     this.getDeckTree = new GetDeckTree(this.deckRepository, this.studyItemRepository);
     this.getStudyStats = new GetStudyStats(this.studyItemRepository, this.reviewLog);
     this.getLeeches = new GetLeeches(this.studyItemRepository, this.conceptRepository);
+    this.getWeakStudyItems = new GetWeakStudyItems(this.studyItemRepository, this.reviewLog);
 
     this.indexer = new NoteIndexer({
       parser: this.parser,

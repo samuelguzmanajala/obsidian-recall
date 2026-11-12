@@ -211,6 +211,124 @@ Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para un
 Para renombrar: `{operationId, path, newPath, expectedRevision}`. Las rutas son relativas al
 vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el renombrado.
 
+## Conector MCP para ChatGPT (opcional)
+
+El backend puede ofrecer un servidor MCP remoto (transporte Streamable HTTP) protegido con
+OAuth, para usar Recall desde ChatGPT como conector personalizado; la idea es que ChatGPT (también
+en modo voz) haga de tutor y lleve la conversación hacia lo que toca repasar o sigues fallando.
+Todas las herramientas son de **solo lectura**: no registran repasos, no cambian la planificación
+ni consumen los límites diarios. Preguntar una tarjeta en ChatGPT no cuenta como repasarla.
+
+| Herramienta | Argumentos | Devuelve |
+| --- | --- | --- |
+| `list_decks` | — | Árbol de mazos (`id`, `name`, totales, pendientes y nuevas), como `GET /api/v1/decks` |
+| `get_due_cards` | `deckId?`, `limit?` | La cola de ahora: repasos pendientes (los más atrasados primero) y después nuevas, dentro de lo que permiten hoy los límites diarios, cada una con `next` (cuándo volvería según la nota); más los recuentos `reviewsDue`, `newCardsDue`, `reviewsLeftToday`, `newLeftToday` |
+| `get_weak_cards` | `deckId?`, `limit?`, `days?` (1–90, 30) | Tarjetas flojas, de peor a mejor (ver abajo) |
+| `get_leeches` | `deckId?`, `limit?` | Sanguijuelas: lapsos ≥ `RECALL_LEECH_THRESHOLD`, como `GET /api/v1/leeches` |
+| `search_cards` | `query`, `deckId?`, `limit?` | Tarjetas cuyo anverso o reverso contiene el texto, con cada dirección que estudias |
+| `get_study_stats` | — | `GET /api/v1/stats` más lo que queda hoy de los límites diarios |
+
+- `deckId` es el `id` de un mazo tal como lo devuelve `list_decks` (no el nombre, que puede
+  repetirse en otra rama); incluye sus submazos. Un `id` desconocido es un error.
+- `limit` va de 1 a 50 (20 por defecto). Argumentos desconocidos o de tipo incorrecto se rechazan
+  con un error de herramienta (`isError`) que el modelo puede leer y corregir; `null` equivale a
+  no pasar el argumento.
+- Cada tarjeta trae `studyItemId`, `prompt` (lo que se pregunta) y `answer` (lo que hay que
+  recordar) según la dirección, los mazos como ruta de etiqueta (`German/grammar`), `state`
+  (`new` o `review`), `due` (solo repasos), `reps`, `lapses` y `next`: para cada nota (`again`,
+  `hard`, `good`, `easy`), cuándo volvería la tarjeta si la valoraras ahora, como intervalo corto
+  (`in`: `10m`, `5h`, `3d`) y fecha UTC al minuto (`due`). Sale de la misma vista previa del
+  planificador que `preview` en `GET /api/v1/due` (desde un día, los mismos días; por debajo, en
+  minutos u horas donde la API dice 0) y no escribe nada. Los lados son el Markdown tal cual,
+  cortado a 500 caracteres con «…» y `truncated: true`. `search_cards` agrupa por tarjeta: `sideA`,
+  `sideB` y `directions` (una entrada por dirección estudiada, con qué lado hace de pregunta y su
+  `next`).
+- La búsqueda es por subcadena, sin distinguir mayúsculas, acentos ni saltos de línea («adios»
+  encuentra «Adiós»; «ß» no se convierte en «ss»). Recorre la tabla de conceptos, sin índice de
+  texto completo: con unos miles de tarjetas tarda milisegundos.
+- `get_weak_cards` usa solo datos ya guardados: tarjetas estudiadas con algún «Again» en los
+  últimos `days` días, algún lapso o dificultad FSRS ≥ 7. Puntuación = 3 × «Again» recientes
+  + 2 × lapsos + (dificultad − 5 si es positiva) + 1 si la estabilidad es menor de 2 días. Solo lee
+  los repasos de esa ventana, no todo el historial.
+
+Se sirve en **otro puerto**, pensado para publicarse en Internet con Tailscale Funnel. Ese puerto
+solo atiende `/mcp`, `/oauth/*` y `/.well-known/oauth-*`; **nada de `/api/v1`**, que sigue siendo
+privado en el puerto habitual. Sin estas variables el servidor se comporta exactamente como antes:
+
+| Variable | Función |
+| --- | --- |
+| `RECALL_MCP_PORT` | Puerto del listener público (p. ej. `27125`); distinto de `RECALL_PORT` |
+| `RECALL_MCP_PUBLIC_URL` | Origen HTTPS público, sin ruta (p. ej. `https://mac.tailnet.ts.net`). Es el emisor OAuth; el recurso es `<origen>/mcp` |
+| `RECALL_MCP_HOST` | Interfaz de escucha (por defecto `127.0.0.1`) |
+| `RECALL_MCP_OAUTH_DB` | Base SQLite de OAuth (por defecto `recall-oauth.sqlite` junto a `RECALL_DB`) |
+
+Hay que definir las dos primeras o ninguna; si falta una, el servidor no arranca.
+
+Funcionamiento:
+
+- ChatGPT descubre los metadatos (RFC 9728 y RFC 8414), se registra solo (registro dinámico de
+  clientes, RFC 7591) y abre la página de aprobación `/oauth/authorize`. Ahí escribes tu
+  `RECALL_TOKEN` para aprobarlo. El token nunca sale de esa página ni se entrega al cliente.
+- Código de autorización con PKCE S256, de un solo uso y válido 60 s; redirección solo a URIs
+  registradas exactamente. Respuesta con `iss` (RFC 9207). Los tokens se emiten solo para el recurso
+  `<origen>/mcp`; un token de otro recurso o tu `RECALL_TOKEN` no sirven en `/mcp`.
+- Token de acceso de 1 h y token de refresco de 60 días que rota en cada uso. Reutilizar un token de
+  refresco ya usado, o un código ya canjeado, revoca toda esa autorización: tendrás que volver a
+  conectar.
+- Un token incorrecto en la página de aprobación se responde tras 1 s; el correcto, al instante.
+  No hay bloqueo tras varios fallos: detrás de Funnel todas las peticiones llegan desde el proxy
+  local (Funnel sí añade `X-Forwarded-For` con la IP pública, pero no se usa), así que un bloqueo
+  común permitiría a cualquiera dejarte fuera. Lo que hace inviable adivinar es que `RECALL_TOKEN`
+  tenga al menos 32 caracteres aleatorios; el retardo solo frena scripts ingenuos.
+- `recall-oauth.sqlite` guarda clientes registrados y **solo hashes SHA-256** de los tokens. No
+  forma parte de la base de estudio ni de sus migraciones, y la copia de `scripts/backup-server.mjs`
+  no la incluye: si la pierdes, basta con volver a conectar ChatGPT. El registro es anónimo: los
+  clientes que nunca se aprobaron se eliminan al cabo de un día, y como mucho se guardan 100; al
+  llegar a ese tope, cada registro nuevo expulsa al no aprobado más antiguo, así que nadie puede
+  llenar la tabla e impedirte registrar uno (los aprobados no cuentan ni se expulsan). Si alguien
+  registrara clientes sin parar justo mientras apruebas, el tuyo podría ser expulsado antes de
+  aprobarlo: la página diría «Unknown client» y bastaría con volver a añadir el conector. Para
+  revocar todos los accesos, detén el servidor y borra ese archivo (y sus `-wal`/`-shm`).
+
+Pasos para conectar ChatGPT (manual, no se hace automáticamente):
+
+1. Añade al entorno del backend `RECALL_MCP_PORT=27125` y
+   `RECALL_MCP_PUBLIC_URL=https://<tu-máquina>.<tailnet>.ts.net`, y reinicia. Comprueba en
+   local `curl http://127.0.0.1:27125/.well-known/oauth-protected-resource/mcp`.
+2. Publica **solo ese puerto** con Funnel en el 443:
+   `tailscale funnel --bg --https=443 http://127.0.0.1:27125`. **Usa el 443**: con Funnel en el
+   10000 los servidores de ChatGPT no llegaron a hacer ninguna petición (el navegador sí llegaba,
+   así que la página de aprobación se abría, pero el conector se quedaba cargando). **Nunca actives
+   Funnel en el puerto que apunta a `RECALL_PORT`** (en esta instalación, 8443): publicaría
+   `/api/v1` en Internet. Comprueba con `tailscale funnel status` qué se publica. La primera vez que
+   se activa Funnel, el nombre tarda unos minutos en aparecer en el DNS público.
+3. En ChatGPT, con el modo desarrollador activado, añade un conector o servidor MCP personalizado
+   con la URL `https://<tu-máquina>.<tailnet>.ts.net/mcp` y autenticación OAuth. Elige el registro
+   dinámico (DCR); el aviso de que CIMD no está disponible es normal, este servidor no admite
+   *Client ID Metadata Documents*. ChatGPT abrirá la página de aprobación: escribe tu
+   `RECALL_TOKEN` y pulsa Approve.
+4. Pide en el chat «¿qué mazos tengo en Recall?» o «pregúntame lo que tengo pendiente de alemán».
+   Al añadir herramientas nuevas, ChatGPT puede necesitar que actualices o vuelvas a conectar el
+   conector para verlas. Para desconectar, elimina el conector en ChatGPT
+   y desactiva Funnel (`tailscale funnel --https=443 off`).
+
+El listener escribe una línea por petición en el registro del servidor (método, ruta sin
+parámetros, estado y agente, y en `/mcp` también la cabecera `MCP-Protocol-Version`), con el
+prefijo `[Recall MCP]`; sirve para seguir la conexión de un conector paso a paso. Si el puerto MCP
+no está libre, se registra el error y la API privada sigue funcionando sin el conector.
+
+Versiones del protocolo: el servidor implementa las revisiones con `initialize` (2025-03-26,
+2025-06-18 y 2025-11-25). La revisión 2026-07-28 (sin estado, sin `initialize`) no está
+implementada. Un cliente que hable ambas prueba primero con
+`MCP-Protocol-Version: 2026-07-28`, recibe un 400 sin el error moderno
+`UnsupportedProtocolVersionError` (-32022) y, como indica esa revisión, vuelve a `initialize` con
+una versión anterior. Si el registro muestra un `POST /mcp 400` justo antes de que la conexión
+funcione, mira su `mcp-protocol-version`: con `2026-07-28` es ese retroceso, esperado e inocuo.
+
+ChatGPT envía la lista de mazos a OpenAI al usarla. Las opciones y nombres de la interfaz de
+ChatGPT cambian a menudo; la disponibilidad del modo desarrollador y de conectores en el modo de
+voz depende del plan y no está garantizada.
+
 ## Voz y proveedores
 
 Sin `RECALL_TTS_KEY`, Android utiliza su TTS local. Con esa clave el servidor genera el audio

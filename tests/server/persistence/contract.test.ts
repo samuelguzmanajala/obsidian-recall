@@ -44,6 +44,24 @@ describe.each(backends)('%s', (_, open) => {
     expect(await concepts.findById(new ConceptId('missing'))).toBeNull();
   });
 
+  it('concepts: text search over both sides ignores case, accents and whitespace runs, in storage order', async () => {
+    const { concepts } = open();
+    const save = (id: string, a: string, b: string) => concepts.save(Concept.create(new ConceptId(id), new Side(a), new Side(b), Directionality.Bidirectional));
+    await save('1', 'Adiós', 'goodbye');
+    await save('2', 'die Straße', 'the street');
+    await save('3', '`const x`', 'Guten\n  Morgen, MÜLLER');
+    await save('4', 'adiós amigo', 'bye friend');
+    expect(ids(await concepts.findContaining('ADIOS'))).toEqual(['1', '4']);
+    expect(ids(await concepts.findContaining('guten morgen'))).toEqual(['3']);
+    expect(ids(await concepts.findContaining('müller'))).toEqual(['3']);
+    expect(ids(await concepts.findContaining('straße'))).toEqual(['2']);
+    expect(ids(await concepts.findContaining('STREET'))).toEqual(['2']);
+    expect(ids(await concepts.findContaining('nothing'))).toEqual([]);
+    expect(ids(await concepts.findContaining('  '))).toEqual([]);
+    await save('1', 'hola', 'hello'); // updated content is searched, position kept
+    expect(ids(await concepts.findContaining('adios'))).toEqual(['4']);
+  });
+
   it('study items: exact memory state, due filter and concept lookup in storage order', async () => {
     const { studyItems } = open();
     await studyItems.save(item('b', 'c1', 3000, 2));

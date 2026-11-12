@@ -3,6 +3,7 @@ import { Concept } from '../../context/concept/domain/concept';
 import { ConceptId } from '../../context/concept/domain/concept-id';
 import { Side } from '../../context/concept/domain/side';
 import type { Directionality } from '../../context/concept/domain/directionality';
+import { foldText, sidesContain } from '../../context/concept/domain/text-match';
 import type { StudyItemRepository } from '../../context/study/domain/study-item-repository';
 import { StudyItem } from '../../context/study/domain/study-item';
 import { StudyItemId } from '../../context/study/domain/study-item-id';
@@ -31,6 +32,16 @@ export class SqliteConceptRepository implements ConceptRepository {
   }
   async findAll(): Promise<Concept[]> {
     return this.db.stmt('SELECT * FROM concepts ORDER BY rowid').all().map(r => this.concept(r));
+  }
+  /** Scans the concepts table (folding is Unicode-aware, which SQL LIKE is not); no other table is read. */
+  async findContaining(text: string): Promise<Concept[]> {
+    const folded = foldText(text);
+    const found: Concept[] = [];
+    if (!folded) return found;
+    for (const r of this.db.stmt('SELECT * FROM concepts ORDER BY rowid').iterate()) {
+      if (sidesContain(r.side_a as string, r.side_b as string, folded)) found.push(this.concept(r));
+    }
+    return found;
   }
   async remove(id: ConceptId): Promise<void> {
     this.db.stmt('DELETE FROM concepts WHERE id=?').run(id.value);

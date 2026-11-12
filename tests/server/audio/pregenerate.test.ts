@@ -338,7 +338,7 @@ describe('read-only database access', () => {
     const raw = new DatabaseSync(path);
     raw.exec('PRAGMA user_version=3');
     raw.close();
-    expect(() => new RecallDatabase(path, { readOnly: true })).toThrow(/schema version is 3, this build expects 4.*never migrates/);
+    expect(() => new RecallDatabase(path, { readOnly: true })).toThrow(/schema version is 3, this build expects 5.*never migrates/);
     const check = new DatabaseSync(path);
     expect(check.prepare('PRAGMA user_version').get()).toEqual({ user_version: 3 });
     check.close();

@@ -53,9 +53,7 @@ export class CreateStudyItem {
         const sorted = [...history].sort(
           (a, b) => a.timestamp.getTime() - b.timestamp.getTime(),
         );
-        for (const review of sorted) {
-          studyItem.review(review.rating, this.scheduler, review.timestamp);
-        }
+        studyItem.replay(sorted, this.scheduler);
       }
     }
 

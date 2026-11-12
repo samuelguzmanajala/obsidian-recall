@@ -92,8 +92,8 @@ describe('MCP tools', () => {
     expect(due.newCardsDue).toBe(4);
     expect(due.cards.map((c: any) => c.studyItemId)).toEqual([id('Adiós<'), id('der Vogel'), id('der Hund'), id('die Katze')]);
     expect(due.cards[0]).toEqual({ studyItemId: id('Adiós<'), prompt: 'goodbye', answer: 'Adiós', decks: ['spanish'], state: 'review',
-      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, next: expect.any(Object) });
-    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, next: expect.any(Object) });
+      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, revision: 1, next: expect.any(Object) });
+    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, revision: 1, next: expect.any(Object) });
     expect((await call(service, 'get_due_cards', { limit: 1 })).cards).toHaveLength(1);
   });
 
@@ -141,8 +141,8 @@ describe('MCP tools', () => {
     const found = await call(service, 'search_cards', { query: 'ADIOS' });
     expect(found).toEqual({ query: 'ADIOS', deck: null, total: 1, cards: [{
       sideA: 'Adiós', sideB: 'goodbye', decks: ['spanish'], directions: [
-        { studyItemId: id('Adiós'), prompt: 'sideA', state: 'review', due: expect.any(String), lapses: 1, next: expect.any(Object) },
-        { studyItemId: id('Adiós<'), prompt: 'sideB', state: 'new', lapses: 0, next: expect.any(Object) },
+        { studyItemId: id('Adiós'), prompt: 'sideA', state: 'review', due: expect.any(String), lapses: 1, revision: 1, next: expect.any(Object) },
+        { studyItemId: id('Adiós<'), prompt: 'sideB', state: 'new', lapses: 0, revision: 1, next: expect.any(Object) },
       ] }] });
     expect((await call(service, 'search_cards', { query: 'the' })).total).toBe(3);
     expect((await call(service, 'search_cards', { query: 'the', limit: 2 })).cards.map((c: any) => c.sideA)).toEqual(['der Hund', 'die Katze']);

@@ -30,20 +30,20 @@ export interface McpTool {
 }
 export class ToolInputError extends Error {}
 
-function json(value: Record<string, unknown>): ToolResult {
+export function json(value: Record<string, unknown>): ToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value };
 }
 
-const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+export const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 // ---- Arguments: strict (unknown keys and wrong types are rejected); null counts as "not given" ----
 
 type Args = Record<string, unknown>;
-function onlyKeys(args: Args, allowed: readonly string[]): void {
+export function onlyKeys(args: Args, allowed: readonly string[]): void {
   const extra = Object.keys(args).filter(k => !allowed.includes(k));
   if (extra.length) throw new ToolInputError(`Unknown argument(s): ${extra.join(', ')}. Allowed: ${allowed.join(', ') || 'none'}`);
 }
-function intArg(args: Args, name: string, min: number, max: number, fallback: number): number {
+export function intArg(args: Args, name: string, min: number, max: number, fallback: number): number {
   const value = args[name];
   if (value === undefined || value === null) return fallback;
   if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
@@ -51,7 +51,7 @@ function intArg(args: Args, name: string, min: number, max: number, fallback: nu
   }
   return value;
 }
-const limitArg = (args: Args) => intArg(args, 'limit', 1, MAX_LIMIT, DEFAULT_LIMIT);
+export const limitArg = (args: Args) => intArg(args, 'limit', 1, MAX_LIMIT, DEFAULT_LIMIT);
 function deckArg(args: Args): string | undefined {
   const value = args.deckId;
   if (value === undefined || value === null) return undefined;
@@ -66,12 +66,12 @@ function deckFilter(decks: DeckIndex, deckId: string | undefined): { deck: strin
   return { deck: decks.path(deckId), allows: id => items.has(id) };
 }
 
-const DECK_ID = { type: 'string', description: 'Optional. The "id" of a deck exactly as returned by list_decks (not its name). '
+export const DECK_ID = { type: 'string', description: 'Optional. The "id" of a deck exactly as returned by list_decks (not its name). '
   + 'Restricts results to that deck and all of its subdecks. Omit for all decks.' };
-const LIMIT = { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT, description: `Maximum cards to return (1–${MAX_LIMIT}, default ${DEFAULT_LIMIT}).` };
+export const LIMIT = { type: 'integer', minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT, description: `Maximum cards to return (1–${MAX_LIMIT}, default ${DEFAULT_LIMIT}).` };
 const CARD_SHAPE = 'Each card has studyItemId, prompt (the side the user is asked), answer (the side they must recall), decks (deck '
   + `paths such as "German/grammar"), state ("new" = never studied, "review" = studied before), due (ISO time, review cards only), `
-  + `reps, lapses (times forgotten after being learned) and next: for each rating (again, hard, good, easy), when the card would `
+  + `reps, lapses (times forgotten after being learned), revision (the card's version: it changes whenever the card is reviewed or edited) and next: for each rating (again, hard, good, easy), when the card would `
   + `come back if the user rated it now in the Recall app, as in ("10m", "5h", "3d") and due (UTC time). Sides are raw Markdown (may contain code, tables, formulas or image `
   + `embeds such as ![[file.png]]; do not read image syntax aloud) and are cut at ${MAX_SIDE_CHARS} characters, with "…" and truncated: true.`;
 const unlimited = (n: number) => Number.isFinite(n) ? n : null;
@@ -116,7 +116,7 @@ export const getDueCards: McpTool = {
       return {
         deck, reviewsDue: reviews.length, newCardsDue: fresh.length,
         reviewsLeftToday: unlimited(reviewLeft), newLeftToday: unlimited(newLeft),
-        cards: queue.slice(0, limit).map(v => cardView(v, decks.decksOf(v.studyItemId), nextPreview(c.scheduler, memoryState(v), now))),
+        cards: queue.slice(0, limit).map(v => cardView(v, decks.decksOf(v.studyItemId), nextPreview(c.scheduler, memoryState(v), now), service.revisionOf(v.studyItemId))),
       };
     }));
   },
@@ -143,7 +143,7 @@ export const getLeeches: McpTool = {
       for (const leech of leeches.slice(0, limit)) {
         const item = await c.studyItemRepository.findById(new StudyItemId(leech.studyItemId));
         if (!item) continue;
-        cards.push(cardView({ ...leech, due: item.memoryState.due }, decks.decksOf(leech.studyItemId), nextPreview(c.scheduler, item.memoryState, now)));
+        cards.push(cardView({ ...leech, due: item.memoryState.due }, decks.decksOf(leech.studyItemId), nextPreview(c.scheduler, item.memoryState, now), service.revisionOf(leech.studyItemId)));
       }
       return { deck, threshold, total: leeches.length, cards };
     }));
@@ -175,7 +175,7 @@ export const searchCards: McpTool = {
     + 'total (matching cards in scope), deck and cards in vault order. Each card has sideA and sideB (raw Markdown, cut at '
     + `${MAX_SIDE_CHARS} characters with "…" and truncated: true), decks (deck paths) and directions: one entry per direction the `
     + 'user studies, with studyItemId, prompt ("sideA" or "sideB": the side shown as the question), state ("new" or "review"), '
-    + 'due (review only), lapses and next (per rating: in and due, if rated now). Use it to check whether the user already has a card on a word or topic. Read-only.',
+    + 'due (review only), lapses, revision and next (per rating: in and due, if rated now). Use it to check whether the user already has a card on a word or topic. Read-only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -210,7 +210,7 @@ export const searchCards: McpTool = {
             studyItemId: i.id.value, prompt: i.direction === Direction.AtoB ? 'sideA' : 'sideB',
             state: i.memoryState.reps === 0 ? 'new' : 'review',
             ...(i.memoryState.reps > 0 ? { due: i.memoryState.due.toISOString() } : {}), lapses: i.memoryState.lapses,
-            next: nextPreview(c.scheduler, i.memoryState, now),
+            revision: service.revisionOf(i.id.value), next: nextPreview(c.scheduler, i.memoryState, now),
           })),
           ...(a.cut || b.cut ? { truncated: true } : {}),
         });
@@ -252,7 +252,7 @@ export const getWeakCards: McpTool = {
         const concept = await c.conceptRepository.findById(new ConceptId(w.conceptId));
         if (!concept) continue;
         cards.push({
-          ...cardView({ ...w, sideA: concept.sideA.content, sideB: concept.sideB.content }, decks.decksOf(w.studyItemId), nextPreview(c.scheduler, memoryState(w), now)),
+          ...cardView({ ...w, sideA: concept.sideA.content, sideB: concept.sideB.content }, decks.decksOf(w.studyItemId), nextPreview(c.scheduler, memoryState(w), now), service.revisionOf(w.studyItemId)),
           recentAgain: w.recentAgain, difficulty: round1(w.difficulty), lastReview: w.lastReview?.toISOString() ?? null, score: round1(w.score),
         });
       }

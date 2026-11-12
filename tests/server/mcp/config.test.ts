@@ -10,8 +10,11 @@ describe('readMcpConfig', () => {
   it('derives issuer, resource and the OAuth database path', () => {
     expect(readMcpConfig({ RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'https://host.example.ts.net:10000/' }, '/data/recall.sqlite')).toEqual({
       port: 27125, host: '127.0.0.1', issuer: 'https://host.example.ts.net:10000', resource: 'https://host.example.ts.net:10000/mcp',
-      oauthDb: resolve('/data/recall-oauth.sqlite'),
+      oauthDb: resolve('/data/recall-oauth.sqlite'), write: false,
     });
+    const base = { RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'https://h.example' };
+    expect(readMcpConfig({ ...base, RECALL_MCP_WRITE: 'true' }, '/d/r.sqlite')?.write).toBe(true);
+    expect(readMcpConfig({ ...base, RECALL_MCP_WRITE: 'false' }, '/d/r.sqlite')?.write).toBe(false);
     expect(readMcpConfig({ RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'https://h.example', RECALL_MCP_OAUTH_DB: '/x/o.sqlite' }, '/d/r.sqlite')?.oauthDb)
       .toBe(resolve('/x/o.sqlite'));
   });
@@ -23,6 +26,7 @@ describe('readMcpConfig', () => {
       { RECALL_MCP_PORT: '27124', RECALL_MCP_PUBLIC_URL: 'https://h.example' },
       { RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'http://h.example' },
       { RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'https://h.example/recall' },
+      { RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'https://h.example', RECALL_MCP_WRITE: 'yes' },
     ];
     for (const env of bad) expect(() => readMcpConfig(env, '/d/r.sqlite'), JSON.stringify(env)).toThrow();
     expect(readMcpConfig({ RECALL_MCP_PORT: '27125', RECALL_MCP_PUBLIC_URL: 'http://localhost:27125' }, '/d/r.sqlite')?.issuer).toBe('http://localhost:27125');

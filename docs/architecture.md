@@ -43,7 +43,7 @@ src/
 │   │   └── infrastructure/          # Markdown + frontmatter parsers
 │   ├── study/
 │   │   ├── domain/                  # StudyItem aggregate, MemoryState, Rating, Review, ports
-│   │   ├── application/             # create, remove, review; due/stats/leech/weak queries
+│   │   ├── application/             # create, remove, review, correct (amend/remove/restore + replay); due/stats/leech/weak queries
 │   │   └── infrastructure/          # FSRS scheduler
 │   ├── deck/
 │   │   ├── domain/                  # Deck aggregate (hierarchical), repository port
@@ -61,12 +61,14 @@ src/
 │   ├── http.ts                      # Routes, auth, body limits
 │   ├── service.ts                   # RecallService: transactions, receipts, revisions, limits
 │   ├── container.ts                 # Composition root, built once (SQLite adapters, use cases, indexer)
-│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3 → v4)
+│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3 → v4 → v5)
 │   ├── legacy-documents.ts          # v2 JSON document shapes: import, export, migration verification
-│   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
+│   ├── persistence/                 # Schema v3 + v4 + v5 and SQLite adapters of the domain ports
+│   ├── review-corrections.ts        # Amend/remove/revert reviews: audit trail, daily counters, revisions
+│   ├── proposals.ts                 # Card proposals inbox (MCP proposes; the plugin accepts/dismisses)
 │   ├── server-settings.ts           # ServerSettings + defaults
 │   ├── auth.ts, send-json.ts        # HTTP helpers
-│   ├── mcp/                         # Optional public listener: MCP tools + single-user OAuth (own SQLite file)
+│   ├── mcp/                         # Optional public listener: MCP tools (read-only; write tools behind RECALL_MCP_WRITE) + single-user OAuth (own SQLite file)
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
 ├── app/                             # Obsidian plugin (backend client only)
 │   ├── backend/
@@ -91,7 +93,7 @@ tests/                               # Mirrors src/ (tests/context, tests/server
 `RecallService` builds one `Container` at startup. Its adapters
 (`src/server/persistence/`) implement the domain ports — `ConceptRepository`,
 `StudyItemRepository`, `DeckRepository`, `ReviewLog` and the indexer's `SourceIndex` — over
-normalized SQLite tables (schema v4) and keep no state between calls; each call reads or
+normalized SQLite tables (schema v5) and keep no state between calls; each call reads or
 writes only the rows it needs. Every request runs inside `RecallDatabase.transaction()` (a
 serialized queue of `BEGIN IMMEDIATE` transactions); adapters throw if used outside one.
 Commands commit domain changes, item revisions, daily counters and their idempotency receipt
@@ -154,6 +156,19 @@ The plugin does not read, write or delete the vault's legacy `recall-data/` fold
 Rating → ReviewView → StudyClient (RemoteClient) → POST /reviews → RecallService
        → ReviewStudyItem → StudyItem aggregate (FSRS) → repository + review log → COMMIT
 ```
+
+### Correction (review amended or removed)
+```
+MCP amend_review / remove_review / revert_review_change → ReviewCorrections (audit, counters, revision)
+       → CorrectReview → state just before the change (stored `prior`, or replay from scratch
+         for pre-v5 reviews, verified against the stored state) → StudyItem.replay of the
+         corrected history → review log + repository → COMMIT
+```
+Each logged review stores the memory state it was applied to (`Review.prior`) and who recorded
+it (`Review.origin`: mcp, android, obsidian, api). Review ids (`LoggedReview.id`, the SQLite
+`seq`) are never reused, so a removed review can be restored under its id. Card proposals are
+not domain objects: they are an inbox table in the server, and only become cards when the
+plugin writes them into a note and publishes it.
 
 ### Read (query)
 ```

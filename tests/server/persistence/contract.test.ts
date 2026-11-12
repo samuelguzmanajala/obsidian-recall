@@ -112,6 +112,41 @@ describe.each(backends)('%s', (_, open) => {
     expect(await reviews.countFirstReviewedSince(new Date(1000))).toBe(2); // b and c; a was first reviewed at 500
   });
 
+  it('review log: ids, origin and prior; latest first; rewrite, remove and restore without ever reusing an id', async () => {
+    const { reviews } = open();
+    const prior = new MemoryState(2.5, 5.125, new Date(900), 3, 1, new Date(100));
+    const a1 = await reviews.append(new Review(new StudyItemId('a'), Rating.Good, new Date(1000), 'mcp', prior));
+    const b1 = await reviews.append(new Review(new StudyItemId('b'), Rating.Hard, new Date(2000), 'android'));
+    const a2 = await reviews.append(new Review(new StudyItemId('a'), Rating.Easy, new Date(500)));
+    expect(await reviews.append(new Review(new StudyItemId('a'), Rating.Again, new Date(1000)))).toBeNull();
+    expect([a1, b1, a2].every(id => typeof id === 'number' && id > 0)).toBe(true);
+    expect(new Set([a1, b1, a2]).size).toBe(3);
+    const logged = await reviews.findLogged(a1!);
+    expect(logged).toEqual({ id: a1, review: new Review(new StudyItemId('a'), Rating.Good, new Date(1000), 'mcp', prior) });
+    expect((await reviews.findLogged(b1!))!.review).toMatchObject({ origin: 'android', prior: null });
+    expect((await reviews.findLogged(a2!))!.review).toMatchObject({ origin: null, prior: null });
+    expect(await reviews.findLogged(12345)).toBeNull();
+    expect((await reviews.findLoggedByStudyItemId(new StudyItemId('a'))).map(e => e.id)).toEqual([a2, a1]);
+    expect((await reviews.findLatest(new Date(0), 10)).map(e => e.id)).toEqual([b1, a1, a2]);
+    expect((await reviews.findLatest(new Date(1000), 1)).map(e => e.id)).toEqual([b1]);
+
+    const newPrior = new MemoryState(1, 2, new Date(3), 4, 5, null);
+    await reviews.rewrite(a1!, Rating.Again, newPrior);
+    expect((await reviews.findLogged(a1!))!.review).toEqual(new Review(new StudyItemId('a'), Rating.Again, new Date(1000), 'mcp', newPrior));
+    await reviews.rewrite(a1!, Rating.Again, null);
+    expect((await reviews.findLogged(a1!))!.review.prior).toBeNull();
+
+    const removed = (await reviews.findLogged(b1!))!;
+    await reviews.removeById(b1!);
+    expect(await reviews.findLogged(b1!)).toBeNull();
+    expect(await reviews.countSince(new Date(0))).toBe(2);
+    const next = await reviews.append(new Review(new StudyItemId('c'), Rating.Good, new Date(3000)));
+    expect(next).toBeGreaterThan(b1!); // the removed (highest) id is not handed out again
+    await reviews.restore(removed);
+    expect(await reviews.findLogged(b1!)).toEqual(removed);
+    expect((await reviews.findAll()).map(r => r.studyItemId.value)).toEqual(['a', 'a', 'b', 'c']);
+  });
+
   it('source index: Map-like file order, lookups by concept and tag, snapshot', async () => {
     const { sources } = open();
     expect(await sources.snapshot()).toEqual({ fileIndices: {}, tagToDeckId: {} });

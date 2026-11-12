@@ -2,7 +2,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SCHEMA_V3, SCHEMA_V4 } from './persistence/schema';
+import { SCHEMA_V3, SCHEMA_V4, SCHEMA_V5 } from './persistence/schema';
 import { exportDocuments, importDocuments, verifyDocuments } from './legacy-documents';
 
 /** Receipt key for a command: sha256 hex of its canonical JSON (shared by `once()` and the v1→v2 migration). */
@@ -15,7 +15,7 @@ const BASE_TABLES = `
   CREATE TABLE IF NOT EXISTS notes (path TEXT PRIMARY KEY, content TEXT, revision INTEGER NOT NULL);
 `;
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 /** One connection, serialized transactions, durable commits. No network awaits inside transactions. */
 export class RecallDatabase {
@@ -44,7 +44,7 @@ export class RecallDatabase {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.sql = new DatabaseSync(path);
     const version = Number(this.sql.prepare('PRAGMA user_version').get()?.user_version ?? 0);
-    if (version > 4) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
+    if (version > SCHEMA_VERSION) { this.sql.close(); throw new Error('Database schema is newer than this server; refusing to downgrade'); }
     this.sql.exec(`
       PRAGMA journal_mode=WAL;
       PRAGMA synchronous=FULL;
@@ -54,11 +54,12 @@ export class RecallDatabase {
       if (version === 1) this.migrateV1();
       if (version === 1 || version === 2) this.migrateV2();
       if (version >= 1 && version <= 3) this.migrateV3();
+      if (version >= 1 && version <= 4) this.migrateV4();
     } catch (error) { this.sql.close(); throw error; }
     if (version === 1 || version === 2) {
       try { this.sql.exec('VACUUM'); } catch (error) { console.error('VACUUM after schema migration failed (non-fatal):', error); }
     }
-    if (version === 0) this.sql.exec(`BEGIN; ${BASE_TABLES} ${SCHEMA_V3} ${SCHEMA_V4} PRAGMA user_version=4; COMMIT;`);
+    if (version === 0) this.sql.exec(`BEGIN; ${BASE_TABLES} ${SCHEMA_V3} ${SCHEMA_V4} ${SCHEMA_V5} PRAGMA user_version=5; COMMIT;`);
   }
   /** v1 kept full command payloads (whole notes) forever; v2 keeps only their hash. All or nothing. */
   private migrateV1() {
@@ -99,6 +100,24 @@ export class RecallDatabase {
     this.sql.exec('BEGIN IMMEDIATE');
     try {
       this.sql.exec(`${SCHEMA_V4} PRAGMA user_version=4; COMMIT`);
+    } catch (error) {
+      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+      throw error;
+    }
+  }
+  /**
+   * v5 rebuilds the review log with an AUTOINCREMENT key and the nullable origin/prior columns (the
+   * rows, their `seq` and order are checked to be identical before committing), and adds the
+   * correction audit trail and card proposals. All or nothing: on failure the database stays v4.
+   */
+  private migrateV4() {
+    const rows = () => this.sql.prepare('SELECT seq, study_item_id, rating, timestamp FROM reviews ORDER BY seq').all();
+    this.sql.exec('BEGIN IMMEDIATE');
+    try {
+      const before = payloadHash(JSON.stringify(rows()));
+      this.sql.exec(SCHEMA_V5);
+      if (payloadHash(JSON.stringify(rows())) !== before) throw new Error('Schema v5 migration verification failed: reviews differ');
+      this.sql.exec('PRAGMA user_version=5; COMMIT');
     } catch (error) {
       if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
       throw error;

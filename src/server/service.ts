@@ -7,6 +7,7 @@ import { Direction } from '../context/study/domain/direction';
 import type { Concept } from '../context/concept/domain/concept';
 import { markdownToVoice } from './audio/markdown-to-voice';
 import { RecallDatabase, payloadHash } from './database';
+import type { ReviewOrigin } from '../context/study/domain/review';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -100,6 +101,10 @@ export class RecallService {
     });
   }
   /** Survives removal of the study item, so a recreated item never reuses an old revision. */
+  /** Current revision of a study item (0 if never bumped). Call inside a transaction. */
+  revisionOf(id: string): number { return this.itemRevision(id); }
+  /** Invalidates queued copies of a study item on every client. Call inside a transaction. */
+  bumpRevisionOf(id: string): number { return this.bumpRevision(id); }
   private itemRevision(id: string): number {
     return Number(this.db.stmt('SELECT revision FROM item_revisions WHERE study_item_id=?').get(id)?.revision ?? 0);
   }
@@ -128,7 +133,8 @@ export class RecallService {
     return this.db.transaction(async () => days === 0 ? 0
       : Number(this.db.sql.prepare('DELETE FROM operations WHERE created_at < ?').run(now - days * 86_400_000).changes));
   }
-  async review(body: unknown) {
+  /** `origin` labels the review (HTTP clients by user agent, the MCP connector as 'mcp'); it is not part of the receipt. */
+  async review(body: unknown, origin: ReviewOrigin = 'api') {
     const cmd = record(body);
     const operationId = string(cmd.operationId, 'operationId', 128);
     const studyItemId = string(cmd.studyItemId, 'studyItemId', 256);
@@ -147,10 +153,10 @@ export class RecallService {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const siblings = new Set((await c.studyItemRepository.findByConceptId(item.conceptId)).filter(i => i.id.value !== studyItemId).map(i => i.id.value));
       if ((await c.reviewLog.findSince(start)).some(r => siblings.has(r.studyItemId.value))) throw new ApiError(409, 'Other direction already reviewed today; refresh the queue');
-      await c.reviewStudyItem.execute({ studyItemId, rating });
+      const { reviewId, memoryState } = await c.reviewStudyItem.execute({ studyItemId, rating, origin });
       this.db.stmt('INSERT INTO daily_budgets VALUES (?,?,?) ON CONFLICT(day_start) DO UPDATE SET introduced=excluded.introduced, reviewed=excluded.reviewed')
         .run(allowance.day, allowance.introduced + (item.memoryState.reps === 0 ? 1 : 0), allowance.reviewed + (item.memoryState.reps === 0 ? 0 : 1));
-      return { studyItemId, revision: this.bumpRevision(studyItemId), operationId };
+      return { studyItemId, revision: this.bumpRevision(studyItemId), operationId, reviewId, due: memoryState.due.toISOString() };
     }));
   }
   /** `onCommitted` receives the note's current study item ids after a change has been committed. */

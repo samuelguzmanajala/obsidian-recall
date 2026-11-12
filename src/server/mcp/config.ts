@@ -10,6 +10,8 @@ export interface McpConfig {
   resource: string;
   /** SQLite file holding registered clients and hashed tokens, separate from the study database. */
   oauthDb: string;
+  /** `RECALL_MCP_WRITE=true`: also expose the write tools (record/correct reviews, propose cards). Off by default. */
+  write: boolean;
 }
 
 export function readMcpConfig(env: NodeJS.ProcessEnv, recallDb: string): McpConfig | undefined {
@@ -26,7 +28,10 @@ export function readMcpConfig(env: NodeJS.ProcessEnv, recallDb: string): McpConf
   if ((url.pathname !== '/' && url.pathname !== '') || url.search || url.hash || url.username || url.password) {
     throw new Error('RECALL_MCP_PUBLIC_URL must be an origin without path, e.g. https://host.example.ts.net:10000');
   }
+  const write = env.RECALL_MCP_WRITE ?? 'false';
+  if (write !== 'true' && write !== 'false') throw new Error('RECALL_MCP_WRITE must be "true" or "false"');
   return {
+    write: write === 'true',
     port: n,
     host: env.RECALL_MCP_HOST ?? '127.0.0.1',
     issuer: url.origin,

@@ -11,8 +11,10 @@ import type { StudyItemId } from '@context/study/domain/study-item-id';
 import type { DeckRepository } from '@context/deck/domain/deck-repository';
 import { Deck } from '@context/deck/domain/deck';
 import type { DeckId } from '@context/deck/domain/deck-id';
-import type { ReviewLog } from '@context/study/domain/review-log';
-import type { Review } from '@context/study/domain/review';
+import type { LoggedReview, ReviewLog } from '@context/study/domain/review-log';
+import { Review } from '@context/study/domain/review';
+import type { Rating } from '@context/study/domain/rating';
+import type { MemoryState } from '@context/study/domain/memory-state';
 import type { CardAlias, FileIndex, SerializedSyncState, SourceIndex, SourceLocation } from '@context/indexing/domain/source-index';
 
 const copyConcept = (c: Concept) => Concept.create(c.id, c.sideA, c.sideB, c.directionality);
@@ -51,12 +53,18 @@ export class InMemoryDeckRepository implements DeckRepository {
   async remove(id: DeckId) { this.rows.delete(id.value); }
 }
 
+/** Ids are never reused, like the SQLite AUTOINCREMENT key. */
 export class InMemoryReviewLog implements ReviewLog {
-  readonly rows: Review[] = [];
+  readonly rows: LoggedReview[] = [];
+  private lastId = 0;
   async append(review: Review) {
-    if (!this.rows.some(r => r.studyItemId.equals(review.studyItemId) && r.timestamp.getTime() === review.timestamp.getTime())) this.rows.push(review);
+    if (this.rows.some(r => r.review.studyItemId.equals(review.studyItemId) && r.review.timestamp.getTime() === review.timestamp.getTime())) return null;
+    this.rows.push({ id: ++this.lastId, review });
+    return this.lastId;
   }
-  async findAll() { return [...this.rows].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()); }
+  /** By timestamp, then insertion (id). */
+  private sorted() { return [...this.rows].sort((a, b) => a.review.timestamp.getTime() - b.review.timestamp.getTime() || a.id - b.id); }
+  async findAll() { return this.sorted().map(r => r.review); }
   async findByStudyItemId(id: StudyItemId) { return (await this.findAll()).filter(r => r.studyItemId.equals(id)); }
   async findSince(since: Date) { return (await this.findAll()).filter(r => r.timestamp >= since); }
   async countSince(since: Date) { return (await this.findSince(since)).length; }
@@ -64,6 +72,21 @@ export class InMemoryReviewLog implements ReviewLog {
     const first = new Map<string, number>();
     for (const r of await this.findAll()) if (!first.has(r.studyItemId.value)) first.set(r.studyItemId.value, r.timestamp.getTime());
     return [...first.values()].filter(t => t >= since.getTime()).length;
+  }
+  async findLogged(id: number) { return this.rows.find(r => r.id === id) ?? null; }
+  async findLoggedByStudyItemId(id: StudyItemId) { return this.sorted().filter(r => r.review.studyItemId.equals(id)); }
+  async findLatest(since: Date, limit: number) { return this.sorted().reverse().filter(r => r.review.timestamp >= since).slice(0, limit); }
+  async rewrite(id: number, rating: Rating, prior: MemoryState | null) {
+    const i = this.rows.findIndex(r => r.id === id);
+    if (i < 0) return;
+    const r = this.rows[i].review;
+    this.rows[i] = { id, review: new Review(r.studyItemId, rating, r.timestamp, r.origin, prior) };
+  }
+  async removeById(id: number) { const i = this.rows.findIndex(r => r.id === id); if (i >= 0) this.rows.splice(i, 1); }
+  async restore(entry: LoggedReview) {
+    if (this.rows.some(r => r.id === entry.id)) throw new Error(`Review id ${entry.id} is in use`);
+    this.rows.push(entry);
+    this.lastId = Math.max(this.lastId, entry.id);
   }
 }
 

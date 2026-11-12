@@ -2,15 +2,21 @@ import type { RecallService } from '../service';
 import { readMcpConfig } from './config';
 import { OAuthStore } from './oauth-store';
 import { createPublicServer } from './public-server';
+import { RECALL_TOOLS } from './tools';
+import { RECALL_WRITE_TOOLS } from './write-tools';
 
 export interface PublicMcp { listen(): void; close(): Promise<void> }
+
+/** The tools the connector exposes: the six read-only ones, plus the write tools only with `RECALL_MCP_WRITE=true`. */
+export const mcpTools = (write: boolean) => write ? [...RECALL_TOOLS, ...RECALL_WRITE_TOOLS] : RECALL_TOOLS;
 
 /** The public MCP listener, or `undefined` when `RECALL_MCP_*` is not configured (the backend then behaves as before). */
 export function configureMcp(env: NodeJS.ProcessEnv, recallDb: string, service: RecallService, token: string): PublicMcp | undefined {
   const config = readMcpConfig(env, recallDb);
   if (!config) return undefined;
   const store = new OAuthStore(config.oauthDb);
-  const server = createPublicServer(service, store, { issuer: config.issuer, resource: config.resource, ownerToken: token, log: line => console.log(line) });
+  const tools = mcpTools(config.write);
+  const server = createPublicServer(service, store, { issuer: config.issuer, resource: config.resource, ownerToken: token, tools, log: line => console.log(line) });
   // Without a listener, a failed listen (e.g. EADDRINUSE) would be an uncaught 'error' event and take
   // the private API down with it. The MCP listener is optional: report it and keep the backend running.
   server.on('error', (error: NodeJS.ErrnoException) => {
@@ -19,7 +25,7 @@ export function configureMcp(env: NodeJS.ProcessEnv, recallDb: string, service: 
   });
   return {
     listen: () => server.listen(config.port, config.host, () => {
-      console.log(`Recall MCP listening on ${config.host}:${config.port} (public URL ${config.resource})`);
+      console.log(`Recall MCP listening on ${config.host}:${config.port} (public URL ${config.resource}; ${config.write ? 'write tools enabled' : 'read-only tools'})`);
     }),
     close: async () => {
       server.closeIdleConnections();

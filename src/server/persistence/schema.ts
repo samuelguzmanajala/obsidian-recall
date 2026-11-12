@@ -42,6 +42,33 @@ export const SCHEMA_V4 = `
   CREATE INDEX note_cards_key ON note_cards(card_key);
 `;
 
+/**
+ * Schema v5. The review log is rebuilt (same rows, same `seq`) with an AUTOINCREMENT key, so a
+ * removed review's id is never given to another one (corrections refer to reviews by id and can
+ * restore a removed one under its id), plus two nullable columns: `origin` (who recorded it:
+ * mcp, android, obsidian, api) and `prior` (JSON memory state the review was applied to). Older
+ * rows keep both NULL. New tables: `review_changes`, the audit trail of corrections (amend, remove,
+ * restore; enough to revert each), and `card_proposals`, cards suggested over MCP waiting for the
+ * owner's decision in Obsidian (they never become cards by themselves).
+ */
+export const SCHEMA_V5 = `
+  CREATE TABLE reviews_v5 (seq INTEGER PRIMARY KEY AUTOINCREMENT, study_item_id TEXT NOT NULL, rating TEXT NOT NULL,
+    timestamp INTEGER NOT NULL, origin TEXT, prior TEXT, UNIQUE (study_item_id, timestamp));
+  INSERT INTO reviews_v5 (seq, study_item_id, rating, timestamp) SELECT seq, study_item_id, rating, timestamp FROM reviews ORDER BY seq;
+  DROP TABLE reviews;
+  ALTER TABLE reviews_v5 RENAME TO reviews;
+  CREATE INDEX reviews_timestamp ON reviews(timestamp);
+  CREATE TABLE review_changes (id INTEGER PRIMARY KEY AUTOINCREMENT, review_id INTEGER NOT NULL, study_item_id TEXT NOT NULL,
+    review_timestamp INTEGER NOT NULL, review_origin TEXT, action TEXT NOT NULL, old_rating TEXT, new_rating TEXT, prior TEXT,
+    reverts INTEGER, at INTEGER NOT NULL, origin TEXT NOT NULL);
+  CREATE INDEX review_changes_review ON review_changes(review_id);
+  CREATE INDEX review_changes_at ON review_changes(at);
+  CREATE TABLE card_proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, side_a TEXT NOT NULL, side_b TEXT NOT NULL,
+    directionality TEXT NOT NULL, deck TEXT, context TEXT, status TEXT NOT NULL, origin TEXT NOT NULL,
+    created_at INTEGER NOT NULL, decided_at INTEGER, note_path TEXT);
+  CREATE INDEX card_proposals_status ON card_proposals(status);
+`;
+
 /** Tables that hold study data (everything except receipts and notes). */
 export const DATA_TABLES = ['concepts', 'study_items', 'item_revisions', 'decks', 'deck_items', 'reviews', 'note_files',
-  'note_cards', 'note_lines', 'note_items', 'note_decks', 'tag_decks', 'daily_budgets', 'meta', 'card_aliases'] as const;
+  'note_cards', 'note_lines', 'note_items', 'note_decks', 'tag_decks', 'daily_budgets', 'meta', 'card_aliases', 'review_changes', 'card_proposals'] as const;

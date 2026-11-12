@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+const notices = vi.hoisted(() => [] as string[]);
+vi.mock('obsidian', async () => ({
+  ...await vi.importActual<object>('obsidian'),
+  Notice: class { constructor(text: string) { notices.push(text); } },
+  PluginSettingTab: class { containerEl: unknown; hidden = false; constructor(_app: unknown, _plugin: unknown) {} hide() { this.hidden = true; } },
+}));
+import { RecallSettingTab } from '../../../src/app/backend/settings';
 import { StudySettingsSection, type StudySettingsClient } from '../../../src/app/backend/study-settings-section';
 import { RemoteClient, RemoteError } from '../../../src/app/backend/remote-client';
 import { loadPluginSettings } from '../../../src/app/backend/plugin-settings';
@@ -12,6 +19,9 @@ class FakeEl {
   checked = false;
   disabled = false;
   value = '';
+  indeterminate = false;
+  scrollTop = 0;
+  scrollIntoView = vi.fn();
   setting?: any;
   listeners: Record<string, () => void> = {};
   constructor(readonly tag: string, options: { text?: string; cls?: string; type?: string; value?: string } = {}) {
@@ -32,7 +42,10 @@ class FakeEl {
   settings(): any[] { return this.all().filter(e => e.setting).map(e => e.setting); }
   button(text: string) { return this.settings().flatMap(s => s.components).find((c: any) => c.text === text); }
   field(name: string) { return this.settings().find(s => s.name === name)?.components[0]; }
-  rows() { return this.all().filter(e => e.cls === 'recall-tag-row'); }
+  rows() { return this.all().filter(e => e.cls.split(' ')[0] === 'recall-tag-row'); }
+  byCls(cls: string) { return this.all().find(e => e.cls.split(' ').includes(cls)); }
+  /** Tag names of the listed rows, in order. */
+  order() { return this.rows().map(r => r.all().find(e => e.cls === 'recall-tag-name')!.text.trim()); }
 }
 /** Buttons run async handlers without returning them: click, then let the handler finish. */
 async function click(root: FakeEl, text: string) {
@@ -96,7 +109,7 @@ describe('Estudio settings section: states', () => {
     expect(text).toMatch(/Notas sin tags: 2 notas, 5 tarjetas\. Solo se estudian si no seleccionas ningún tag/);
     expect(rowFor(root, 'German').texts()).toMatch(/3 notas, 4 tarjetas/);
     const sub = rowFor(root, 'German/grammar');
-    expect(checkbox(sub)).toMatchObject({ checked: true, disabled: true });
+    expect(checkbox(sub)).toMatchObject({ checked: false, indeterminate: true, disabled: true });
     expect(sub.texts()).toMatch(/incluido por German/);
     expect(sub.style.paddingLeft).toBe('16px');
     expect(checkbox(rowFor(root, 'Spanish'))).toMatchObject({ checked: false, disabled: false });
@@ -140,7 +153,7 @@ describe('Estudio settings section: applying', () => {
     checkbox(rowFor(root, 'Spanish')).checked = true;
     checkbox(rowFor(root, 'Spanish')).listeners.change();
     root.field('Tarjetas nuevas por día').change('5');
-    await click(root, 'Aplicar');
+    await click(root, 'Aplicar…');
     expect(client.updateStudySettings).toHaveBeenCalledTimes(1);
     const dry = client.updateStudySettings.mock.calls[0][0];
     expect(dry).toEqual({ operationId: expect.any(String), expectedRevision: 0, settings: { flashcardTags: ['German', 'Spanish'], dailyNewLimit: 5 }, dryRun: true });
@@ -156,7 +169,7 @@ describe('Estudio settings section: applying', () => {
     expect(dryRun).toBe(true);
     expect(client.updateStudySettings.mock.calls[1][0]).toEqual(real);
     expect(client.notifyChanged).toHaveBeenCalledTimes(1);
-    expect(notify).toHaveBeenCalledWith(expect.stringMatching(/aplicados/));
+    expect(notify).toHaveBeenCalledWith('Recall: ajustes de estudio guardados. Tags: German, Spanish.');
     expect(client.getStudySettings).toHaveBeenCalledTimes(2);
   });
 
@@ -164,7 +177,7 @@ describe('Estudio settings section: applying', () => {
     const { client, root, section } = setup();
     await section.load();
     root.field('Orden aleatorio').change(false);
-    await click(root, 'Aplicar');
+    await click(root, 'Aplicar…');
     await click(root, 'Cancelar');
     expect(root.texts()).not.toMatch(/Confirmar cambios/);
     expect(section.changes()).toEqual({ shuffleReviews: false });
@@ -174,10 +187,12 @@ describe('Estudio settings section: applying', () => {
   it('refuses invalid numbers and empty changes without calling the backend', async () => {
     const { client, root, section } = setup();
     await section.load();
-    await click(root, 'Aplicar');
+    expect(root.button('Aplicar…')).toBeUndefined(); // no changes: no bar, no button
+    await section.preview();
     expect(root.texts()).toMatch(/No hay cambios/);
     root.field('Repasos por día').change('-3');
-    await click(root, 'Aplicar');
+    expect(root.byCls('recall-study-pending')!.texts()).toMatch(/repasos\/día: «-3» no es válido/);
+    await click(root, 'Aplicar…');
     expect(root.texts()).toMatch(/enteros ≥ 0/);
     expect(client.updateStudySettings).not.toHaveBeenCalled();
   });
@@ -186,15 +201,15 @@ describe('Estudio settings section: applying', () => {
     const conflict = new RemoteError(409, 'Settings changed on another device; reload them');
     const { client, root, section, notify } = setup();
     await section.load();
-    root.field('Umbral de sanguijuela').change('4');
+    root.field('Umbral de leech').change('4');
     client.updateStudySettings.mockRejectedValueOnce(conflict);
-    await click(root, 'Aplicar');
+    await click(root, 'Aplicar…');
     expect(notify).toHaveBeenCalledWith(expect.stringMatching(/cambiaron en otro dispositivo/));
     expect(client.getStudySettings).toHaveBeenCalledTimes(2);
     expect(section.changes()).toEqual({});
 
-    root.field('Umbral de sanguijuela').change('4');
-    await click(root, 'Aplicar');
+    root.field('Umbral de leech').change('4');
+    await click(root, 'Aplicar…');
     client.updateStudySettings.mockRejectedValueOnce(conflict);
     await click(root, 'Confirmar');
     expect(notify).toHaveBeenCalledTimes(2);
@@ -206,8 +221,8 @@ describe('Estudio settings section: applying', () => {
   it('keeps the confirmation after another failure, so Confirmar retries the same operation', async () => {
     const { client, root, section } = setup();
     await section.load();
-    root.field('Umbral de sanguijuela').change('4');
-    await click(root, 'Aplicar');
+    root.field('Umbral de leech').change('4');
+    await click(root, 'Aplicar…');
     client.updateStudySettings.mockRejectedValueOnce(new Error('Backend connection timed out. Retry to confirm the result.'));
     await click(root, 'Confirmar');
     expect(root.texts()).toMatch(/No se pudo aplicar: Backend connection timed out/);
@@ -223,6 +238,269 @@ describe('Estudio settings section: applying', () => {
     expect(root.texts()).toMatch(/revisión 3/);
     await click(root, 'Volver a los valores del entorno');
     expect(client.updateStudySettings.mock.calls[0][0]).toEqual({ operationId: expect.any(String), expectedRevision: 3, reset: true, dryRun: true });
+  });
+});
+
+const bar = (root: FakeEl) => root.byCls('recall-study-pending');
+const sticky = (root: FakeEl) => root.byCls('recall-study-sticky')!;
+const tick = (root: FakeEl, tag: string, on: boolean) => { const box = checkbox(rowFor(root, tag)); box.checked = on; box.listeners.change(); };
+
+describe('Estudio settings section: pending changes bar', () => {
+  it('appears with each kind of change, lists them, and disappears when the form matches the server again', async () => {
+    const { root, section } = setup();
+    await section.load();
+    expect(bar(root)).toBeUndefined();
+    expect(root.byCls('recall-study-sticky')!.children).toHaveLength(0);
+
+    tick(root, 'Spanish', true);
+    expect(bar(root)!.texts()).toMatch(/^Cambios sin aplicar \(1\): \+Spanish$/m);
+    tick(root, 'German', false);
+    expect(bar(root)!.texts()).toMatch(/Cambios sin aplicar \(2\): \+Spanish, −German$/m);
+    root.field('Tarjetas nuevas por día').change('30');
+    root.field('Repasos por día').change('100');
+    root.field('Umbral de leech').change('4');
+    root.field('Orden aleatorio').change(false);
+    expect(bar(root)!.texts()).toMatch(
+      /Cambios sin aplicar \(6\): \+Spanish, −German · nuevas\/día 20 → 30 · repasos\/día sin límite → 100 · umbral de leech 8 → 4 · orden aleatorio sí → no/);
+    // The bar sits in the sticky area at the top of the section, with both actions.
+    expect(sticky(root).byCls('recall-study-pending')).toBe(bar(root));
+    expect(root.children.indexOf(sticky(root))).toBe(1); // right after the "Estudio" heading
+    expect(root.button('Aplicar…')).toBeDefined();
+    expect(root.button('Descartar')).toBeDefined();
+
+    // Undo each change one by one: the bar shrinks, then goes away.
+    tick(root, 'Spanish', false);
+    tick(root, 'German', true);
+    root.field('Tarjetas nuevas por día').change('20');
+    root.field('Repasos por día').change('0');
+    root.field('Umbral de leech').change('8');
+    expect(bar(root)!.texts()).toMatch(/Cambios sin aplicar \(1\): orden aleatorio sí → no/);
+    root.field('Orden aleatorio').change(true);
+    expect(bar(root)).toBeUndefined();
+    expect(section.isDirty()).toBe(false);
+  });
+
+  it('lists many tag changes briefly', async () => {
+    const many: TagListing = { tags: Array.from({ length: 12 }, (_, i) => ({ tag: `t${String(i).padStart(2, '0')}`, notes: 1, cards: 1, selected: false, followed: false })), untagged: { notes: 0, cards: 0, followed: false } };
+    const { root, section } = setup({ getTags: vi.fn(async () => many) });
+    await section.load();
+    for (let i = 0; i < 10; i++) tick(root, `t0${i}`, true);
+    expect(bar(root)!.texts()).toMatch(/Cambios sin aplicar \(10\): \+t00, .*\+t07, y 2 tags más$/m);
+  });
+
+  it('Descartar restores the loaded state', async () => {
+    const { client, root, section } = setup();
+    await section.load();
+    tick(root, 'Spanish', true);
+    root.field('Tarjetas nuevas por día').change('5');
+    root.field('Umbral de leech').change('x');
+    await click(root, 'Descartar');
+    expect(section.changes()).toEqual({});
+    expect(section.isDirty()).toBe(false);
+    expect(bar(root)).toBeUndefined();
+    expect(checkbox(rowFor(root, 'Spanish')).checked).toBe(false);
+    expect(root.field('Tarjetas nuevas por día').value).toBe('20');
+    expect(root.field('Umbral de leech').value).toBe('8');
+    expect(root.texts()).toMatch(/Seleccionados: German\./);
+    expect(client.updateStudySettings).not.toHaveBeenCalled();
+  });
+
+  it('keeps "Seleccionados" in sync with the form', async () => {
+    const { root, section } = setup();
+    await section.load();
+    tick(root, 'Spanish', true);
+    expect(root.byCls('recall-tags-summary')!.texts()).toBe('Seleccionados: German, Spanish.');
+  });
+});
+
+describe('Estudio settings section: confirmation', () => {
+  it('shows the confirmation in the sticky area, focuses Confirmar, locks the form, and confirms the previewed command', async () => {
+    const { client, root, section } = setup();
+    await section.load();
+    tick(root, 'Spanish', true);
+    root.field('Umbral de leech').change('4');
+    const stickyBefore = sticky(root);
+    await click(root, 'Aplicar…');
+    const box = sticky(root).byCls('recall-settings-confirm')!;
+    expect(box.texts()).toMatch(/Confirmar cambios de estudio/);
+    expect(box.texts()).toMatch(/Umbral de leech: 4\./);
+    expect(box.texts()).not.toMatch(/anguijuela/);
+    expect(bar(root)).toBeUndefined(); // the confirmation replaces the pending bar
+    expect(root.button('Confirmar').buttonEl.focused).toBe(true);
+    expect(sticky(root).scrollIntoView).toHaveBeenCalled();
+    expect(stickyBefore).not.toBe(sticky(root));
+
+    // Locked: every input is disabled and edits through the handlers are ignored.
+    expect(root.rows().every(r => checkbox(r).disabled)).toBe(true);
+    for (const name of ['Tarjetas nuevas por día', 'Repasos por día', 'Umbral de leech', 'Orden aleatorio']) expect(root.field(name).disabled).toBe(true);
+    section.setTag('Spanish', false);
+    section.setNumber('dailyNewLimit', '99');
+    section.setShuffle(false);
+    section.discard();
+    expect(section.changes()).toEqual({ flashcardTags: ['German', 'Spanish'], leechThreshold: 4 });
+    expect(root.byCls('recall-settings-confirm')).toBeDefined();
+
+    await click(root, 'Confirmar');
+    const [dry, real] = client.updateStudySettings.mock.calls.map(c => c[0]);
+    const { dryRun, ...previewed } = dry;
+    expect(real).toEqual(previewed);
+    expect(real.settings).toEqual({ flashcardTags: ['German', 'Spanish'], leechThreshold: 4 });
+  });
+
+  it('Cancelar unlocks the form with the draft intact', async () => {
+    const { root, section } = setup();
+    await section.load();
+    root.field('Tarjetas nuevas por día').change('5');
+    await click(root, 'Aplicar…');
+    await click(root, 'Cancelar');
+    expect(root.field('Tarjetas nuevas por día').disabled).toBe(false);
+    expect(root.field('Tarjetas nuevas por día').value).toBe('5');
+    expect(bar(root)!.texts()).toMatch(/nuevas\/día 20 → 5/);
+    section.setNumber('dailyNewLimit', '6');
+    expect(section.changes()).toEqual({ dailyNewLimit: 6 });
+  });
+
+  it('after saving, says so with the tags and the status line reports the stored settings', async () => {
+    const getStudySettings = vi.fn()
+      .mockResolvedValueOnce(structuredClone(STATE))
+      .mockResolvedValue({ ...structuredClone(STATE), settings: { ...STATE.settings, flashcardTags: ['German', 'Spanish'] }, source: 'stored', revision: 1 });
+    const { root, section, notify } = setup({ getStudySettings });
+    await section.load();
+    expect(root.byCls('recall-study-status')!.text).toMatch(/valores de su entorno/);
+    tick(root, 'Spanish', true);
+    await click(root, 'Aplicar…');
+    await click(root, 'Confirmar');
+    expect(notify).toHaveBeenCalledWith('Recall: ajustes de estudio guardados. Tags: German, Spanish.');
+    expect(root.byCls('recall-study-status')!.text).toMatch(/^Guardados en el servidor \(revisión 1\)/);
+    expect(bar(root)).toBeUndefined();
+    expect(root.byCls('recall-settings-confirm')).toBeUndefined();
+  });
+});
+
+describe('Estudio settings section: leaving the settings tab', () => {
+  async function openTab() {
+    notices.length = 0;
+    const plugin = { settings: loadPluginSettings({}), saveSettings: vi.fn(async () => {}) };
+    const client = {
+      isConfigured: () => true,
+      getStudySettings: vi.fn(async () => structuredClone(STATE)),
+      getTags: vi.fn(async () => structuredClone(TAGS)),
+      updateStudySettings: vi.fn(),
+      notifyChanged: vi.fn(),
+    };
+    const tab: any = new RecallSettingTab({} as any, plugin as any, client);
+    tab.containerEl = new FakeEl('div');
+    tab.display();
+    const root = (tab.containerEl as FakeEl).byCls('recall-study-settings')!;
+    await vi.waitFor(() => expect(root.texts()).toMatch(/Seleccionados: German/));
+    return { tab, client, root };
+  }
+
+  it('with pending changes: tells the user they were not saved, and saves nothing', async () => {
+    const { tab, client, root } = await openTab();
+    tick(root, 'Spanish', true);
+    tab.hide();
+    expect(notices).toEqual(['Recall: había cambios de estudio sin aplicar; no se han guardado.']);
+    expect(client.updateStudySettings).not.toHaveBeenCalled();
+    expect(tab.hidden).toBe(true);
+  });
+
+  it('with a confirmation still open: same notice, nothing sent', async () => {
+    const { tab, client, root } = await openTab();
+    client.updateStudySettings.mockResolvedValue({ ...structuredClone(STATE), impact: IMPACT, dryRun: true });
+    root.field('Umbral de leech').change('3');
+    await click(root, 'Aplicar…');
+    tab.hide();
+    expect(notices).toHaveLength(1);
+    expect(client.updateStudySettings).toHaveBeenCalledTimes(1); // the dry run only
+  });
+
+  it('without changes: says nothing', async () => {
+    const { tab } = await openTab();
+    tab.hide();
+    expect(notices).toEqual([]);
+    expect(tab.hidden).toBe(true);
+  });
+});
+
+describe('Estudio settings section: tag list', () => {
+  const LISTING: TagListing = {
+    tags: [
+      { tag: 'zoo', notes: 1, cards: 1, selected: false, followed: false },
+      { tag: 'history-modern', notes: 1, cards: 2, selected: false, followed: false },
+      { tag: 'history/medieval', notes: 1, cards: 2, selected: false, followed: false },
+      { tag: 'history', notes: 1, cards: 0, selected: false, followed: false },
+      { tag: 'German/grammar', notes: 1, cards: 3, selected: false, followed: true },
+      { tag: 'German', notes: 3, cards: 4, selected: true, followed: true },
+      { tag: 'dev', notes: 1, cards: 0, selected: true, followed: true },
+      { tag: 'Biology', notes: 1, cards: 0, selected: false, followed: false },
+      { tag: 'art', notes: 2, cards: 2, selected: false, followed: false },
+    ],
+    untagged: { notes: 0, cards: 0, followed: false },
+  };
+  const LOADED: StudySettingsState = { ...STATE, settings: { ...STATE.settings, flashcardTags: ['German', 'dev'] } };
+  const load = async () => {
+    const t = setup({ getTags: vi.fn(async () => structuredClone(LISTING)), getStudySettings: vi.fn(async () => structuredClone(LOADED)) });
+    await t.section.load();
+    return t;
+  };
+
+  it('followed tags first, then the rest alphabetically (case-insensitive, parents before sub-tags), with group titles', async () => {
+    const { root } = await load();
+    // Biology has no cards: hidden. history has none either, but it is the parent of a listed tag.
+    expect(root.order()).toEqual(['dev', 'German', 'German/grammar', 'art', 'history', 'history/medieval', 'history-modern', 'zoo']);
+    expect(root.all().filter(e => e.cls === 'recall-tags-group').map(e => e.text)).toEqual(['Seguidos ahora', 'Otros tags']);
+    expect(rowFor(root, 'German/grammar').style.paddingLeft).toBe('16px');
+    expect(rowFor(root, 'history/medieval').style.paddingLeft).toBe('16px');
+    expect(rowFor(root, 'history-modern').style.paddingLeft).toBe('0px');
+  });
+
+  it('ticking a box does not move rows', async () => {
+    const { root } = await load();
+    const before = root.order();
+    tick(root, 'zoo', true);
+    tick(root, 'German', false);
+    expect(root.order()).toEqual(before);
+  });
+
+  it('hides tags without cards behind a toggle; a selected tag is always shown', async () => {
+    const { root } = await load();
+    const toggle = root.field('Mostrar tags sin tarjetas (3)');
+    expect(toggle.value).toBe(false);
+    expect(root.order()).not.toContain('Biology');
+    expect(root.order()).toContain('dev'); // selected, 0 cards
+    toggle.change(true);
+    expect(root.order()).toEqual(['dev', 'German', 'German/grammar', 'art', 'Biology', 'history', 'history/medieval', 'history-modern', 'zoo']);
+    tick(root, 'Biology', true);
+    toggle.change(false);
+    expect(root.order()).toContain('Biology'); // selected in the form: stays visible
+  });
+
+  it('renders sub-tags covered by a selected parent differently from hand-selected tags', async () => {
+    const { root } = await load();
+    const parent = rowFor(root, 'German'), sub = rowFor(root, 'German/grammar'), free = rowFor(root, 'art');
+    expect(parent.cls).toBe('recall-tag-row is-selected');
+    expect(checkbox(parent)).toMatchObject({ checked: true, indeterminate: false, disabled: false });
+    expect(sub.cls).toBe('recall-tag-row is-covered');
+    expect(checkbox(sub)).toMatchObject({ checked: false, indeterminate: true, disabled: true });
+    expect(sub.texts()).toMatch(/incluido por German/);
+    expect(free.cls).toBe('recall-tag-row');
+    expect(checkbox(free)).toMatchObject({ checked: false, indeterminate: false, disabled: false });
+  });
+
+  it('the filter also lists the parents of its matches', async () => {
+    const { root, section } = await load();
+    section.filter = 'medieval';
+    section.render();
+    expect(root.order()).toEqual(['history', 'history/medieval']);
+    section.filter = 'GRAMMAR';
+    section.render();
+    expect(root.order()).toEqual(['German', 'German/grammar']);
+  });
+
+  it('explains where followed tags show up', async () => {
+    const { root } = await load();
+    expect(root.texts()).toMatch(/aparecen como mazos en Obsidian y en la app de Android después de aplicar/);
   });
 });
 

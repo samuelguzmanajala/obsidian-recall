@@ -7,6 +7,7 @@ export * from './plugin-settings';
 
 export class RecallSettingTab extends PluginSettingTab {
   private plugin: RecallPlugin;
+  private study: StudySettingsSection | null = null;
 
   /** `client`: the backend client of this plugin load (study settings live on the backend). */
   constructor(app: App, plugin: RecallPlugin, private readonly client: StudySettingsClient) {
@@ -42,6 +43,14 @@ export class RecallSettingTab extends PluginSettingTab {
     containerEl.createEl('p', { text: 'Audio is configured on the server (see docs/backend.md). Existing local data is retained for migration only.' });
 
     // Loaded each time the tab opens; shows its own loading and error states.
-    void new StudySettingsSection(containerEl.createDiv({ cls: 'recall-study-settings' }), this.client).load();
+    this.study = new StudySettingsSection(containerEl.createDiv({ cls: 'recall-study-settings' }), this.client);
+    void this.study.load();
+  }
+
+  /** Closing the tab drops unapplied study edits; the section says so. */
+  hide(): void {
+    this.study?.leave();
+    this.study = null;
+    super.hide();
   }
 }

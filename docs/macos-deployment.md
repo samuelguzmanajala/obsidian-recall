@@ -323,3 +323,29 @@ Desplegado el commit `29ae69d` de la rama `worktree-agent-a14ba956bf3eba016`. So
   `data/recall-oauth.sqlite`).
 - Copias previas: `backups/recall-2026-11-12T00-03-47-588Z.sqlite` y
   `backups/server-2026-11-12T00-03-47Z` (bundles anteriores).
+
+### Voz con Gemini y build combinado con MCP (2026-11-12, madrugada)
+
+- Pregeneracion: 45 lotes de 150 por la API por lotes de Gemini (`gemini-3.8-flash-tts`, voz
+  Kore, sin reescritura LLM), 6.618 textos distintos, 9.410 archivos, 0 fallos, 31.417 s de
+  audio, 3 h 35 min. Coste 3,56 USD a precio de lotes (7,12 USD a precio normal; el descuento
+  no aparece en los datos de consumo, solo en la facturacion). Estado en
+  `data/audio/pregenerate-state.json`. Los ~2.900 MP3 anteriores de OpenAI siguen en la
+  carpeta: `node --env-file=backend.env server/pregenerate.cjs --orphans` los lista sin borrar.
+- `backend.env`: se anadio AL FINAL un bloque `# --- Gemini voice (2026-11-12)` con
+  `RECALL_TTS_PROVIDER`, `RECALL_TTS_MODEL`, `RECALL_TTS_VOICE`, `RECALL_TTS_INSTRUCTIONS=''`,
+  `RECALL_LLM_PROVIDER='none'`, `RECALL_FFMPEG` (ruta absoluta) y `RECALL_TTS_KEY` (clave de
+  Google). En el parser de env-file de Node gana la ultima aparicion de cada clave; los
+  valores anteriores de OpenAI/DeepSeek siguen mas arriba en el archivo. Copia previa del
+  archivo en `backups/server-2026-11-12T06-09-08Z/backend.env`.
+- Comprobado con peticiones autenticadas (el token se uso desde el entorno, sin mostrarlo):
+  estadisticas, mazos, cola y 16 audios servidos desde la cache en ~1 ms, `audio/mpeg`.
+- Incidencia: a las 07:09 se instalo un build de la rama de audio que NO incluia el listener
+  MCP desplegado a la 01:03 desde otra rama; el conector MCP (puerto 27125) estuvo caido
+  unos 3 minutos. A las 07:12 se instalo el build combinado, commit de fusion `2398598`
+  (rama `feat/backend-with-mcp` = audio `5e9020a` + MCP `c724863`; un unico conflicto aditivo
+  en `src/server/main.ts`; 482 pruebas). Ambos listeners verificados. Bundles anteriores:
+  `backups/server-2026-11-12T06-09-08Z` (MCP sin audio) y `...T06-11-42Z` (audio sin MCP).
+- Antes de desplegar, comprobar SIEMPRE que el bundle instalado no contiene trabajo que el
+  nuevo no tenga (p. ej. `grep -c "Recall MCP" server/main.cjs`) y construir desde un commit
+  que incluya todas las ramas desplegadas.

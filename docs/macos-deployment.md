@@ -306,3 +306,20 @@ cambia `server/main.cjs`; el esquema de la base no cambia (sigue en v4).
   repasos, tambien en Disk2) y `backups/server-2026-11-11T23-23-27Z` (bundles y `backend.env`
   anteriores). Para volver atras: restaurar `main.cjs` y `backend.env` de esa carpeta, reiniciar
   el servicio y `tailscale funnel --https=443 off`.
+
+### Herramientas de lectura del conector MCP (2026-11-12, madrugada)
+
+Desplegado el commit `29ae69d` de la rama `worktree-agent-a14ba956bf3eba016`. Solo cambia
+`server/main.cjs` (y `migrate.cjs`, recompilado); sin cambios de esquema ni de `backend.env`.
+
+- Herramientas nuevas, todas de solo lectura: `get_due_cards`, `get_weak_cards`, `get_leeches`,
+  `search_cards` y `get_study_stats`, con la prevision del proximo intervalo por valoracion.
+- La pagina de aprobacion ya no se bloquea tras varios fallos y el registro de clientes ya no
+  rechaza altas cuando la tabla esta llena.
+- Ensayo previo sobre una copia de la base real en puertos temporales: las seis herramientas
+  respondieron en menos de 30 ms. La copia de ensayo se borro.
+- Tras el reinicio, por la entrada publica de Tailscale: metadatos OAuth 200, `/mcp` sin token 401
+  y `/api/v1/health` 404. El conector de ChatGPT conserva su autorizacion (los tokens estan en
+  `data/recall-oauth.sqlite`).
+- Copias previas: `backups/recall-2026-11-12T00-03-47-588Z.sqlite` y
+  `backups/server-2026-11-12T00-03-47Z` (bundles anteriores).

@@ -56,7 +56,7 @@ src/
 │       ├── domain/                  # Identifier, LLM and TTS client ports
 │       └── infrastructure/          # HTTP LLM/TTS adapters; `/sources` wire type re-export
 ├── server/                          # Backend runtime (Node 24, node:sqlite)
-│   ├── main.ts                      # Entry point: env → ServerSettings, HTTP server
+│   ├── main.ts                      # Entry point: env → initial ServerSettings, HTTP server
 │   ├── migrate.ts                   # One-shot importer of a legacy recall-data folder
 │   ├── http.ts                      # Routes, auth, body limits
 │   ├── service.ts                   # RecallService: transactions, receipts, revisions, limits
@@ -65,6 +65,7 @@ src/
 │   ├── legacy-documents.ts          # v2 JSON document shapes: import, export, migration verification
 │   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
 │   ├── server-settings.ts           # ServerSettings + defaults
+│   ├── study-settings.ts            # Stored study settings (meta), validation, tag matching
 │   ├── auth.ts, send-json.ts        # HTTP helpers
 │   ├── mcp/                         # Optional public listener: MCP tools + single-user OAuth (own SQLite file)
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
@@ -73,6 +74,7 @@ src/
 │   │   ├── plugin.ts                # Lifecycle, commands, recovery loop, note publishing
 │   │   ├── plugin-settings.ts       # data.json shape and tolerant loader
 │   │   ├── settings.ts              # Settings tab (backend URL, token, publish notes)
+│   │   ├── study-settings-section.ts # "Estudio": tags, limits, shuffle (dry run + confirm)
 │   │   ├── study-client.ts          # StudyClient: the port the views depend on
 │   │   ├── remote-client.ts         # RemoteClient: StudyClient over HTTP + pending review journal
 │   │   ├── remote-note-sync.ts      # Ordered, durable Markdown publication
@@ -130,6 +132,14 @@ stay. So IDs are no longer always the hash of the content:
 - Aliases are not part of `/sources` or of the legacy documents; a migrated or imported
   database starts with none.
 `GET /sources` returns `SourceIndex.snapshot()` in the historical `sync-state` shape.
+
+Study settings are runtime state. `RecallService.settings` returns the stored ones
+(`meta.study-settings`) or, while none are stored, the environment's; it mirrors the committed
+row (`RecallDatabase.onCommit` updates it only after the writing transaction commits, so a dry
+run, which always rolls back, never shows). `NoteIndexer` receives the tag filter as a function
+(`allowedTags: () => tags`) and reads it on every sync; while `POST /settings` re-indexes, the
+service points it at the new tags inside that transaction. HTTP routes and MCP tools read
+`service.settings` per request, so a change needs no restart.
 
 The in-memory doubles used by kernel tests live in `tests/context/fakes/`; a shared contract
 suite (`tests/server/persistence/contract.test.ts`) runs the same behaviour tests against them

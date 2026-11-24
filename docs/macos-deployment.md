@@ -373,3 +373,20 @@ y se anadio `RECALL_MCP_WRITE=true` a `backend.env`.
   `/mcp` sin token 401 y `/api/v1/proposals` 404. El registro indica `write tools enabled`.
 - Pendiente: el panel del plugin de Obsidian para aceptar o descartar las tarjetas propuestas, y
   comprobar en ChatGPT si las herramientas de escritura piden confirmacion en modo voz.
+
+### OAuth del conector MCP en un paquete compartido (2026-11-24)
+
+- Desplegada la rama `feat/shared-mcp-oauth-deployed`: el commit del refactor OAuth aplicado
+  sobre `8aeeefa`, que es exactamente lo que estaba instalado (los tres bundles de un build de
+  `8aeeefa` coincidian byte a byte con los de `server/`). Ojo: `8aeeefa` vive en la rama
+  `worktree-agent-a77010419a7566ea3` (herramientas MCP de escritura, esquema v5, ajustes de
+  estudio, panel de propuestas) y **no esta fusionada** en `feat/standalone-recall-backend`;
+  la rama `feat/shared-mcp-oauth` (sobre `e0522a4`) se habria llevado todo eso por delante.
+- El OAuth (servidor de autorizacion, almacen, pagina de aprobacion y rutas) vive ahora en
+  `@samuelguzman/mcp-oauth` (`../mcp-oauth`), compartido con el gateway mcp-hub. Mismo
+  comportamiento: 611/611 pruebas antes y despues, mismas herramientas en el bundle, mismo
+  esquema; solo cambia `server/main.cjs` (`migrate.cjs` y `pregenerate.cjs` identicos).
+- Copia previa de `server/` en `backups/server-2026-11-24T11-03-57Z`. Verificado: API 200,
+  metadatos OAuth del 27125 y del 443 publico, 401 con el mismo desafio, "write tools enabled".
+- Vuelta atras: detener el agente, copiar `backups/server-2026-11-24T11-03-57Z/main.cjs` a
+  `server/` y volver a cargarlo.

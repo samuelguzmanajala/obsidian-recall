@@ -20,7 +20,10 @@ export class Setting {
   setHeading(): this { return this; }
   addText(build: (c: any) => void): this { return this.add({ inputEl: { type: 'text' } }, build); }
   addToggle(build: (c: any) => void): this { return this.add({}, build); }
-  addButton(build: (c: any) => void): this { return this.add({}, build); }
+  addButton(build: (c: any) => void): this {
+    const buttonEl = { focused: false, focus() { buttonEl.focused = true; } };
+    return this.add({ buttonEl }, build);
+  }
   private add(component: Record<string, any>, build: (c: any) => void): this {
     const c: Record<string, any> = Object.assign(component, {
       value: undefined, text: '', cta: false, disabled: false, change: null, click: null,

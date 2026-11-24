@@ -525,6 +525,20 @@
   margin-bottom: 8px;
 }
 
+/* Locked while a confirmation is on screen */
+.recall-tags-list.is-locked {
+  opacity: 0.7;
+}
+
+.recall-tags-group {
+  font-size: var(--font-ui-smaller);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 6px 0 2px;
+}
+
 .recall-tag-row {
   padding: 2px 0;
 }
@@ -533,19 +547,100 @@
   cursor: pointer;
 }
 
-.recall-tag-row input:disabled + .recall-tag-name {
+/* Explicitly selected: normal emphasis. */
+.recall-tag-row.recall-tag-selected .recall-tag-name {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+/* Covered by a selected ancestor: muted row, greyed-out checked box (not the accent colour). */
+.recall-tag-row.recall-tag-covered {
+  opacity: 0.6;
+}
+
+.recall-tag-row.recall-tag-covered label {
+  cursor: default;
+}
+
+.recall-tag-row.recall-tag-covered .recall-tag-name {
   color: var(--text-muted);
+}
+
+.recall-tag-row.recall-tag-covered input[type="checkbox"]:disabled {
+  --checkbox-color: var(--text-faint);
+  --checkbox-color-hover: var(--text-faint);
+  --checkbox-border-color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.recall-tag-row.recall-tag-covered input[type="checkbox"]:disabled:checked {
+  background-color: var(--text-faint);
+  border-color: var(--text-faint);
+}
+
+.recall-tags-hidden p {
+  margin: 0 0 4px;
 }
 
 .recall-tags-summary {
   font-weight: 600;
 }
 
-.recall-settings-confirm {
+/* Sticky top of the Estudio section: pending changes, confirmation and notices */
+.recall-study-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: var(--background-primary);
+}
+
+.recall-study-sticky:empty {
+  display: none;
+}
+
+.recall-study-pending {
   border: 1px solid var(--interactive-accent);
+  border-left-width: 4px;
   border-radius: 6px;
   padding: 8px 12px;
   margin: 8px 0;
+  background-color: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.recall-study-pending-title {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.recall-study-pending-hint {
+  margin: 4px 0 0;
+}
+
+.recall-study-pending .setting-item,
+.recall-settings-confirm .setting-item {
+  border-top: none;
+  padding: 6px 0 0;
+}
+
+.recall-study-notice {
+  margin: 4px 0 8px;
+}
+
+.recall-settings-confirm {
+  border: 2px solid var(--interactive-accent);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  background-color: var(--background-primary);
+  box-shadow: var(--shadow-s);
+}
+
+.recall-settings-confirm h4 {
+  margin-top: 0;
 }
 
 /* Card proposals panel (and its link in the deck browser header) */

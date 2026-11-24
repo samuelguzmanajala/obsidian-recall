@@ -390,3 +390,13 @@ y se anadio `RECALL_MCP_WRITE=true` a `backend.env`.
   metadatos OAuth del 27125 y del 443 publico, 401 con el mismo desafio, "write tools enabled".
 - Vuelta atras: detener el agente, copiar `backups/server-2026-11-24T11-03-57Z/main.cjs` a
   `server/` y volver a cargarlo.
+
+### Acceso interno para mcp-hub y el 443 al gateway (2026-11-24)
+
+- Desplegado `feat/internal-mcp-listener` (`8c67f4e`): listener interno en `127.0.0.1:27126` con
+  secreto compartido (`RECALL_MCP_INTERNAL_*`, bloque al final de `backend.env`). Copia previa en
+  `backups/server-2026-11-24T11-10-04Z` (bundles y `backend.env`).
+- Funnel 443 ya **no** apunta al MCP público de Recall (27125) sino al gateway mcp-hub (27130), que
+  usa Recall por el acceso interno. El listener público sigue corriendo en local, sin publicar; el
+  conector de Recall en ChatGPT se sustituye por el de mcp-hub. Vuelta atrás: en el repositorio
+  mcp-hub, `despliegue/cambiar-443.sh --deshacer`.

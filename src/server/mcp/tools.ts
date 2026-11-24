@@ -1,8 +1,9 @@
+import type { Container } from '../container';
 import type { RecallService } from '../service';
 import { Direction } from '../../context/study/domain/direction';
 import { StudyItemId } from '../../context/study/domain/study-item-id';
 import { ConceptId } from '../../context/concept/domain/concept-id';
-import { cardView, clip, DEFAULT_LIMIT, DeckIndex, MAX_LIMIT, MAX_SIDE_CHARS, memoryState, nextPreview } from './card-views';
+import { cardView, clip, DEFAULT_LIMIT, DeckIndex, MAX_LIMIT, MAX_SIDE_CHARS, memoryState, nextPreview, sourceOfConcept } from './card-views';
 import { foldText } from '../../context/concept/domain/text-match';
 
 /** MCP tool annotations (hints for the client; never trusted for security). */
@@ -73,7 +74,14 @@ const CARD_SHAPE = 'Each card has studyItemId, prompt (the side the user is aske
   + `paths such as "German/grammar"), state ("new" = never studied, "review" = studied before), due (ISO time, review cards only), `
   + `reps, lapses (times forgotten after being learned), revision (the card's version: it changes whenever the card is reviewed or edited) and next: for each rating (again, hard, good, easy), when the card would `
   + `come back if the user rated it now in the Recall app, as in ("10m", "5h", "3d") and due (UTC time). Sides are raw Markdown (may contain code, tables, formulas or image `
-  + `embeds such as ![[file.png]]; do not read image syntax aloud) and are cut at ${MAX_SIDE_CHARS} characters, with "…" and truncated: true.`;
+  + `embeds such as ![[file.png]]; do not read image syntax aloud) and are cut at ${MAX_SIDE_CHARS} characters, with "…" and truncated: true. `
+  + 'source is { note, line }: the vault note the card is written in (vault-relative path) and its line there, or null; read that note '
+  + 'to explain the card in context.';
+/** The vault note a study item's card is written in (see `CardSource`). */
+async function sourceOfItem(c: Container, studyItemId: string) {
+  const item = await c.studyItemRepository.findById(new StudyItemId(studyItemId));
+  return item ? sourceOfConcept(c, item.conceptId.value) : null;
+}
 const unlimited = (n: number) => Number.isFinite(n) ? n : null;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -116,7 +124,10 @@ export const getDueCards: McpTool = {
       return {
         deck, reviewsDue: reviews.length, newCardsDue: fresh.length,
         reviewsLeftToday: unlimited(reviewLeft), newLeftToday: unlimited(newLeft),
-        cards: queue.slice(0, limit).map(v => cardView(v, decks.decksOf(v.studyItemId), nextPreview(c.scheduler, memoryState(v), now), service.revisionOf(v.studyItemId))),
+        cards: await Promise.all(queue.slice(0, limit).map(async v => ({
+          ...cardView(v, decks.decksOf(v.studyItemId), nextPreview(c.scheduler, memoryState(v), now), service.revisionOf(v.studyItemId)),
+          source: await sourceOfItem(c, v.studyItemId),
+        }))),
       };
     }));
   },
@@ -143,7 +154,10 @@ export const getLeeches: McpTool = {
       for (const leech of leeches.slice(0, limit)) {
         const item = await c.studyItemRepository.findById(new StudyItemId(leech.studyItemId));
         if (!item) continue;
-        cards.push(cardView({ ...leech, due: item.memoryState.due }, decks.decksOf(leech.studyItemId), nextPreview(c.scheduler, item.memoryState, now), service.revisionOf(leech.studyItemId)));
+        cards.push({
+          ...cardView({ ...leech, due: item.memoryState.due }, decks.decksOf(leech.studyItemId), nextPreview(c.scheduler, item.memoryState, now), service.revisionOf(leech.studyItemId)),
+          source: await sourceOfConcept(c, item.conceptId.value),
+        });
       }
       return { deck, threshold, total: leeches.length, cards };
     }));
@@ -175,7 +189,8 @@ export const searchCards: McpTool = {
     + 'total (matching cards in scope), deck and cards in vault order. Each card has sideA and sideB (raw Markdown, cut at '
     + `${MAX_SIDE_CHARS} characters with "…" and truncated: true), decks (deck paths) and directions: one entry per direction the `
     + 'user studies, with studyItemId, prompt ("sideA" or "sideB": the side shown as the question), state ("new" or "review"), '
-    + 'due (review only), lapses, revision and next (per rating: in and due, if rated now). Use it to check whether the user already has a card on a word or topic. Read-only.',
+    + 'due (review only), lapses, revision and next (per rating: in and due, if rated now); and source ({ note, line }: the vault note '
+    + 'the card is written in and its line, or null). Use it to check whether the user already has a card on a word or topic. Read-only.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -213,6 +228,7 @@ export const searchCards: McpTool = {
             revision: service.revisionOf(i.id.value), next: nextPreview(c.scheduler, i.memoryState, now),
           })),
           ...(a.cut || b.cut ? { truncated: true } : {}),
+          source: await sourceOfConcept(c, concept.id.value),
         });
       }
       return { query, deck, total, cards };
@@ -254,6 +270,7 @@ export const getWeakCards: McpTool = {
         cards.push({
           ...cardView({ ...w, sideA: concept.sideA.content, sideB: concept.sideB.content }, decks.decksOf(w.studyItemId), nextPreview(c.scheduler, memoryState(w), now), service.revisionOf(w.studyItemId)),
           recentAgain: w.recentAgain, difficulty: round1(w.difficulty), lastReview: w.lastReview?.toISOString() ?? null, score: round1(w.score),
+          source: await sourceOfConcept(c, w.conceptId),
         });
       }
       return { deck, days, total: weak.length, cards };

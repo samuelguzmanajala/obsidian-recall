@@ -92,8 +92,8 @@ describe('MCP tools', () => {
     expect(due.newCardsDue).toBe(4);
     expect(due.cards.map((c: any) => c.studyItemId)).toEqual([id('Adiós<'), id('der Vogel'), id('der Hund'), id('die Katze')]);
     expect(due.cards[0]).toEqual({ studyItemId: id('Adiós<'), prompt: 'goodbye', answer: 'Adiós', decks: ['spanish'], state: 'review',
-      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, revision: 1, next: expect.any(Object) });
-    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, revision: 1, next: expect.any(Object) });
+      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, revision: 1, next: expect.any(Object), source: { note: 'Spanish.md', line: 4 } });
+    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, revision: 1, next: expect.any(Object), source: { note: 'German.md', line: 4 } });
     expect((await call(service, 'get_due_cards', { limit: 1 })).cards).toHaveLength(1);
   });
 
@@ -135,6 +135,22 @@ describe('MCP tools', () => {
     expect(stats.matureItems).toBe(1);
   });
 
+  it('every card tool says which vault note (and line) the card is written in, for a tutor to read it', async () => {
+    const { service, study } = await setup();
+    await study('der Vogel', { lapses: 9 });
+    await study('die Katze', { lapses: 1 });
+    const sources = (r: any) => r.cards.map((c: any) => c.source);
+    const all = [
+      ...sources(await call(service, 'get_due_cards', {})),
+      ...sources(await call(service, 'get_leeches', {})),
+      ...sources(await call(service, 'get_weak_cards', {})),
+      ...sources(await call(service, 'search_cards', { query: 'Vogel' })),
+    ];
+    expect(all.length).toBeGreaterThan(3);
+    for (const s of all) expect(s).toEqual({ note: expect.stringMatching(/\.md$/), line: expect.any(Number) });
+    expect(sources(await call(service, 'search_cards', { query: 'Vogel' }))).toEqual([{ note: 'German.md', line: 6 }]);
+    expect(sources(await call(service, 'get_leeches', {}))[0]).toEqual({ note: 'German.md', line: 6 });
+  });
   it('search_cards: both sides, case/accent/line-break insensitive, grouped by card with each studied direction', async () => {
     const { service, id, study } = await setup();
     await study('Adiós', { lapses: 1 });
@@ -143,7 +159,7 @@ describe('MCP tools', () => {
       sideA: 'Adiós', sideB: 'goodbye', decks: ['spanish'], directions: [
         { studyItemId: id('Adiós'), prompt: 'sideA', state: 'review', due: expect.any(String), lapses: 1, revision: 1, next: expect.any(Object) },
         { studyItemId: id('Adiós<'), prompt: 'sideB', state: 'new', lapses: 0, revision: 1, next: expect.any(Object) },
-      ] }] });
+      ], source: { note: 'Spanish.md', line: 4 } }] });
     expect((await call(service, 'search_cards', { query: 'the' })).total).toBe(3);
     expect((await call(service, 'search_cards', { query: 'the', limit: 2 })).cards.map((c: any) => c.sideA)).toEqual(['der Hund', 'die Katze']);
     expect((await call(service, 'search_cards', { query: 'the', limit: 2 })).total).toBe(3);

@@ -31,6 +31,18 @@ export interface CardView {
   next: NextPreview;
 }
 
+/**
+ * Where a card comes from in the vault: the note (vault-relative path, as the plugin publishes it) and the
+ * line of the card in it. Lets a tutor read the note that explains the card. `null` when no note holds it.
+ */
+export interface CardSource { note: string; line: number }
+
+/** The note a concept's card is written in (the first one, in vault order, when several notes hold it). */
+export async function sourceOfConcept(c: Container, conceptId: string): Promise<CardSource | null> {
+  const location = await c.sources.locate(conceptId);
+  return location ? { note: location.filePath, line: location.line } : null;
+}
+
 /** Per rating: `in` = interval ("10m", "5h", "3d") and `due` = ISO time to the minute ("2026-11-12T10:10Z"). */
 export type NextPreview = Record<'again' | 'hard' | 'good' | 'easy', { in: string; due: string }>;
 

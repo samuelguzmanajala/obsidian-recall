@@ -1,5 +1,6 @@
 import type { RecallService } from '../service';
-import { readMcpConfig } from './config';
+import { readInternalMcpConfig, readMcpConfig } from './config';
+import { createInternalServer } from './internal-server';
 import { OAuthStore } from './oauth-store';
 import { createPublicServer } from './public-server';
 import { RECALL_TOOLS } from './tools';
@@ -31,6 +32,29 @@ export function configureMcp(env: NodeJS.ProcessEnv, recallDb: string, service: 
       server.closeIdleConnections();
       if (server.listening) await new Promise<void>(r => server.close(() => r()));
       store.close();
+    },
+  };
+}
+
+/**
+ * The internal MCP listener for a local gateway (mcp-hub), or `undefined` when `RECALL_MCP_INTERNAL_*` is
+ * not configured. Loopback only, whatever `RECALL_MCP_HOST` says; optional like the public one.
+ */
+export function configureInternalMcp(env: NodeJS.ProcessEnv, service: RecallService): PublicMcp | undefined {
+  const config = readInternalMcpConfig(env);
+  if (!config) return undefined;
+  const server = createInternalServer(service, { secret: config.secret, tools: mcpTools(config.write), log: line => console.log(line) });
+  server.on('error', (error: NodeJS.ErrnoException) => {
+    console.error(`Recall internal MCP listener on 127.0.0.1:${config.port} failed${error.code ? ` (${error.code})` : ''}; `
+      + 'the rest of the backend keeps running:', error.message);
+  });
+  return {
+    listen: () => server.listen(config.port, '127.0.0.1', () => {
+      console.log(`Recall internal MCP listening on 127.0.0.1:${config.port} (${config.write ? 'write tools enabled' : 'read-only tools'})`);
+    }),
+    close: async () => {
+      server.closeIdleConnections();
+      if (server.listening) await new Promise<void>(r => server.close(() => r()));
     },
   };
 }

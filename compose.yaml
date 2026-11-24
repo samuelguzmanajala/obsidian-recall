@@ -1,6 +1,9 @@
 services:
   recall:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        mcp-oauth: ../mcp-oauth
     restart: unless-stopped
     env_file: .env
     environment:

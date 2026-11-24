@@ -373,6 +373,11 @@ Funcionamiento:
   local (Funnel sí añade `X-Forwarded-For` con la IP pública, pero no se usa), así que un bloqueo
   común permitiría a cualquiera dejarte fuera. Lo que hace inviable adivinar es que `RECALL_TOKEN`
   tenga al menos 32 caracteres aleatorios; el retardo solo frena scripts ingenuos.
+- **El OAuth vive en un paquete compartido** con el gateway mcp-hub: `@samuelguzman/mcp-oauth`,
+  en `../mcp-oauth` (dependencia `file:`). `src/server/mcp/oauth.ts` solo fija lo propio de Recall
+  (scope `recall`, nombre y textos de la página de aprobación). Si cambias el paquete, ejecuta
+  `npm run build` en `../mcp-oauth` antes de `npm run build:server` aquí: esbuild mete su `dist/` en
+  el bundle, así que el despliegue no necesita el paquete al lado.
 - `recall-oauth.sqlite` guarda clientes registrados y **solo hashes SHA-256** de los tokens. No
   forma parte de la base de estudio ni de sus migraciones, y la copia de `scripts/backup-server.mjs`
   no la incluye: si la pierdes, basta con volver a conectar ChatGPT. El registro es anónimo: los
@@ -700,7 +705,8 @@ tr '\n' '\0' < /tmp/huerfanos.txt | xargs -0 rm --
 ## Docker, copias y límites operativos
 
 `docker compose up --build -d` utiliza `.env`, un volumen persistente y un puerto publicado
-solo en loopback. No se ha desplegado automáticamente. Coloca delante tu acceso privado o
+solo en loopback. Necesita `../mcp-oauth` junto a este repositorio: entra como contexto de build con nombre
+(`additional_contexts` en `compose.yaml`; a mano, `docker build --build-context mcp-oauth=../mcp-oauth .`). No se ha desplegado automáticamente. Coloca delante tu acceso privado o
 proxy HTTPS. El contenedor corre como usuario no root. Conserva el volumen entre despliegues.
 
 Para una copia sencilla y consistente, detén el backend y copia la base SQLite y cualquier

@@ -53,7 +53,9 @@ The content of one face of a Concept. Immutable.
 The FSRS state for a StudyItem: stability, difficulty, due date, reps, lapses. Replaced entirely after each review.
 
 ### Review
-A record of a single review: StudyItem reference, Rating, timestamp. Immutable.
+A record of a single review: StudyItem reference, Rating, timestamp, origin (who recorded it:
+mcp, android, obsidian, api; null for older history) and prior (the MemoryState it was applied
+to; null for older history). Immutable; a correction replaces it in the log.
 
 ### Rating
 Self-evaluation after a review. Enum: Again, Hard, Good, Easy.
@@ -72,6 +74,9 @@ This separation means the domain does not depend on markdown or Obsidian. If the
 
 ### Write side (Commands)
 - `review(studyItemId, rating)` — loads StudyItem, applies FSRS, persists new MemoryState
+- `correctReview(amend | remove | restore)` — changes one review of the last 2 days and recomputes
+  the StudyItem by replaying its history from just before the change (`StudyItem.replay`, shared
+  with `createStudyItem`'s replay of a recreated item)
 - `createConcept`, `updateConcept`, `removeConcept` — from parser
 - `createDeck`, `nestDeck`, `removeDeck` — from parser
 - `startSession(deckId)`, `addReview(sessionId, studyItemId, rating)`, `endSession(sessionId)`

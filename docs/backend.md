@@ -16,13 +16,16 @@ antiguo modo local: el plugin no abre `recall-data` (tampoco lo borra ni lo modi
 reproduce historiales ni sirve la API de voz. Android funciona aunque Obsidian esté cerrado,
 siempre que el servidor esté disponible.
 
-En Recall Settings solo se configuran la URL del backend, el token y la publicación de notas.
+En Recall Settings se configuran la URL del backend, el token y la publicación de notas.
 Los cambios de URL o token se aplican al recargar el plugin; mientras falten, las vistas
-indican que hay que configurar el backend. Tags, límites diarios, umbral de sanguijuelas,
-orden aleatorio y audio son variables de entorno del servidor (`RECALL_TAGS`,
-`RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`,
-`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
-tags…) se conservan sin usarse; si las necesitas, pásalas al entorno del backend.
+indican que hay que configurar el backend. Con el backend configurado, la sección **Estudio**
+de los mismos ajustes permite elegir los tags que se siguen, los límites diarios, el umbral
+de sanguijuelas y el orden aleatorio; se guardan en el servidor (ver
+[Ajustes de estudio](#ajustes-de-estudio)). Sus valores iniciales salen de las variables de
+entorno del servidor (`RECALL_TAGS`, `RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`,
+`RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`). El audio solo se configura en el entorno
+(`RECALL_TTS_*`, `RECALL_LLM_*`). Las claves antiguas de `data.json` (proveedores, API de voz,
+tags…) se conservan sin usarse.
 
 Es una instalación personal (una cuenta y un vault), no un SaaS multiusuario. Todas las
 peticiones autenticadas acceden al mismo conjunto de datos. No hay autenticación de usuarios,
@@ -72,7 +75,8 @@ archivos de origen, y se niega a sobrescribir una base ya poblada.
    ```
 
 5. Configura `RECALL_DB` con ese destino y `RECALL_TAGS` con los tags que ya utilizabas
-   (separados por comas, sin `#`). Arranca el backend y comprueba mazos y estadísticas.
+   (separados por comas, sin `#`; después puedes cambiarlos desde la sección **Estudio** de
+   Recall Settings). Arranca el backend y comprueba mazos y estadísticas.
 6. Instala el plugin compilado (`main.js`, `manifest.json`, `styles.css`) y el nuevo APK.
    En Recall Settings introduce URL y token, y recarga el plugin. Repítelo en cada Obsidian
    que utilices. (El antiguo interruptor **Use standalone backend** ya no existe; si tu
@@ -121,8 +125,8 @@ Puedes conservar ambas versiones y resolverlas manualmente. Para reanudar desde 
 publica primero una copia idéntica a la versión remota (reconoce su revisión), y después tu
 edición combinada. No borres cursores para forzar una sobrescritura.
 
-Cambiar `RECALL_TAGS` y reiniciar reindexa las notas que ya están publicadas. El historial se
-mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
+Cambiar los tags seguidos (desde **Estudio** o, sin ajustes guardados, cambiando `RECALL_TAGS`
+y reiniciando) reindexa las notas que ya están publicadas. El historial se mantiene. Los elementos importados cuyo Markdown aún no se ha publicado no pueden reindexarse
 hasta que se suba esa fuente. Los IDs siguen la convención previa basada en contenido, con
 una excepción para las ediciones.
 
@@ -185,6 +189,11 @@ Todas las rutas salvo health exigen `Authorization: Bearer <token>`.
 | POST `/api/v1/notes` | Alta, edición o eliminación (`content: null`) |
 | POST `/api/v1/notes/rename` | Renombrado sin sobrescribir el destino |
 | GET `/api/v1/audio/:id/question` o `/answer` | Voz remota opcional |
+| GET `/api/v1/proposals?status=pending` | Tarjetas propuestas desde el conector MCP (ver abajo) |
+| POST `/api/v1/proposals/accept`, `/dismiss` | Aceptar o descartar una propuesta (idempotente) |
+| GET `/api/v1/settings` | Ajustes de estudio vigentes, su origen y su revisión |
+| POST `/api/v1/settings` | Cambio de ajustes de estudio (idempotente, con revisión y `dryRun`) |
+| GET `/api/v1/tags` | Tags de las notas publicadas con notas y tarjetas que cubren |
 
 Ejemplo de respuesta enviada por un cliente:
 
@@ -207,24 +216,106 @@ cambia. La cola no forma parte del acuse idempotente: al reintentar con el mismo
 se devuelve el mismo resultado del repaso y una cola recalculada en ese momento.
 Los errores de conexión y los conflictos ya no se ocultan en los clientes.
 
+Cada repaso guardado lleva su origen: `android` si el cliente HTTP se identifica como OkHttp,
+`obsidian` si su agente contiene «obsidian» (Obsidian de escritorio; en móvil puede llegar como
+`api`), `api` para cualquier otro cliente y `mcp` para el conector. Es solo una etiqueta: no
+cambia la planificación ni el recibo, y el protocolo no cambia. Los repasos anteriores a la
+versión 5 del esquema no tienen origen (`unknown`).
+
 Para notas: `{operationId, path, content, expectedRevision}`; usa 0 solo para una ruta nueva.
 Para renombrar: `{operationId, path, newPath, expectedRevision}`. Las rutas son relativas al
 vault y terminan en `.md`. Un destino existente, incluso eliminado, bloquea el renombrado.
+
+## Ajustes de estudio
+
+Tags seguidos, límites diarios, umbral de sanguijuelas y orden aleatorio son estado del
+servidor, en la tabla `meta` (clave `study-settings`, un JSON con la revisión y los cinco
+valores); no hay migración de esquema. Reglas de precedencia:
+
+- Mientras no se haya guardado nada, se aplican las variables de entorno (`RECALL_TAGS`,
+  `RECALL_DAILY_NEW`, `RECALL_DAILY_REVIEW`, `RECALL_LEECH_THRESHOLD`, `RECALL_SHUFFLE`) y
+  `GET /settings` devuelve `source: "environment"`. Arrancar no escribe nada.
+- El primer `POST /settings` guarda **los cinco** valores (los que no se envían se copian de
+  los vigentes). Desde entonces ganan los guardados (`source: "stored"`), también tras
+  reiniciar; cambiar el entorno ya no tiene efecto hasta volver a él.
+- Para volver al entorno: `POST /settings` con `"reset": true` (en Obsidian, **Volver a los
+  valores del entorno**). Se guarda `settings: null` y la revisión sigue contando, así que
+  un cliente con una revisión anterior sigue recibiendo 409.
+
+Un cambio se aplica al instante, sin reiniciar, a HTTP, Android y MCP: la siguiente consulta
+de `/due`, `/leeches` o una herramienta MCP usa los valores nuevos, y la siguiente nota
+publicada usa el filtro de tags nuevo.
+
+`GET /api/v1/settings` →
+`{"settings":{"flashcardTags":["German"],"dailyNewLimit":20,"dailyReviewLimit":0,"leechThreshold":8,"shuffleReviews":true},"source":"environment","revision":0}`
+
+`POST /api/v1/settings`:
+
+```json
+{"operationId":"uuid","expectedRevision":0,"settings":{"flashcardTags":["German","Spanish"],"dailyNewLimit":10},"dryRun":true}
+```
+
+- `settings`: uno o más de los cinco campos; un campo desconocido es un 400. `flashcardTags`:
+  hasta 200 tags de 1–200 caracteres, sin `#` ni caracteres de control; se recortan espacios,
+  se quitan duplicados y se ordenan. Una lista vacía sigue **todas** las notas con tarjetas.
+  `dailyNewLimit` y `dailyReviewLimit`: enteros 0–100000 (0 = sin límite).
+  `leechThreshold`: entero 0–1000. `shuffleReviews`: booleano.
+- `reset: true` en lugar de `settings` vuelve al entorno; enviar ambos es un 400.
+- `expectedRevision` es la `revision` leída; si otro cliente cambió los ajustes, 409
+  (`Settings changed on another device; reload them`), también en un `dryRun`.
+- `operationId` hace el cambio idempotente con el mismo mecanismo de recibos que repasos y
+  notas: un reintento devuelve el resultado original; el mismo ID con otro contenido, 409.
+- `dryRun: true` calcula exactamente lo mismo dentro de una transacción que siempre se
+  revierte: no guarda ajustes, ni recibo, ni cambia revisiones, índice o mazos. La respuesta
+  lleva `"dryRun": true`. Obsidian lo usa para pedir confirmación.
+
+Respuesta: `{"settings":{…vigentes…},"source":"stored","revision":1,"impact":{"notes":3300,"cardsBefore":5500,"cardsAfter":3000,"cardsAdded":0,"cardsRemoved":2500,"decksBefore":10,"decksAfter":4}}`.
+`notes` son las notas publicadas reindexadas (0 si los tags no cambian), `cards*` cuentan
+tarjetas (cada dirección cuenta) y `decks*` los mazos con al menos una tarjeta (los mazos que
+se quedan vacíos siguen en el árbol, como al reiniciar con otros `RECALL_TAGS`).
+
+Qué hace un cambio de tags: en la misma transacción que guarda los ajustes se vuelve a
+sincronizar cada nota publicada con el filtro nuevo, igual que el reindexado de arranque. Las
+tarjetas que dejan de seguirse desaparecen de mazos y colas, pero el historial de repasos no
+se toca; si se vuelve a seguir su tag, reaparecen con los mismos IDs y su estado
+(se reproduce su historial). Las revisiones de las tarjetas afectadas suben, así que un
+repaso en cola de una tarjeta retirada se rechaza (404/409) y los clientes refrescan. Las
+tarjetas que aparecen encolan su audio en segundo plano tras confirmar, como al publicar una
+nota. Con ~3300 notas y ~5500 tarjetas, el reindexado tarda unos 3–4 s (y otro tanto el
+`dryRun`); mientras dura, el resto de peticiones espera su turno.
+
+`GET /api/v1/tags` →
+`{"tags":[{"tag":"German","notes":3,"cards":4,"selected":true,"followed":true},{"tag":"German/grammar","notes":1,"cards":3,"selected":false,"followed":true}],"untagged":{"notes":1,"cards":1,"followed":false}}`
+
+- Cada tag del frontmatter de las notas publicadas, más sus antecesores (`German` aparece
+  aunque solo haya `German/grammar`) y los tags seleccionados que ya no tiene ninguna nota.
+  Orden por nombre (orden de código, mayúsculas antes).
+- `notes` y `cards`: lo que cubre seguir ese tag (él y sus subtags), sea cual sea el filtro
+  actual; `cards` cuenta las tarjetas que el parser encuentra en cada nota (`:::` cuenta 2).
+  Una tarjeta repetida en dos notas cuenta dos veces.
+- `selected`: está en `flashcardTags`. `followed`: sus notas se estudian con el filtro actual
+  (él o un antecesor está seleccionado, o la lista está vacía).
+- `untagged`: notas sin tags. Solo se estudian (mazo «Untagged») con la lista vacía; con
+  cualquier tag seleccionado quedan fuera, igual que las notas cuyos tags no coinciden.
+- Las notas se analizan una vez y se recuerdan por revisión: solo se vuelven a leer las que
+  cambiaron (la primera consulta con ~3300 notas tarda unos 15 ms; las siguientes, ~3 ms).
 
 ## Conector MCP para ChatGPT (opcional)
 
 El backend puede ofrecer un servidor MCP remoto (transporte Streamable HTTP) protegido con
 OAuth, para usar Recall desde ChatGPT como conector personalizado; la idea es que ChatGPT (también
 en modo voz) haga de tutor y lleve la conversación hacia lo que toca repasar o sigues fallando.
-Todas las herramientas son de **solo lectura**: no registran repasos, no cambian la planificación
-ni consumen los límites diarios. Preguntar una tarjeta en ChatGPT no cuenta como repasarla.
+Por defecto todas las herramientas son de **solo lectura**: no registran repasos, no cambian la
+planificación ni consumen los límites diarios. Preguntar una tarjeta en ChatGPT no cuenta como
+repasarla. Con `RECALL_MCP_WRITE=true` se añaden herramientas de escritura (ver «Escritura desde
+ChatGPT» más abajo).
 
 | Herramienta | Argumentos | Devuelve |
 | --- | --- | --- |
 | `list_decks` | — | Árbol de mazos (`id`, `name`, totales, pendientes y nuevas), como `GET /api/v1/decks` |
 | `get_due_cards` | `deckId?`, `limit?` | La cola de ahora: repasos pendientes (los más atrasados primero) y después nuevas, dentro de lo que permiten hoy los límites diarios, cada una con `next` (cuándo volvería según la nota); más los recuentos `reviewsDue`, `newCardsDue`, `reviewsLeftToday`, `newLeftToday` |
 | `get_weak_cards` | `deckId?`, `limit?`, `days?` (1–90, 30) | Tarjetas flojas, de peor a mejor (ver abajo) |
-| `get_leeches` | `deckId?`, `limit?` | Sanguijuelas: lapsos ≥ `RECALL_LEECH_THRESHOLD`, como `GET /api/v1/leeches` |
+| `get_leeches` | `deckId?`, `limit?` | Sanguijuelas: lapsos ≥ el umbral vigente (ajustes de estudio), como `GET /api/v1/leeches` |
 | `search_cards` | `query`, `deckId?`, `limit?` | Tarjetas cuyo anverso o reverso contiene el texto, con cada dirección que estudias |
 | `get_study_stats` | — | `GET /api/v1/stats` más lo que queda hoy de los límites diarios |
 
@@ -235,7 +326,8 @@ ni consumen los límites diarios. Preguntar una tarjeta en ChatGPT no cuenta com
   no pasar el argumento.
 - Cada tarjeta trae `studyItemId`, `prompt` (lo que se pregunta) y `answer` (lo que hay que
   recordar) según la dirección, los mazos como ruta de etiqueta (`German/grammar`), `state`
-  (`new` o `review`), `due` (solo repasos), `reps`, `lapses` y `next`: para cada nota (`again`,
+  (`new` o `review`), `due` (solo repasos), `reps`, `lapses`, `revision` (la misma revisión que
+  `GET /api/v1/due`; cambia al repasar o editar la tarjeta) y `next`: para cada nota (`again`,
   `hard`, `good`, `easy`), cuándo volvería la tarjeta si la valoraras ahora, como intervalo corto
   (`in`: `10m`, `5h`, `3d`) y fecha UTC al minuto (`due`). Sale de la misma vista previa del
   planificador que `preview` en `GET /api/v1/due` (desde un día, los mismos días; por debajo, en
@@ -261,6 +353,7 @@ privado en el puerto habitual. Sin estas variables el servidor se comporta exact
 | `RECALL_MCP_PUBLIC_URL` | Origen HTTPS público, sin ruta (p. ej. `https://mac.tailnet.ts.net`). Es el emisor OAuth; el recurso es `<origen>/mcp` |
 | `RECALL_MCP_HOST` | Interfaz de escucha (por defecto `127.0.0.1`) |
 | `RECALL_MCP_OAUTH_DB` | Base SQLite de OAuth (por defecto `recall-oauth.sqlite` junto a `RECALL_DB`) |
+| `RECALL_MCP_WRITE` | `true` añade las herramientas de escritura; `false` o sin definir, solo las seis de lectura. Otro valor impide arrancar |
 
 Hay que definir las dos primeras o ninguna; si falta una, el servidor no arranca.
 
@@ -280,6 +373,11 @@ Funcionamiento:
   local (Funnel sí añade `X-Forwarded-For` con la IP pública, pero no se usa), así que un bloqueo
   común permitiría a cualquiera dejarte fuera. Lo que hace inviable adivinar es que `RECALL_TOKEN`
   tenga al menos 32 caracteres aleatorios; el retardo solo frena scripts ingenuos.
+- **El OAuth vive en un paquete compartido** con el gateway mcp-hub: `@samuelguzman/mcp-oauth`,
+  en `../mcp-oauth` (dependencia `file:`). `src/server/mcp/oauth.ts` solo fija lo propio de Recall
+  (scope `recall`, nombre y textos de la página de aprobación). Si cambias el paquete, ejecuta
+  `npm run build` en `../mcp-oauth` antes de `npm run build:server` aquí: esbuild mete su `dist/` en
+  el bundle, así que el despliegue no necesita el paquete al lado.
 - `recall-oauth.sqlite` guarda clientes registrados y **solo hashes SHA-256** de los tokens. No
   forma parte de la base de estudio ni de sus migraciones, y la copia de `scripts/backup-server.mjs`
   no la incluye: si la pierdes, basta con volver a conectar ChatGPT. El registro es anónimo: los
@@ -324,6 +422,90 @@ implementada. Un cliente que hable ambas prueba primero con
 `UnsupportedProtocolVersionError` (-32022) y, como indica esa revisión, vuelve a `initialize` con
 una versión anterior. Si el registro muestra un `POST /mcp 400` justo antes de que la conexión
 funcione, mira su `mcp-protocol-version`: con `2026-07-28` es ese retroceso, esperado e inocuo.
+
+### Escritura desde ChatGPT (`RECALL_MCP_WRITE=true`)
+
+Desactivada por defecto: sin la variable, `tools/list` devuelve exactamente las seis herramientas
+de lectura y las instrucciones de siempre. Con ella se añaden siete, y las instrucciones explican al
+modelo cuándo registrar (solo después de que respondas y de decirte la nota en voz alta), cómo
+corregir y que las propuestas necesitan tu aceptación en Obsidian. Tras activarla, actualiza o
+vuelve a conectar el conector en ChatGPT para que vea las herramientas nuevas.
+
+| Herramienta | Argumentos | Efecto |
+| --- | --- | --- |
+| `record_review` | `studyItemId`, `rating`, `revision` | Registra la nota por el mismo camino que `POST /reviews` (vencida, límites diarios, hermana ya repasada hoy…). Devuelve `reviewId`, `prompt`, `rating`, `due`, `in` y la nueva `revision` |
+| `list_recent_reviews` | `hours?` (1–48, 48), `limit?` | Repasos recientes de cualquier origen (`mcp`, `android`, `obsidian`, `api`, `unknown`), del más nuevo al más antiguo, con `reviewId`, tarjeta, nota, `originalRating` si se corrigió, hora y origen; y `changes`, las correcciones de esa ventana con `changeId` |
+| `amend_review` | `reviewId`, `rating` | Cambia la nota de un repaso y recalcula la tarjeta |
+| `remove_review` | `reviewId` | Borra un repaso que no debía registrarse y recalcula la tarjeta |
+| `revert_review_change` | `changeId` | Deshace una corrección (una enmienda vuelve a la nota anterior; un borrado se restaura con su mismo `reviewId`) |
+| `propose_card` | `sideA`, `sideB`, `directionality`, `deck?`, `context?` | Guarda una propuesta de tarjeta; **no** crea la tarjeta |
+| `list_card_proposals` | `status?` (`pending` por defecto, `accepted`, `dismissed`, `all`), `limit?` | Propuestas, de la más nueva a la más antigua, para no repetirlas |
+
+Reintentos. Un modelo no genera ni reutiliza IDs de operación de forma fiable, y ChatGPT puede
+repetir una llamada. `record_review` exige la `revision` que le dieron `get_due_cards` (o
+`search_cards`, `get_weak_cards`, `get_leeches`) y usa como `operationId` el recibo
+`mcp-review:<studyItemId>:<revision>`: repetir la misma llamada devuelve el mismo resultado sin
+registrar dos veces (aunque la tarjeta vuelva a estar vencida, como tras un «Again»); la misma
+revisión con otra nota se rechaza e indica usar `amend_review`; una revisión antigua (tarjeta
+repasada o editada en otro dispositivo) se rechaza e indica pedir la tarjeta de nuevo. Las demás
+son idempotentes por naturaleza: enmendar a la nota que ya tiene no hace nada (`changeId: null`),
+borrar un repaso ya borrado o deshacer un cambio ya deshecho devuelve ese mismo cambio con
+`alreadyDone: true`, y proponer los mismos lados (sin distinguir mayúsculas, acentos, espacios ni
+orden) devuelve la propuesta pendiente con `duplicate: true`.
+
+Correcciones:
+
+- Solo repasos de los **últimos 2 días** (contados desde el repaso), comprobado en el servidor.
+- `reviewId` es el número del repaso en el historial (`list_recent_reviews` o `record_review`).
+  Nunca se reutiliza: el historial usa una clave `AUTOINCREMENT` desde la versión 5 del esquema.
+- La tarjeta queda como si el historial corregido hubiera sido siempre ese: se reproduce desde
+  justo antes del repaso corregido (con `StudyItem.replay`, el mismo mecanismo con el que
+  `CreateStudyItem` reconstruye una tarjeta editada que vuelve) y se vuelven a aplicar los repasos
+  posteriores. Cada repaso guarda desde la versión 5 el estado al que se aplicó (`prior`), así que
+  el punto de partida es exacto también para tarjetas con estado importado sin historial. Para
+  repasos anteriores a la versión 5 se reproduce desde cero. En ambos casos antes se comprueba que
+  reproducir el historial actual da exactamente el estado guardado; si no (estado importado, o
+  cambiado fuera del historial), la corrección se rechaza en lugar de adivinar.
+- Contadores diarios: enmendar no cambia nada (el repaso existió). Borrar un repaso devuelve el
+  cupo que consumió en su día (nueva o repaso); restaurarlo lo vuelve a consumir; si al borrar el
+  primer repaso de una tarjeta otro posterior pasa a ser el primero, ese pasa de «repaso» a
+  «nueva». Solo se ajustan los días con contador guardado (sin él se calculan del historial, que ya
+  es correcto).
+- La revisión de la tarjeta sube: Android y el plugin que la tengan en cola reciben un 409 y
+  recargan la cola; si el borrado la deja vencida, vuelve a aparecer.
+- Toda corrección queda en `review_changes`: repaso (id, tarjeta, hora, origen), acción (`amend`,
+  `remove`, `restore`), nota anterior y nueva, quién y cuándo, y en un borrado el estado previo del
+  repaso, para restaurarlo exacto. Deshacer es otra corrección (`reverts` apunta a la deshecha), y
+  solo se puede deshacer el último cambio de cada repaso.
+
+Propuestas de tarjetas. ChatGPT puede proponer una tarjeta (por ejemplo, tras confundir dos
+palabras): cada lado en una línea, sin `::`, con dirección (`unidirectional` = `::`,
+`bidirectional` = `:::`), un mazo sugerido como etiqueta (`german/vocabulary`, sin `#`) y un
+contexto opcional. Se guarda en `card_proposals` y **nunca** se convierte sola en tarjeta. Una
+propuesta igual a una tarjeta existente se rechaza. El panel «Card proposals» del plugin la
+muestra; al aceptarla añade la tarjeta a la nota del mazo en la carpeta de entrada (ajuste del
+plugin, `Recall inbox` por defecto: `Recall inbox/German/vocabulary.md` con el tag
+`German/vocabulary`) y la publicación normal la convierte en tarjeta: el vault sigue siendo la
+única fuente de tarjetas. API privada (mismo token y errores `{error}` que el
+resto):
+
+- `GET /api/v1/proposals?status=pending|accepted|dismissed|all` (por defecto `pending`) →
+  `{"proposals":[{"id":1,"sideA":"die Biene","sideB":"the bee","directionality":"bidirectional","deck":"german","context":null,"status":"pending","origin":"mcp","createdAt":"…Z","decidedAt":null,"notePath":null}]}`,
+  de la más antigua a la más nueva.
+- `POST /api/v1/proposals/accept` con `{"id":1,"notePath":"German/Insects.md"}` (`notePath`
+  opcional) y `POST /api/v1/proposals/dismiss` con `{"id":1}` → `{"proposal":{…}}`. Repetir la
+  misma decisión devuelve la propuesta sin cambios (se conserva el primer `notePath`); la decisión
+  contraria es un 409, un `id` desconocido un 404 y un cuerpo inválido un 400. Una propuesta
+  descartada puede volver a proponerse.
+
+Anotaciones. Ninguna herramienta de escritura declara `readOnlyHint`. Según la documentación de
+OpenAI, ChatGPT trata como escritura toda herramienta sin `readOnlyHint: true` y pide confirmación
+(se puede recordar la aprobación dentro de una conversación); `destructiveHint` es para resultados
+irreversibles o difíciles de revertir. Ninguna lo declara: registrar y proponer solo añaden datos, y
+cada corrección queda auditada y se puede deshacer. Además, hay informes de que la app de Android
+de ChatGPT bloquea antes de llamar al servidor las herramientas con `destructiveHint: true`. Todas
+declaran `idempotentHint: true` y `openWorldHint: false`. No está documentado cómo se muestran esas
+confirmaciones en el modo de voz: hay que comprobarlo con una conexión real.
 
 ChatGPT envía la lista de mazos a OpenAI al usarla. Las opciones y nombres de la interfaz de
 ChatGPT cambian a menudo; la disponibilidad del modo desarrollador y de conectores en el modo de
@@ -523,7 +705,8 @@ tr '\n' '\0' < /tmp/huerfanos.txt | xargs -0 rm --
 ## Docker, copias y límites operativos
 
 `docker compose up --build -d` utiliza `.env`, un volumen persistente y un puerto publicado
-solo en loopback. No se ha desplegado automáticamente. Coloca delante tu acceso privado o
+solo en loopback. Necesita `../mcp-oauth` junto a este repositorio: entra como contexto de build con nombre
+(`additional_contexts` en `compose.yaml`; a mano, `docker build --build-context mcp-oauth=../mcp-oauth .`). No se ha desplegado automáticamente. Coloca delante tu acceso privado o
 proxy HTTPS. El contenedor corre como usuario no root. Conserva el volumen entre despliegues.
 
 Para una copia sencilla y consistente, detén el backend y copia la base SQLite y cualquier
@@ -545,7 +728,7 @@ y una vez al día. Es seguro: cada comando lleva `expectedRevision`, así que un
 llegue tras caducar su recibo se reevalúa y se rechaza con 409 (o, en notas con contenido
 idéntico, se reconoce) en lugar de aplicarse dos veces.
 
-El esquema actual es la versión 4. **Antes de actualizar, detén el servidor y haz una copia
+El esquema actual es la versión 5. **Antes de actualizar, detén el servidor y haz una copia
 con `scripts/backup-server.mjs`.** Al arrancar, el servidor nuevo migra la base
 automáticamente, encadenando los pasos necesarios:
 
@@ -562,10 +745,17 @@ automáticamente, encadenando los pasos necesarios:
 - v3 → v4, en otra transacción: solo añade la tabla `card_aliases` (qué IDs heredó el texto
   de cada tarjeta editada) y un índice de tarjetas por contenido. Los datos existentes no
   cambian y no tienen alias; si falla, la base queda en v3.
+- v4 → v5, en otra transacción: reconstruye la tabla `reviews` con las mismas filas y el mismo
+  `seq` (comprobado antes de confirmar), ahora con clave `AUTOINCREMENT` (un id borrado no se
+  reutiliza) y dos columnas nuevas que quedan vacías en los repasos existentes: `origin` y `prior`.
+  Añade `review_changes` (auditoría de correcciones) y `card_proposals`. Con unos 15 000 repasos
+  tarda una fracción de segundo. Si falla, la base queda en v4.
 
-Tras migrar ejecuta `VACUUM` para recuperar espacio (si falla, no es grave). Es irreversible:
-un servidor anterior rechazará la base migrada (`schema is newer`), y este servidor rechaza
-bases de una versión posterior. Para volver atrás, restaura la copia.
+Tras migrar desde v1 o v2 ejecuta `VACUUM` para recuperar espacio (si falla, no es grave). Es
+irreversible: un servidor anterior rechazará la base migrada (`schema is newer`), y este servidor
+rechaza bases de una versión posterior. Para volver atrás, restaura la copia. Volver de v5 a un
+servidor v4 **no** es posible sin esa copia: se perderían los repasos, correcciones y propuestas
+registrados después de actualizar (rehacer una base v4 a mano no está soportado).
 
 El estudio es online. No se simula que se guardó una respuesta sin confirmación. Android
 reintenta fallos de transporte con el mismo ID; Obsidian conserva el intento en memoria para

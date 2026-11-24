@@ -8,6 +8,14 @@ import { RecallDatabase, payloadHash } from '../../src/server/database';
 import { RecallService } from '../../src/server/service';
 import { createRecallServer } from '../../src/server/http';
 import { exportDocuments } from '../../src/server/legacy-documents';
+import { DATA_TABLES, SCHEMA_V3, SCHEMA_V4 } from '../../src/server/persistence/schema';
+import { ReviewCorrections } from '../../src/server/review-corrections';
+import { Rating } from '../../src/context/study/domain/rating';
+import { StudyItem } from '../../src/context/study/domain/study-item';
+import { StudyItemId } from '../../src/context/study/domain/study-item-id';
+import { ConceptId } from '../../src/context/concept/domain/concept-id';
+import { Direction } from '../../src/context/study/domain/direction';
+import { FsrsScheduler } from '../../src/context/study/infrastructure/fsrs-scheduler';
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => { vi.useRealTimers(); vi.restoreAllMocks(); for (const f of cleanup.splice(0).reverse()) await f(); });
@@ -110,7 +118,7 @@ async function conversation(service: RecallService) {
   return log;
 }
 
-it('migrates a v2 database to v4, verifies it, and serves exactly what a native v4 server serves', async () => {
+it('migrates a v2 database to v5, verifies it, and serves exactly what a native v5 server serves', async () => {
   const dir = await tempDir();
   const native = await nativeState(dir);
   const legacy = asLegacy(native.documents);
@@ -120,7 +128,7 @@ it('migrates a v2 database to v4, verifies it, and serves exactly what a native 
   writeV2(path, legacy, native.notes, native.operations);
 
   const migrated = open(path);
-  expect(version(migrated.db.sql)).toBe(4);
+  expect(version(migrated.db.sql)).toBe(5);
   expect(tables(migrated.db.sql)).not.toContain('documents');
   const exported = exportDocuments(migrated.db.sql);
   expect(exported).toEqual(native.documents); // the v2 view: reviews deduplicated and sorted
@@ -136,7 +144,7 @@ it('migrates a v2 database to v4, verifies it, and serves exactly what a native 
   expect(actual.filter(r => !r.startsWith('200 '))).toEqual([]);
 });
 
-it('chains v1 → v2 → v3 → v4', async () => {
+it('chains v1 → v2 → v3 → v4 → v5', async () => {
   const dir = await tempDir();
   const native = await nativeState(dir);
   const path = join(dir, 'v1.sqlite');
@@ -150,7 +158,7 @@ it('chains v1 → v2 → v3 → v4', async () => {
   db.prepare('INSERT INTO operations VALUES (?,?,?)').run('op', '{"type":"note"}', '{"path":"a.md","revision":1}');
   db.close();
   const service = open(path);
-  expect(version(service.db.sql)).toBe(4);
+  expect(version(service.db.sql)).toBe(5);
   expect(tables(service.db.sql)).not.toContain('documents');
   expect(exportDocuments(service.db.sql)).toEqual(native.documents);
   expect(service.db.sql.prepare('SELECT payload_hash FROM operations').get()!.payload_hash).toBe(payloadHash('{"type":"note"}'));
@@ -181,34 +189,52 @@ it.each([
 });
 
 it('refuses a database from a newer server', async () => {
-  const path = join(await tempDir(), 'v5.sqlite');
+  const path = join(await tempDir(), 'v6.sqlite');
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA user_version=5');
+  db.exec('PRAGMA user_version=6');
   db.close();
   expect(() => new RecallDatabase(path)).toThrow(/newer/);
 });
 
-/** A real database written by this server, rewritten to the v3 layout (no card aliases). */
-async function v3File(dir: string) {
-  const path = join(dir, 'v3.sqlite');
-  const db = new RecallDatabase(path);
+/**
+ * A real database written by this server, copied into the exact v4 layout (reviews without
+ * origin/prior and with a plain rowid key, no correction or proposal tables), or further back to
+ * v3 (no card aliases).
+ */
+async function legacyFile(dir: string, target: 3 | 4, populate?: (service: RecallService) => Promise<void>) {
+  const source = join(dir, 'source.sqlite');
+  const db = new RecallDatabase(source);
   const service = new RecallService(db, settings);
   await note(service, 'a.md', a1, 0);
   const [item] = (await service.due()).items;
   await service.review({ operationId: `op-${++op}`, studyItemId: item.studyItemId, rating: 'good', expectedRevision: item.revision });
+  await populate?.(service);
   await db.close();
-  const v3 = new DatabaseSync(path);
-  v3.exec('DROP TABLE card_aliases; DROP INDEX note_cards_key; PRAGMA user_version=3;');
-  const rows = (table: string) => v3.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
-  const state = { documents: exportDocuments(v3), notes: rows('notes'), operations: rows('operations') };
-  v3.close();
+  const path = join(dir, `v${target}.sqlite`);
+  const old = new DatabaseSync(path);
+  old.exec(`BEGIN;
+    CREATE TABLE operations (id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, result TEXT NOT NULL, created_at INTEGER NOT NULL);
+    CREATE TABLE notes (path TEXT PRIMARY KEY, content TEXT, revision INTEGER NOT NULL);
+    ${SCHEMA_V3} ${target === 4 ? SCHEMA_V4 : ''} PRAGMA user_version=${target}; COMMIT;`);
+  old.exec(`ATTACH DATABASE '${source.replace(/'/g, "''")}' AS src`);
+  for (const table of ['operations', 'notes', ...DATA_TABLES]) {
+    if (table === 'review_changes' || table === 'card_proposals' || (table === 'card_aliases' && target === 3)) continue;
+    const columns = table === 'reviews' ? 'seq, study_item_id, rating, timestamp' : '*';
+    old.exec(`INSERT INTO main.${table} ${table === 'reviews' ? `(${columns})` : ''} SELECT ${columns} FROM src.${table} ORDER BY rowid`);
+  }
+  old.exec('DETACH DATABASE src');
+  const rows = (table: string) => old.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+  const state = { documents: exportDocuments(old), notes: rows('notes'), operations: rows('operations'), reviews: rows('reviews') };
+  expect(tables(old)).not.toContain('sqlite_sequence');
+  old.close();
   return { path, state, item };
 }
+const v3File = (dir: string) => legacyFile(dir, 3);
 
-it('migrates v3 → v4 additively: same data, no aliases, and edits then keep their history', async () => {
+it('migrates v3 → v5: same data, no aliases, and edits then keep their history', async () => {
   const { path, state, item } = await v3File(await tempDir());
   const service = open(path);
-  expect(version(service.db.sql)).toBe(4);
+  expect(version(service.db.sql)).toBe(5);
   expect(tables(service.db.sql)).toContain('card_aliases');
   expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM card_aliases').get()!.n).toBe(0);
   expect(exportDocuments(service.db.sql)).toEqual(state.documents);
@@ -229,6 +255,59 @@ it('leaves a valid v3 database when the v4 migration fails', async () => {
   const check = new DatabaseSync(path);
   expect(version(check)).toBe(3);
   expect(tables(check)).not.toContain('card_aliases');
+  expect(exportDocuments(check)).toEqual(state.documents);
+  check.close();
+});
+
+it('migrates v4 → v5: same reviews and ids, null origin/prior, ids never reused, and pre-v5 reviews stay correctable', async () => {
+  const { path, state, item } = await legacyFile(await tempDir(), 4, async service => {
+    const queue = (await service.due()).items;
+    await service.review({ operationId: `op-${++op}`, studyItemId: queue[0].studyItemId, rating: 'again', expectedRevision: queue[0].revision });
+  });
+  const service = open(path);
+  const sql = service.db.sql;
+  expect(version(sql)).toBe(5);
+  expect(tables(sql)).toEqual(expect.arrayContaining(['review_changes', 'card_proposals', 'sqlite_sequence']));
+  expect(tables(sql)).not.toContain('reviews_v5');
+  const reviews = sql.prepare('SELECT * FROM reviews ORDER BY rowid').all();
+  expect(reviews.map(({ seq, study_item_id, rating, timestamp }) => ({ seq, study_item_id, rating, timestamp }))).toEqual(state.reviews);
+  expect(reviews.every(r => r.origin === null && r.prior === null)).toBe(true);
+  expect(reviews).toHaveLength(2);
+  expect(exportDocuments(sql)).toEqual(state.documents);
+  expect(sql.prepare('SELECT * FROM notes ORDER BY rowid').all()).toEqual(state.notes);
+  expect(sql.prepare('SELECT * FROM operations ORDER BY rowid').all()).toEqual(state.operations);
+  expect(sql.prepare("SELECT seq FROM sqlite_sequence WHERE name='reviews'").get()!.seq).toBe(Math.max(...reviews.map(r => Number(r.seq))));
+
+  // A pre-v5 review (no prior) of a card whose history explains its state: corrected by a replay from scratch.
+  const corrections = new ReviewCorrections(service);
+  const first = reviews.find(r => r.study_item_id === item.studyItemId)!;
+  const amended = await corrections.amend(Number(first.seq), Rating.Hard, 'mcp');
+  expect(amended).toMatchObject({ reviewId: Number(first.seq), from: 'good', to: 'hard' });
+  const replayed = StudyItem.create(new StudyItemId(item.studyItemId), new ConceptId('x'), Direction.AtoB);
+  replayed.replay([{ rating: Rating.Hard, timestamp: new Date(first.timestamp as number) }], new FsrsScheduler());
+  const stored = await service.query(async c => (await c.studyItemRepository.findById(new StudyItemId(item.studyItemId)))!.memoryState);
+  expect(stored.equals(replayed.memoryState)).toBe(true);
+
+  // Removing the newest review and recording another never hands out its id again.
+  const newest = Math.max(...reviews.map(r => Number(r.seq)));
+  await corrections.remove(newest, 'mcp');
+  const queue = (await service.due()).items.filter(i => i.reps === 0);
+  await service.review({ operationId: `op-${++op}`, studyItemId: queue[0].studyItemId, rating: 'good', expectedRevision: queue[0].revision });
+  expect(Number(sql.prepare('SELECT MAX(seq) AS m FROM reviews').get()!.m)).toBe(newest + 1);
+});
+
+it('leaves a valid v4 database when the v5 migration fails', async () => {
+  const { path, state } = await legacyFile(await tempDir(), 4);
+  const broken = new DatabaseSync(path);
+  broken.exec('CREATE TABLE card_proposals (x)'); // name clash inside the v5 DDL, after the review log rebuild
+  broken.close();
+  expect(() => new RecallDatabase(path)).toThrow(/already exists/);
+  const check = new DatabaseSync(path);
+  expect(version(check)).toBe(4);
+  expect(tables(check)).not.toContain('reviews_v5');
+  expect(tables(check)).not.toContain('review_changes');
+  expect(check.prepare('SELECT * FROM reviews ORDER BY rowid').all()).toEqual(state.reviews);
+  expect(check.prepare('PRAGMA table_info(reviews)').all().map(c => c.name)).toEqual(['seq', 'study_item_id', 'rating', 'timestamp']);
   expect(exportDocuments(check)).toEqual(state.documents);
   check.close();
 });

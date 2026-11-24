@@ -92,8 +92,8 @@ describe('MCP tools', () => {
     expect(due.newCardsDue).toBe(4);
     expect(due.cards.map((c: any) => c.studyItemId)).toEqual([id('Adiós<'), id('der Vogel'), id('der Hund'), id('die Katze')]);
     expect(due.cards[0]).toEqual({ studyItemId: id('Adiós<'), prompt: 'goodbye', answer: 'Adiós', decks: ['spanish'], state: 'review',
-      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, next: expect.any(Object) });
-    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, next: expect.any(Object) });
+      due: expect.stringMatching(/^\d{4}-\d\d-\d\dT/), reps: 3, lapses: 0, revision: 1, next: expect.any(Object) });
+    expect(due.cards[2]).toEqual({ studyItemId: id('der Hund'), prompt: 'der Hund', answer: 'the dog', decks: ['german/grammar'], state: 'new', reps: 0, lapses: 0, revision: 1, next: expect.any(Object) });
     expect((await call(service, 'get_due_cards', { limit: 1 })).cards).toHaveLength(1);
   });
 
@@ -141,8 +141,8 @@ describe('MCP tools', () => {
     const found = await call(service, 'search_cards', { query: 'ADIOS' });
     expect(found).toEqual({ query: 'ADIOS', deck: null, total: 1, cards: [{
       sideA: 'Adiós', sideB: 'goodbye', decks: ['spanish'], directions: [
-        { studyItemId: id('Adiós'), prompt: 'sideA', state: 'review', due: expect.any(String), lapses: 1, next: expect.any(Object) },
-        { studyItemId: id('Adiós<'), prompt: 'sideB', state: 'new', lapses: 0, next: expect.any(Object) },
+        { studyItemId: id('Adiós'), prompt: 'sideA', state: 'review', due: expect.any(String), lapses: 1, revision: 1, next: expect.any(Object) },
+        { studyItemId: id('Adiós<'), prompt: 'sideB', state: 'new', lapses: 0, revision: 1, next: expect.any(Object) },
       ] }] });
     expect((await call(service, 'search_cards', { query: 'the' })).total).toBe(3);
     expect((await call(service, 'search_cards', { query: 'the', limit: 2 })).cards.map((c: any) => c.sideA)).toEqual(['der Hund', 'die Katze']);
@@ -176,13 +176,16 @@ describe('MCP tools', () => {
   });
 
   it('previews the next interval per rating like the HTTP API, in every card tool, without writing anything', async () => {
-    const { db, service, id, study } = await setup({ dailyNewLimit: 0, leechThreshold: 1 });
-    await study('der Vogel', { due: Date.now() - 2 * DAY, lapses: 1, stability: 12, difficulty: 7.2 }, [[Date.now() - DAY / 2, Rating.Again]]);
-    const before = snapshot(db);
-    // Freeze the clock so the HTTP API and the tool preview the same instant.
+    // Freeze the clock so the HTTP API and the tool preview the same instant (mid-minute, so the
+    // minute-rounded due times are unambiguous). Freeze it BEFORE seeding: new cards are due from the
+    // instant they are created, so seeding at the real time and reading at a rounded instant up to
+    // 30 s earlier left "der Hund" not yet due whenever the test ran in the second half of a minute.
     const instant = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 30_000);
     vi.useFakeTimers({ toFake: ['Date'], now: instant });
     cleanup.push(async () => vi.useRealTimers());
+    const { db, service, id, study } = await setup({ dailyNewLimit: 0, leechThreshold: 1 });
+    await study('der Vogel', { due: Date.now() - 2 * DAY, lapses: 1, stability: 12, difficulty: 7.2 }, [[Date.now() - DAY / 2, Rating.Again]]);
+    const before = snapshot(db);
     const token = 'preview-secret-'.repeat(3);
     const server = createRecallServer(service, token);
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, isBackendConfigured, loadPluginSettings } from '../../../src/app/backend/plugin-settings';
+import { DEFAULT_SETTINGS, isBackendConfigured, loadPluginSettings, normalizeInboxFolder } from '../../../src/app/backend/plugin-settings';
 
 describe('loadPluginSettings', () => {
   it('returns defaults for a fresh install', () => {
@@ -17,7 +17,7 @@ describe('loadPluginSettings', () => {
       voiceTts: { enabled: true, apiKey: 'tts-secret', voice: 'alloy', model: 'gpt-4o-mini-tts', instructions: '', llmPreprocess: false },
     };
     const settings = loadPluginSettings(structuredClone(legacy));
-    expect(settings).toEqual({ ...legacy, backend: { url: '', token: '', syncNotes: false } });
+    expect(settings).toEqual({ ...legacy, backend: { url: '', token: '', syncNotes: false }, proposalInboxFolder: 'Recall inbox' });
     // What `saveData(settings)` writes back still contains the user's old keys.
     expect(JSON.parse(JSON.stringify(settings))).toMatchObject(legacy);
   });
@@ -44,6 +44,25 @@ describe('loadPluginSettings', () => {
     const settings = loadPluginSettings({});
     settings.expandedDeckIds.push('x');
     settings.backend.url = 'changed';
-    expect(DEFAULT_SETTINGS).toEqual({ backend: { url: '', token: '', syncNotes: false }, expandedDeckIds: [] });
+    expect(DEFAULT_SETTINGS).toEqual({ backend: { url: '', token: '', syncNotes: false }, expandedDeckIds: [], proposalInboxFolder: 'Recall inbox' });
+  });
+});
+
+describe('card proposals inbox folder setting', () => {
+  it('defaults to "Recall inbox" and keeps a stored folder', () => {
+    expect(loadPluginSettings({}).proposalInboxFolder).toBe('Recall inbox');
+    expect(loadPluginSettings({ proposalInboxFolder: 'Languages/Inbox' }).proposalInboxFolder).toBe('Languages/Inbox');
+  });
+
+  it('normalizes slashes and spaces', () => {
+    expect(normalizeInboxFolder('  /Languages//Inbox/ ')).toBe('Languages/Inbox');
+    expect(normalizeInboxFolder('Languages\\Inbox')).toBe('Languages/Inbox');
+    expect(normalizeInboxFolder('./Inbox')).toBe('Inbox');
+  });
+
+  it('falls back to the default for unusable folders instead of writing outside the vault or into hidden ones', () => {
+    for (const bad of [42, null, '', '  ', '/', '../Outside', 'a/../b', '.obsidian/plugins', 'x/node_modules', 'a:b']) {
+      expect(normalizeInboxFolder(bad)).toBe('Recall inbox');
+    }
   });
 });

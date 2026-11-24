@@ -41,4 +41,18 @@ export class StudyItem {
   review(rating: Rating, scheduler: Scheduler, now: Date = new Date()): void {
     this._memoryState = scheduler.schedule(this._memoryState, rating, now);
   }
+
+  /**
+   * Re-applies past reviews in the given (chronological) order, each at its own timestamp, from
+   * the current memory state. This is how history is replayed: a recreated card (CreateStudyItem)
+   * from its initial state, a corrected one (CorrectReview) from the state before the correction.
+   * Returns the state each review was applied to.
+   */
+  replay(reviews: readonly { rating: Rating; timestamp: Date }[], scheduler: Scheduler): MemoryState[] {
+    return reviews.map(r => {
+      const prior = this._memoryState;
+      this.review(r.rating, scheduler, r.timestamp);
+      return prior;
+    });
+  }
 }

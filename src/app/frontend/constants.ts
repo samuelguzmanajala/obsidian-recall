@@ -1,5 +1,6 @@
 export const VIEW_TYPE_DECK_BROWSER = 'recall-deck-browser';
 export const VIEW_TYPE_REVIEW = 'recall-review';
+export const VIEW_TYPE_PROPOSALS = 'recall-proposals';
 
 export const RATING_LABELS: Record<string, string> = {
   again: 'Again',

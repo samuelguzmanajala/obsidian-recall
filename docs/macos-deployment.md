@@ -349,3 +349,54 @@ Desplegado el commit `29ae69d` de la rama `worktree-agent-a14ba956bf3eba016`. So
 - Antes de desplegar, comprobar SIEMPRE que el bundle instalado no contiene trabajo que el
   nuevo no tenga (p. ej. `grep -c "Recall MCP" server/main.cjs`) y construir desde un commit
   que incluya todas las ramas desplegadas.
+
+### Herramientas de escritura del conector MCP y esquema v5 (2026-11-12, 07:41)
+
+Desplegado el commit `8a658f9` de la rama `worktree-agent-a77010419a7566ea3` (contiene
+`feat/backend-with-mcp` `f233107`). Se sustituyeron `main.cjs`, `migrate.cjs` y `pregenerate.cjs`,
+y se anadio `RECALL_MCP_WRITE=true` a `backend.env`.
+
+- La base paso de v4 a v5 al arrancar: el registro de repasos se reconstruyo con identificadores
+  estables y las columnas `origin` y `prior`, y hay dos tablas nuevas, `review_changes` (rastro de
+  correcciones) y `card_proposals` (bandeja de tarjetas propuestas). Tras migrar: 14.728 repasos,
+  mismo identificador maximo, integridad correcta.
+- Ensayo previo sobre una copia de la base real: mismos repasos, y `/decks`, `/stats`, `/leeches`,
+  `/sources`, `/settings` y `/tags` identicos byte a byte al servidor anterior. Sobre esa copia se
+  guardo, corrigio, borro y restauro un repaso por MCP (las fechas coincidieron con la prevision),
+  y se corrigieron y revirtieron 25 repasos reales de los dos ultimos dias sin rechazos. Las copias
+  de ensayo se borraron; no se escribio ningun repaso en la base personal.
+- Un servidor anterior se niega a abrir una base v5. Para volver atras hay que restaurar bundles Y
+  base: `backups/server-2026-11-12T06-41-43Z` (bundles y `backend.env` previos) y la copia en frio
+  `backups/recall-2026-11-12T06-41-43-252Z.sqlite` (tambien en Disk2). Se perderia lo repasado
+  despues.
+- Tras el reinicio: API privada correcta; por la entrada publica de Tailscale, metadatos OAuth 200,
+  `/mcp` sin token 401 y `/api/v1/proposals` 404. El registro indica `write tools enabled`.
+- Pendiente: el panel del plugin de Obsidian para aceptar o descartar las tarjetas propuestas, y
+  comprobar en ChatGPT si las herramientas de escritura piden confirmacion en modo voz.
+
+### OAuth del conector MCP en un paquete compartido (2026-11-24)
+
+- Desplegada la rama `feat/shared-mcp-oauth-deployed`: el commit del refactor OAuth aplicado
+  sobre `8aeeefa`, que es exactamente lo que estaba instalado (los tres bundles de un build de
+  `8aeeefa` coincidian byte a byte con los de `server/`). Ojo: `8aeeefa` vive en la rama
+  `worktree-agent-a77010419a7566ea3` (herramientas MCP de escritura, esquema v5, ajustes de
+  estudio, panel de propuestas) y **no esta fusionada** en `feat/standalone-recall-backend`;
+  la rama `feat/shared-mcp-oauth` (sobre `e0522a4`) se habria llevado todo eso por delante.
+- El OAuth (servidor de autorizacion, almacen, pagina de aprobacion y rutas) vive ahora en
+  `@samuelguzman/mcp-oauth` (`../mcp-oauth`), compartido con el gateway mcp-hub. Mismo
+  comportamiento: 611/611 pruebas antes y despues, mismas herramientas en el bundle, mismo
+  esquema; solo cambia `server/main.cjs` (`migrate.cjs` y `pregenerate.cjs` identicos).
+- Copia previa de `server/` en `backups/server-2026-11-24T11-03-57Z`. Verificado: API 200,
+  metadatos OAuth del 27125 y del 443 publico, 401 con el mismo desafio, "write tools enabled".
+- Vuelta atras: detener el agente, copiar `backups/server-2026-11-24T11-03-57Z/main.cjs` a
+  `server/` y volver a cargarlo.
+
+### Acceso interno para mcp-hub y el 443 al gateway (2026-11-24)
+
+- Desplegado `feat/internal-mcp-listener` (`8c67f4e`): listener interno en `127.0.0.1:27126` con
+  secreto compartido (`RECALL_MCP_INTERNAL_*`, bloque al final de `backend.env`). Copia previa en
+  `backups/server-2026-11-24T11-10-04Z` (bundles y `backend.env`).
+- Funnel 443 ya **no** apunta al MCP público de Recall (27125) sino al gateway mcp-hub (27130), que
+  usa Recall por el acceso interno. El listener público sigue corriendo en local, sin publicar; el
+  conector de Recall en ChatGPT se sustituye por el de mcp-hub. Vuelta atrás: en el repositorio
+  mcp-hub, `despliegue/cambiar-443.sh --deshacer`.

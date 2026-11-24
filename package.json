@@ -29,6 +29,7 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
+    "@samuelguzman/mcp-oauth": "file:../mcp-oauth",
     "ts-fsrs": "^4.0.0"
   }
 }

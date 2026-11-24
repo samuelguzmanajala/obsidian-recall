@@ -12,8 +12,8 @@ import type { Direction } from '../../context/study/domain/direction';
 import type { DeckRepository } from '../../context/deck/domain/deck-repository';
 import { Deck } from '../../context/deck/domain/deck';
 import { DeckId } from '../../context/deck/domain/deck-id';
-import type { ReviewLog } from '../../context/study/domain/review-log';
-import { Review } from '../../context/study/domain/review';
+import type { LoggedReview, ReviewLog } from '../../context/study/domain/review-log';
+import { Review, type ReviewOrigin } from '../../context/study/domain/review';
 import type { Rating } from '../../context/study/domain/rating';
 import type { RecallDatabase } from '../database';
 
@@ -128,9 +128,10 @@ export class SqliteDeckRepository implements DeckRepository {
 
 export class SqliteReviewLog implements ReviewLog {
   constructor(private readonly db: RecallDatabase) {}
-  async append(review: Review): Promise<void> {
-    this.db.stmt('INSERT INTO reviews (study_item_id, rating, timestamp) VALUES (?,?,?) ON CONFLICT DO NOTHING')
-      .run(review.studyItemId.value, review.rating, review.timestamp.getTime());
+  async append(review: Review): Promise<number | null> {
+    const row = this.db.stmt('INSERT INTO reviews (study_item_id, rating, timestamp, origin, prior) VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING RETURNING seq')
+      .get(review.studyItemId.value, review.rating, review.timestamp.getTime(), review.origin, priorJson(review.prior));
+    return row ? Number(row.seq) : null;
   }
   async findByStudyItemId(studyItemId: StudyItemId): Promise<Review[]> {
     return this.db.stmt('SELECT * FROM reviews WHERE study_item_id=? ORDER BY timestamp, seq').all(studyItemId.value).map(r => this.review(r));
@@ -148,7 +149,43 @@ export class SqliteReviewLog implements ReviewLog {
     return Number(this.db.stmt(`SELECT COUNT(DISTINCT study_item_id) AS n FROM reviews r WHERE timestamp>=?
       AND NOT EXISTS (SELECT 1 FROM reviews p WHERE p.study_item_id=r.study_item_id AND p.timestamp<?)`).get(since.getTime(), since.getTime())!.n);
   }
-  private review(r: Row): Review {
-    return new Review(new StudyItemId(r.study_item_id as string), r.rating as Rating, new Date(r.timestamp as number));
+  async findLogged(id: number): Promise<LoggedReview | null> {
+    const row = this.db.stmt('SELECT * FROM reviews WHERE seq=?').get(id);
+    return row ? this.logged(row) : null;
   }
+  async findLoggedByStudyItemId(studyItemId: StudyItemId): Promise<LoggedReview[]> {
+    return this.db.stmt('SELECT * FROM reviews WHERE study_item_id=? ORDER BY timestamp, seq').all(studyItemId.value).map(r => this.logged(r));
+  }
+  async findLatest(since: Date, limit: number): Promise<LoggedReview[]> {
+    return this.db.stmt('SELECT * FROM reviews WHERE timestamp>=? ORDER BY timestamp DESC, seq DESC LIMIT ?').all(since.getTime(), limit).map(r => this.logged(r));
+  }
+  async rewrite(id: number, rating: Rating, prior: MemoryState | null): Promise<void> {
+    this.db.stmt('UPDATE reviews SET rating=?, prior=? WHERE seq=?').run(rating, priorJson(prior), id);
+  }
+  async removeById(id: number): Promise<void> {
+    this.db.stmt('DELETE FROM reviews WHERE seq=?').run(id);
+  }
+  /** `seq` is AUTOINCREMENT (schema v5): a removed id is never handed out again, so it is free to restore. */
+  async restore(entry: LoggedReview): Promise<void> {
+    const r = entry.review;
+    this.db.stmt('INSERT INTO reviews (seq, study_item_id, rating, timestamp, origin, prior) VALUES (?,?,?,?,?,?)')
+      .run(entry.id, r.studyItemId.value, r.rating, r.timestamp.getTime(), r.origin, priorJson(r.prior));
+  }
+  private review(r: Row): Review {
+    return new Review(new StudyItemId(r.study_item_id as string), r.rating as Rating, new Date(r.timestamp as number),
+      (r.origin ?? null) as ReviewOrigin | null, parsePrior(r.prior as string | null));
+  }
+  private logged(r: Row): LoggedReview {
+    return { id: Number(r.seq), review: this.review(r) };
+  }
+}
+
+/** Compact JSON of a memory state (doubles round-trip exactly through JSON). */
+export function priorJson(m: MemoryState | null): string | null {
+  return m && JSON.stringify({ s: m.stability, d: m.difficulty, due: m.due.getTime(), reps: m.reps, lapses: m.lapses, last: m.lastReview?.getTime() ?? null });
+}
+export function parsePrior(json: string | null | undefined): MemoryState | null {
+  if (!json) return null;
+  const p = JSON.parse(json) as { s: number; d: number; due: number; reps: number; lapses: number; last: number | null };
+  return new MemoryState(p.s, p.d, new Date(p.due), p.reps, p.lapses, p.last === null ? null : new Date(p.last));
 }

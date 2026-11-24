@@ -16,7 +16,8 @@ export class DeckBrowserView extends ItemView {
   private forceRender = false;
   private live = new LiveRefresh(current => this.update(current));
 
-  constructor(leaf: WorkspaceLeaf, client: StudyClient) {
+  /** `openProposals`: opens the card proposals panel (its link is hidden without it). */
+  constructor(leaf: WorkspaceLeaf, client: StudyClient, private openProposals?: () => void) {
     super(leaf);
     this.client = client;
   }
@@ -72,17 +73,19 @@ export class DeckBrowserView extends ItemView {
       return;
     }
     try {
-      const [tree, stats, leeches] = await Promise.all([
+      const [tree, stats, leeches, proposals] = await Promise.all([
         this.client.getDeckTree.execute(),
         this.client.getStudyStats.execute(),
         this.client.getLeeches.execute(),
+        // Optional: a backend without proposals (or a failure there) only hides the link.
+        this.openProposals ? Promise.resolve().then(() => this.client.getProposals()).then(list => list.length, () => null) : null,
       ]);
       if (!isCurrent()) return;
-      const hash = JSON.stringify([tree, stats, leeches]);
+      const hash = JSON.stringify([tree, stats, leeches, proposals]);
       this.contentEl.querySelector('.recall-connection-error')?.remove();
       if (hash === this.lastHash && !this.forceRender) return;
       const scrollTop = this.contentEl.scrollTop;
-      this.renderContent(tree, stats, leeches);
+      this.renderContent(tree, stats, leeches, proposals);
       this.contentEl.scrollTop = scrollTop;
       this.lastHash = hash;
       this.forceRender = false;
@@ -99,7 +102,7 @@ export class DeckBrowserView extends ItemView {
     }
   }
 
-  private renderContent(tree: DeckTreeNode[], stats: StudyStats, leeches: LeechView[]): void {
+  private renderContent(tree: DeckTreeNode[], stats: StudyStats, leeches: LeechView[], proposals: number | null = null): void {
     const el = this.contentEl;
     el.empty();
     el.addClass('recall-deck-browser');
@@ -107,6 +110,13 @@ export class DeckBrowserView extends ItemView {
     // Header
     const header = el.createDiv({ cls: 'recall-header' });
     header.createSpan({ text: 'Recall', cls: 'recall-title' });
+    if (proposals !== null && this.openProposals) {
+      const link = header.createSpan({
+        text: proposals ? `${proposals} card proposal${proposals === 1 ? '' : 's'} →` : 'Card proposals',
+        cls: `recall-proposals-link${proposals ? ' recall-proposals-pending' : ''}`,
+      });
+      link.addEventListener('click', () => this.openProposals?.());
+    }
 
     // Summary numbers
     const summary = el.createDiv({ cls: 'recall-summary' });

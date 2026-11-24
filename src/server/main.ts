@@ -5,7 +5,7 @@ import { createRecallServer } from './http';
 import { configureAudio } from './audio/configure-audio';
 import { AudioQueue } from './audio/audio-queue';
 import { ensureAudio } from './audio/audio-plan';
-import { configureMcp } from './mcp/configure';
+import { configureInternalMcp, configureMcp } from './mcp/configure';
 
 const token = process.env.RECALL_TOKEN ?? '';
 process.umask(0o077);
@@ -31,6 +31,7 @@ const audio = configureAudio();
 const audioQueue = audio && new AudioQueue((id, side) => ensureAudio(service, audio, id, side));
 const server = createRecallServer(service, token, audio, audioQueue);
 const mcp = configureMcp(process.env, dbPath, service, token);
+const internalMcp = configureInternalMcp(process.env, service);
 const expire = () => service.expireReceipts(receiptDays).catch(error => console.error('Receipt expiry failed:', error));
 void expire();
 const expiry = setInterval(expire, 86_400_000);
@@ -41,6 +42,7 @@ service.reindexIfTagsChanged().then(() => {
     console.log(`Recall backend listening on ${process.env.RECALL_HOST ?? '127.0.0.1'}:${port}`);
   });
   mcp?.listen();
+  internalMcp?.listen();
 }).catch(async error => { console.error('Recall startup failed:', error); clearInterval(expiry); await db.close(); process.exitCode = 1; });
 let stopping = false;
 async function stop() {
@@ -51,6 +53,7 @@ async function stop() {
   await new Promise<void>(r => server.close(() => r()));
   await audioQueue?.close();
   await mcp?.close();
+  await internalMcp?.close();
   await db.close();
 }
 process.on('SIGINT', () => void stop());

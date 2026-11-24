@@ -46,3 +46,33 @@ describe('RemoteClient study port', () => {
     expect(persisted).toEqual([['a'], ['a', 'b'], ['b']]);
   });
 });
+
+describe('RemoteClient card proposals', () => {
+  it('lists pending proposals and sends accept and dismiss decisions', async () => {
+    const proposal = { id: 1, sideA: 'die Biene', sideB: 'the bee', directionality: 'bidirectional', deck: 'german', context: null,
+      status: 'pending', origin: 'mcp', createdAt: '2026-11-12T08:00:00.000Z', decidedAt: null, notePath: null };
+    const calls: { url: string; method?: string; body?: unknown }[] = [];
+    const transport = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return new Response(JSON.stringify(String(url).includes('?') ? { proposals: [proposal] } : { proposal: { ...proposal, status: 'accepted' } }));
+    });
+    const client = new RemoteClient(configured(), transport as typeof fetch);
+    expect(await client.getProposals()).toEqual([proposal]);
+    expect((await client.acceptProposal(1, 'Recall inbox/german.md')).status).toBe('accepted');
+    await client.dismissProposal(1);
+    expect(calls).toEqual([
+      { url: 'http://localhost:27124/api/v1/proposals?status=pending', method: 'GET', body: undefined },
+      { url: 'http://localhost:27124/api/v1/proposals/accept', method: 'POST', body: { id: 1, notePath: 'Recall inbox/german.md' } },
+      { url: 'http://localhost:27124/api/v1/proposals/dismiss', method: 'POST', body: { id: 1 } },
+    ]);
+  });
+
+  it('surfaces 409 and 404 with their status', async () => {
+    const transport = vi.fn(async (url: string | URL | Request) => new Response(
+      JSON.stringify({ error: String(url).endsWith('accept') ? 'Proposal was already dismissed' : 'Proposal not found' }),
+      { status: String(url).endsWith('accept') ? 409 : 404 }));
+    const client = new RemoteClient(configured(), transport as typeof fetch);
+    await expect(client.acceptProposal(1, 'x.md')).rejects.toMatchObject({ status: 409, message: 'Proposal was already dismissed' });
+    await expect(client.dismissProposal(2)).rejects.toMatchObject({ status: 404, message: 'Proposal not found' });
+  });
+});

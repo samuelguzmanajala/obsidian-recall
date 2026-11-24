@@ -23,6 +23,8 @@ export interface CardView {
   due?: string;
   reps: number;
   lapses: number;
+  /** The card's revision (as in `GET /api/v1/due`): changes whenever it is reviewed or edited. `record_review` takes it. */
+  revision: number;
   /** Present when the prompt or the answer was cut at `MAX_SIDE_CHARS` (marked with "…"). */
   truncated?: true;
   /** When the card would come back if rated now with each rating. */
@@ -47,6 +49,14 @@ export function nextPreview(scheduler: Scheduler, state: MemoryState, now: Date)
   }
   return out;
 }
+/** Time from `now` to `due` like the `in` of `next` ("10m", "5h", "3d"), or "now" when already due. */
+export function untilText(due: Date, now: Date): string {
+  const ms = due.getTime() - now.getTime();
+  if (ms <= 0) return 'now';
+  return ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))}m` : ms < 86_400_000 ? `${Math.round(ms / 3_600_000)}h` : `${Math.round(ms / 86_400_000)}d`;
+}
+/** ISO time to the minute ("2026-11-12T10:10Z"), as in `next`. */
+export const minuteIso = (d: Date) => `${d.toISOString().slice(0, 16)}Z`;
 export const memoryState = (m: { stability: number; difficulty: number; due: Date; reps: number; lapses: number; lastReview: Date | null }) =>
   new MemoryState(m.stability, m.difficulty, m.due, m.reps, m.lapses, m.lastReview);
 
@@ -58,14 +68,14 @@ export function clip(text: string): { text: string; cut: boolean } {
 export interface CardFacts {
   studyItemId: string; sideA: string; sideB: string; direction: Direction; reps: number; lapses: number; due?: Date;
 }
-export function cardView(facts: CardFacts, decks: string[], next: NextPreview): CardView {
+export function cardView(facts: CardFacts, decks: string[], next: NextPreview, revision: number): CardView {
   const aToB = facts.direction === Direction.AtoB;
   const prompt = clip(aToB ? facts.sideA : facts.sideB), answer = clip(aToB ? facts.sideB : facts.sideA);
   return {
     studyItemId: facts.studyItemId, prompt: prompt.text, answer: answer.text, decks,
     state: facts.reps === 0 ? 'new' : 'review',
     ...(facts.reps > 0 && facts.due ? { due: facts.due.toISOString() } : {}),
-    reps: facts.reps, lapses: facts.lapses,
+    reps: facts.reps, lapses: facts.lapses, revision,
     ...(prompt.cut || answer.cut ? { truncated: true as const } : {}),
     next,
   };
@@ -92,6 +102,11 @@ export class DeckIndex {
     return index;
   }
   has(deckId: string): boolean { return this.names.has(deckId); }
+  /** Whether a deck with this path exists ("German/grammar"; case-insensitive, like tags). */
+  hasPath(path: string): boolean {
+    const wanted = path.toLowerCase();
+    return [...this.names.keys()].some(id => this.path(id).toLowerCase() === wanted);
+  }
   /** "German/grammar": names from the root, like the tag that created the deck. */
   path(deckId: string): string {
     const parts: string[] = [];

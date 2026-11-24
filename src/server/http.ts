@@ -5,6 +5,15 @@ import { ApiError, RecallService, dueLimit, record, string, type AudioSide } fro
 import type { ServerAudio } from './audio/configure-audio';
 import { planAudio } from './audio/audio-plan';
 import type { AudioQueue } from './audio/audio-queue';
+import { CardProposals, PROPOSAL_STATUSES, decisionBody, type ProposalStatus } from './proposals';
+import type { ReviewOrigin } from '../context/study/domain/review';
+
+/** Labels a review by the HTTP client that sent it (a hint from its user agent, never trusted for anything else). */
+export function clientOrigin(userAgent: string | undefined): ReviewOrigin {
+  if (/^okhttp\//i.test(userAgent ?? '')) return 'android';
+  if (/obsidian/i.test(userAgent ?? '')) return 'obsidian';
+  return 'api';
+}
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
   if (Number(req.headers['content-length'] ?? 0) > 2_100_000) {
@@ -25,6 +34,7 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
 /** `audioQueue`: background generation for notes that change (only when remote audio is configured). */
 export function createRecallServer(service: RecallService, token: string, audio?: ServerAudio, audioQueue?: AudioQueue) {
   if (token.length < 32) throw new Error('RECALL_TOKEN must contain at least 32 characters');
+  const proposals = new CardProposals(service);
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -61,6 +71,13 @@ export function createRecallServer(service: RecallService, token: string, audio?
       } else if (req.method === 'POST' && path === '/api/v1/notes/rename') {
         // No audio work: renaming keeps study item ids, and cache files are named after them.
         result = await service.renameNote(await readBody(req));
+      } else if (req.method === 'GET' && path === '/api/v1/settings') {
+        result = await service.readSettings();
+      } else if (req.method === 'POST' && path === '/api/v1/settings') {
+        // Cards created by a tag change get their audio like a published note: after the commit, never awaited.
+        result = await service.updateSettings(await readBody(req), ids => audioQueue?.enqueue(ids));
+      } else if (req.method === 'GET' && path === '/api/v1/tags') {
+        result = await service.tags();
       } else if (req.method === 'POST' && path === '/api/v1/reviews') {
         const body = record(await readBody(req));
         if (!Array.isArray(body.reviews) || body.reviews.length < 1 || body.reviews.length > 100) throw new ApiError(400, 'Expected 1–100 reviews');
@@ -69,7 +86,7 @@ export function createRecallServer(service: RecallService, token: string, audio?
         let applied = 0;
         const errors: { idx: number; reason: string; status: number }[] = [];
         for (const [idx, review] of body.reviews.entries()) {
-          try { await service.review(review); applied++; }
+          try { await service.review(review, clientOrigin(req.headers['user-agent'])); applied++; }
           catch (e) {
             if (!(e instanceof ApiError)) throw e;
             errors.push({ idx, reason: e.message, status: e.status });
@@ -77,6 +94,15 @@ export function createRecallServer(service: RecallService, token: string, audio?
         }
         // The queue is recomputed on every call (also on retries); it is not part of the review receipt.
         result = queue ? { applied, errors, due: await service.due(queue.deckId, queue.limit) } : { applied, errors };
+      } else if (req.method === 'GET' && path === '/api/v1/proposals') {
+        // Card proposals (from the MCP connector), for the plugin's inbox. Default: pending only.
+        const status = url.searchParams.get('status') ?? 'pending';
+        if (status !== 'all' && !PROPOSAL_STATUSES.includes(status as ProposalStatus)) throw new ApiError(400, 'status must be pending, accepted, dismissed or all');
+        result = { proposals: await proposals.list(status === 'all' ? undefined : status as ProposalStatus) };
+      } else if (req.method === 'POST' && (path === '/api/v1/proposals/accept' || path === '/api/v1/proposals/dismiss')) {
+        const accepting = path.endsWith('/accept');
+        const { id, notePath } = decisionBody(record(await readBody(req)), accepting);
+        result = { proposal: await proposals.decide(id, accepting ? 'accepted' : 'dismissed', notePath) };
       } else if (req.method === 'GET' && /^\/api\/v1\/audio\//.test(path)) {
         const match = /^\/api\/v1\/audio\/([^/]+)\/(question|answer)$/.exec(path);
         if (!match) throw new ApiError(404, 'Not found');

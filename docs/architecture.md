@@ -43,7 +43,7 @@ src/
 │   │   └── infrastructure/          # Markdown + frontmatter parsers
 │   ├── study/
 │   │   ├── domain/                  # StudyItem aggregate, MemoryState, Rating, Review, ports
-│   │   ├── application/             # create, remove, review; due/stats/leech/weak queries
+│   │   ├── application/             # create, remove, review, correct (amend/remove/restore + replay); due/stats/leech/weak queries
 │   │   └── infrastructure/          # FSRS scheduler
 │   ├── deck/
 │   │   ├── domain/                  # Deck aggregate (hierarchical), repository port
@@ -56,31 +56,38 @@ src/
 │       ├── domain/                  # Identifier, LLM and TTS client ports
 │       └── infrastructure/          # HTTP LLM/TTS adapters; `/sources` wire type re-export
 ├── server/                          # Backend runtime (Node 24, node:sqlite)
-│   ├── main.ts                      # Entry point: env → ServerSettings, HTTP server
+│   ├── main.ts                      # Entry point: env → initial ServerSettings, HTTP server
 │   ├── migrate.ts                   # One-shot importer of a legacy recall-data folder
 │   ├── http.ts                      # Routes, auth, body limits
 │   ├── service.ts                   # RecallService: transactions, receipts, revisions, limits
 │   ├── container.ts                 # Composition root, built once (SQLite adapters, use cases, indexer)
-│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3 → v4)
+│   ├── database.ts                  # SQLite connection, transactions, schema migrations (v1 → v2 → v3 → v4 → v5)
 │   ├── legacy-documents.ts          # v2 JSON document shapes: import, export, migration verification
-│   ├── persistence/                 # Schema v3 + v4 and SQLite adapters of the domain ports
+│   ├── persistence/                 # Schema v3 + v4 + v5 and SQLite adapters of the domain ports
+│   ├── review-corrections.ts        # Amend/remove/revert reviews: audit trail, daily counters, revisions
+│   ├── proposals.ts                 # Card proposals inbox (MCP proposes; the plugin accepts/dismisses)
 │   ├── server-settings.ts           # ServerSettings + defaults
+│   ├── study-settings.ts            # Stored study settings (meta), validation, tag matching
 │   ├── auth.ts, send-json.ts        # HTTP helpers
-│   ├── mcp/                         # Optional public listener: MCP tools + single-user OAuth (own SQLite file)
+│   ├── mcp/                         # Optional public listener: MCP tools (read-only; write tools behind RECALL_MCP_WRITE) + single-user OAuth (own SQLite file)
 │   └── audio/                       # Optional cloud speech: TTS cache, LLM rewriter, text prep
 ├── app/                             # Obsidian plugin (backend client only)
 │   ├── backend/
 │   │   ├── plugin.ts                # Lifecycle, commands, recovery loop, note publishing
 │   │   ├── plugin-settings.ts       # data.json shape and tolerant loader
 │   │   ├── settings.ts              # Settings tab (backend URL, token, publish notes)
+│   │   ├── study-settings-section.ts # "Estudio": tags, limits, shuffle (dry run + confirm)
 │   │   ├── study-client.ts          # StudyClient: the port the views depend on
 │   │   ├── remote-client.ts         # RemoteClient: StudyClient over HTTP + pending review journal
 │   │   ├── remote-note-sync.ts      # Ordered, durable Markdown publication
+│   │   ├── proposal-inbox.ts        # Accepted card proposals → inbox notes (one per deck), journaled
+│   │   ├── obsidian-inbox-vault.ts  # The plugin's only vault write: create/append inbox notes
 │   │   ├── key-debouncer.ts
 │   │   └── obsidian-fetch.ts        # fetch over Obsidian's requestUrl (no CORS)
 │   └── frontend/
 │       ├── deck-browser-view.ts     # Sidebar: decks, totals, leeches
-│       └── review-view.ts           # Review queue
+│       ├── review-view.ts           # Review queue
+│       └── proposals-view.ts        # Card proposals: accept (writes the card) or dismiss
 └── main.ts                          # Plugin entry point
 
 tests/                               # Mirrors src/ (tests/context, tests/server, tests/app)
@@ -91,7 +98,7 @@ tests/                               # Mirrors src/ (tests/context, tests/server
 `RecallService` builds one `Container` at startup. Its adapters
 (`src/server/persistence/`) implement the domain ports — `ConceptRepository`,
 `StudyItemRepository`, `DeckRepository`, `ReviewLog` and the indexer's `SourceIndex` — over
-normalized SQLite tables (schema v4) and keep no state between calls; each call reads or
+normalized SQLite tables (schema v5) and keep no state between calls; each call reads or
 writes only the rows it needs. Every request runs inside `RecallDatabase.transaction()` (a
 serialized queue of `BEGIN IMMEDIATE` transactions); adapters throw if used outside one.
 Commands commit domain changes, item revisions, daily counters and their idempotency receipt
@@ -131,6 +138,14 @@ stay. So IDs are no longer always the hash of the content:
   database starts with none.
 `GET /sources` returns `SourceIndex.snapshot()` in the historical `sync-state` shape.
 
+Study settings are runtime state. `RecallService.settings` returns the stored ones
+(`meta.study-settings`) or, while none are stored, the environment's; it mirrors the committed
+row (`RecallDatabase.onCommit` updates it only after the writing transaction commits, so a dry
+run, which always rolls back, never shows). `NoteIndexer` receives the tag filter as a function
+(`allowedTags: () => tags`) and reads it on every sync; while `POST /settings` re-indexes, the
+service points it at the new tags inside that transaction. HTTP routes and MCP tools read
+`service.settings` per request, so a change needs no restart.
+
 The in-memory doubles used by kernel tests live in `tests/context/fakes/`; a shared contract
 suite (`tests/server/persistence/contract.test.ts`) runs the same behaviour tests against them
 and the SQLite adapters.
@@ -144,6 +159,12 @@ applies limits, shuffling and interval previews. Pending reviews and note public
 journaled in `localStorage` per vault and backend URL, and retried with their original
 operation IDs.
 
+The plugin writes to the vault in one case only: when the owner clicks Accept on a card
+proposal, it appends the card (`- A :: B` or `- A ::: B`) to `<inbox folder>/<deck>.md`, a note
+tagged with that deck (`No deck.md`, untagged, without one), creating it if missing; publication
+then turns it into a card. The written card is journaled before the write and the proposal is
+accepted after it, so a retry never appends the line twice.
+
 The plugin does not read, write or delete the vault's legacy `recall-data/` folder. Use
 `npm run migrate:server` to import it once into a new backend database.
 
@@ -154,6 +175,19 @@ The plugin does not read, write or delete the vault's legacy `recall-data/` fold
 Rating → ReviewView → StudyClient (RemoteClient) → POST /reviews → RecallService
        → ReviewStudyItem → StudyItem aggregate (FSRS) → repository + review log → COMMIT
 ```
+
+### Correction (review amended or removed)
+```
+MCP amend_review / remove_review / revert_review_change → ReviewCorrections (audit, counters, revision)
+       → CorrectReview → state just before the change (stored `prior`, or replay from scratch
+         for pre-v5 reviews, verified against the stored state) → StudyItem.replay of the
+         corrected history → review log + repository → COMMIT
+```
+Each logged review stores the memory state it was applied to (`Review.prior`) and who recorded
+it (`Review.origin`: mcp, android, obsidian, api). Review ids (`LoggedReview.id`, the SQLite
+`seq`) are never reused, so a removed review can be restored under its id. Card proposals are
+not domain objects: they are an inbox table in the server, and only become cards when the
+plugin writes them into a note and publishes it.
 
 ### Read (query)
 ```

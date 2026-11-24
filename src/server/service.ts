@@ -7,6 +7,14 @@ import { Direction } from '../context/study/domain/direction';
 import type { Concept } from '../context/concept/domain/concept';
 import { markdownToVoice } from './audio/markdown-to-voice';
 import { RecallDatabase, payloadHash } from './database';
+import type { ReviewOrigin } from '../context/study/domain/review';
+import type { DeckTreeNode } from '../context/deck/application/get-deck-tree';
+import { FrontmatterParser } from '../context/concept/infrastructure/frontmatter-parser';
+import type { ParsedCard } from '../context/concept/infrastructure/markdown-parser';
+import { Directionality } from '../context/concept/domain/directionality';
+import {
+  freezeSettings, parseSettingsPatch, readStoredSettings, sameTagSet, tagFollowed, writeStoredSettings, type StoredStudySettings,
+} from './study-settings';
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -38,14 +46,36 @@ function notePath(value: unknown): string {
   return path;
 }
 
+class DryRunRollback { result?: unknown & Record<string, unknown>; }
+/** Decks that hold at least one card, counting parents of non-empty decks (empty decks stay in the tree). */
+function countDecks(nodes: DeckTreeNode[]): number {
+  return nodes.reduce((n, node) => n + (node.totalItems > 0 ? 1 + countDecks(node.children) : 0), 0);
+}
+function studyItemCount(cards: ParsedCard[]): number {
+  return cards.reduce((n, card) => n + (card.directionality === Directionality.Bidirectional ? 2 : 1), 0);
+}
+
 /** Uses the existing domain through transactional ports; no Obsidian runtime or vault filesystem. */
 export class RecallService {
-  readonly settings: ServerSettings;
+  /** Values from the environment (`main.ts`): they apply while no settings are stored. */
+  readonly environmentSettings: ServerSettings;
+  /** Mirror of `meta.study-settings`, replaced only after the transaction that wrote it commits. */
+  private stored: StoredStudySettings;
+  /** Tag filter of a settings change being applied (or dry-run) inside its own transaction. */
+  private pendingTags: readonly string[] | null = null;
+  /** Parsed tags and card count of each published note, by revision (GET /tags). */
+  private readonly noteTags = new Map<string, { revision: number; tags: string[]; cards: number }>();
   /** Built once: its adapters hold no state and only work inside `db.transaction()`. */
   readonly container: Container;
   constructor(readonly db: RecallDatabase, settings: Partial<ServerSettings> = {}) {
-    this.settings = { ...structuredClone(DEFAULT_SERVER_SETTINGS), ...settings };
-    this.container = new Container(db, this.settings.flashcardTags);
+    this.environmentSettings = freezeSettings({ ...structuredClone(DEFAULT_SERVER_SETTINGS), ...settings });
+    this.stored = readStoredSettings(db.sql);
+    // Read on every sync: a settings change applies to the next note without a restart.
+    this.container = new Container(db, () => this.pendingTags ?? this.settings.flashcardTags);
+  }
+  /** Current (committed) study settings: the stored ones if any, otherwise the environment's. Frozen. */
+  get settings(): ServerSettings {
+    return this.stored.settings ?? this.environmentSettings;
   }
   query<T>(work: (c: Container) => Promise<T>): Promise<T> {
     return this.db.transaction(() => work(this.container));
@@ -54,15 +84,146 @@ export class RecallService {
     await this.db.transaction(async () => {
       const tags = JSON.stringify(this.settings.flashcardTags);
       if (((this.db.stmt("SELECT value FROM meta WHERE key='index-tags'").get()?.value as string | undefined) ?? 'null') === tags) return;
-      const c = this.container;
-      const affected = new Set((await c.studyItemRepository.findAll()).map(i => i.id.value));
-      const notes = this.db.sql.prepare('SELECT path,content FROM notes WHERE content IS NOT NULL').all();
-      for (const note of notes) await c.indexer.syncFile(note.path as string, note.content as string);
-      for (const item of await c.studyItemRepository.findAll()) affected.add(item.id.value);
-      if (notes.length) for (const id of affected) this.bumpRevision(id);
-      this.db.stmt("INSERT INTO meta VALUES ('index-tags', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(tags);
+      await this.reindexAll(tags);
     });
   }
+  /**
+   * Re-syncs every published note with the current tag filter (inside a transaction). History is
+   * untouched: removed items keep their reviews, and a recreated item replays them. Returns the
+   * study item ids before and after, and how many notes were re-synced.
+   */
+  private async reindexAll(indexTags: string) {
+    const c = this.container;
+    const before = new Set((await c.studyItemRepository.findAll()).map(i => i.id.value));
+    const notes = this.db.sql.prepare('SELECT path,content FROM notes WHERE content IS NOT NULL').all();
+    for (const note of notes) await c.indexer.syncFile(note.path as string, note.content as string);
+    const after = new Set((await c.studyItemRepository.findAll()).map(i => i.id.value));
+    if (notes.length) for (const id of new Set([...before, ...after])) this.bumpRevision(id);
+    this.db.stmt("INSERT INTO meta VALUES ('index-tags', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(indexTags);
+    return { before, after, notes: notes.length };
+  }
+  /** `GET /api/v1/settings`. */
+  readSettings() {
+    return this.db.transaction(async () => {
+      const stored = readStoredSettings(this.db.sql);
+      return { settings: stored.settings ?? this.environmentSettings, source: stored.settings ? 'stored' : 'environment', revision: stored.revision };
+    });
+  }
+  /**
+   * `POST /api/v1/settings`. Applies a subset of the study settings (or `reset: true`: back to the
+   * environment values), re-indexing every published note in the same transaction when the tag
+   * list changes. `dryRun` computes the same answer and rolls everything back (no receipt, no
+   * revision). `onCardsAdded` receives the study items the change created, after the commit.
+   */
+  async updateSettings(body: unknown, onCardsAdded?: (studyItemIds: string[]) => void) {
+    const cmd = record(body);
+    const operationId = string(cmd.operationId, 'operationId', 128);
+    const expectedRevision = revision(cmd.expectedRevision);
+    if (cmd.dryRun !== undefined && typeof cmd.dryRun !== 'boolean') throw new ApiError(400, 'dryRun must be a boolean');
+    if (cmd.reset !== undefined && typeof cmd.reset !== 'boolean') throw new ApiError(400, 'reset must be a boolean');
+    const reset = cmd.reset === true;
+    if (reset && cmd.settings !== undefined) throw new ApiError(400, 'Send either settings or reset, not both');
+    const patch = reset ? null : parseSettingsPatch(cmd.settings);
+    const apply = async () => {
+      const current = readStoredSettings(this.db.sql);
+      if (current.revision !== expectedRevision) throw new ApiError(409, 'Settings changed on another device; reload them');
+      const previous = current.settings ?? this.environmentSettings;
+      const next = patch ? freezeSettings({ ...previous, ...patch }) : null;
+      const effective = next ?? this.environmentSettings;
+      const c = this.container;
+      const items = async () => new Set((await c.studyItemRepository.findAll()).map(i => i.id.value));
+      const decks = async () => countDecks(await c.getDeckTree.execute());
+      const decksBefore = await decks();
+      let before: Set<string>, after: Set<string>, notes = 0;
+      if (sameTagSet(previous.flashcardTags, effective.flashcardTags)) {
+        before = after = await items();
+      } else {
+        this.pendingTags = effective.flashcardTags;
+        try { ({ before, after, notes } = await this.reindexAll(JSON.stringify(effective.flashcardTags))); }
+        finally { this.pendingTags = null; }
+      }
+      const added = [...after].filter(id => !before.has(id));
+      const stored: StoredStudySettings = { revision: current.revision + 1, settings: next };
+      writeStoredSettings(this.db.sql, stored);
+      this.db.onCommit(() => { this.stored = stored; });
+      return {
+        result: {
+          settings: effective, source: next ? 'stored' : 'environment', revision: stored.revision,
+          impact: {
+            notes, cardsBefore: before.size, cardsAfter: after.size, cardsAdded: added.length,
+            cardsRemoved: [...before].filter(id => !after.has(id)).length, decksBefore, decksAfter: await decks(),
+          },
+        },
+        added,
+      };
+    };
+    if (cmd.dryRun === true) {
+      // Same work in a transaction that is always rolled back: nothing is written, not even a receipt.
+      const rollback = new DryRunRollback();
+      await this.db.transaction(async () => { rollback.result = (await apply()).result; throw rollback; })
+        .catch(error => { if (error !== rollback) throw error; });
+      return { ...rollback.result!, dryRun: true };
+    }
+    let added: string[] = [];
+    const payload = { type: 'settings', expectedRevision, ...(reset ? { reset } : { settings: patch }) };
+    const result = await this.db.transaction(() => this.once(operationId, payload, async () => {
+      const applied = await apply();
+      added = applied.added;
+      return applied.result;
+    }));
+    if (added.length && onCardsAdded) {
+      try { onCardsAdded(added); } catch (error) { console.error('[Recall backend] settings change listener failed:', error); }
+    }
+    return result;
+  }
+  /**
+   * `GET /api/v1/tags`: every tag in the published notes' frontmatter, with its ancestors (a
+   * followed tag covers its sub-tags), and the tags in the current filter even when no note has
+   * them. `notes`/`cards` count what following that tag covers (the tag or any sub-tag), whatever
+   * the current filter; `cards` are study items as the parser finds them in each note (a `:::`
+   * card counts 2), counted per note. `selected` = in the filter; `followed` = studied under the
+   * current filter. `untagged`: notes without tags, studied (deck "Untagged") only when the filter
+   * is empty. Parsed notes are cached by revision, so only changed notes are parsed again.
+   */
+  tags() {
+    return this.db.transaction(async () => {
+      const filter = this.settings.flashcardTags;
+      const rows = this.db.stmt('SELECT path,revision FROM notes WHERE content IS NOT NULL').all();
+      const live = new Set<string>();
+      const coverage = new Map<string, { notes: number; cards: number }>();
+      const untagged = { notes: 0, cards: 0 };
+      for (const row of rows) {
+        const path = row.path as string, rev = Number(row.revision);
+        live.add(path);
+        let parsed = this.noteTags.get(path);
+        if (!parsed || parsed.revision !== rev) {
+          const content = this.db.stmt('SELECT content FROM notes WHERE path=?').get(path)!.content as string;
+          parsed = { revision: rev, tags: this.frontmatter.extractTags(content), cards: studyItemCount(this.container.parser.parse(content, path)) };
+          this.noteTags.set(path, parsed);
+        }
+        if (!parsed.tags.length) { untagged.notes++; untagged.cards += parsed.cards; continue; }
+        const covering = new Set<string>();
+        for (const tag of parsed.tags) {
+          const parts = tag.split('/');
+          for (let i = 1; i <= parts.length; i++) covering.add(parts.slice(0, i).join('/'));
+        }
+        for (const tag of covering) {
+          const entry = coverage.get(tag) ?? { notes: 0, cards: 0 };
+          entry.notes++; entry.cards += parsed.cards;
+          coverage.set(tag, entry);
+        }
+      }
+      for (const path of this.noteTags.keys()) if (!live.has(path)) this.noteTags.delete(path);
+      for (const tag of filter) if (!coverage.has(tag)) coverage.set(tag, { notes: 0, cards: 0 });
+      return {
+        tags: [...coverage].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([tag, counts]) => ({
+          tag, ...counts, selected: filter.includes(tag), followed: tagFollowed(tag, filter),
+        })),
+        untagged: { ...untagged, followed: filter.length === 0 },
+      };
+    });
+  }
+  private readonly frontmatter = new FrontmatterParser();
   /** Today's daily-limit counters (read-only; `Infinity` = unlimited). Call inside a transaction. */
   async allowance(c: Container) {
     const start = new Date(); start.setHours(0, 0, 0, 0);
@@ -100,6 +261,10 @@ export class RecallService {
     });
   }
   /** Survives removal of the study item, so a recreated item never reuses an old revision. */
+  /** Current revision of a study item (0 if never bumped). Call inside a transaction. */
+  revisionOf(id: string): number { return this.itemRevision(id); }
+  /** Invalidates queued copies of a study item on every client. Call inside a transaction. */
+  bumpRevisionOf(id: string): number { return this.bumpRevision(id); }
   private itemRevision(id: string): number {
     return Number(this.db.stmt('SELECT revision FROM item_revisions WHERE study_item_id=?').get(id)?.revision ?? 0);
   }
@@ -128,7 +293,8 @@ export class RecallService {
     return this.db.transaction(async () => days === 0 ? 0
       : Number(this.db.sql.prepare('DELETE FROM operations WHERE created_at < ?').run(now - days * 86_400_000).changes));
   }
-  async review(body: unknown) {
+  /** `origin` labels the review (HTTP clients by user agent, the MCP connector as 'mcp'); it is not part of the receipt. */
+  async review(body: unknown, origin: ReviewOrigin = 'api') {
     const cmd = record(body);
     const operationId = string(cmd.operationId, 'operationId', 128);
     const studyItemId = string(cmd.studyItemId, 'studyItemId', 256);
@@ -147,10 +313,10 @@ export class RecallService {
       const start = new Date(); start.setHours(0, 0, 0, 0);
       const siblings = new Set((await c.studyItemRepository.findByConceptId(item.conceptId)).filter(i => i.id.value !== studyItemId).map(i => i.id.value));
       if ((await c.reviewLog.findSince(start)).some(r => siblings.has(r.studyItemId.value))) throw new ApiError(409, 'Other direction already reviewed today; refresh the queue');
-      await c.reviewStudyItem.execute({ studyItemId, rating });
+      const { reviewId, memoryState } = await c.reviewStudyItem.execute({ studyItemId, rating, origin });
       this.db.stmt('INSERT INTO daily_budgets VALUES (?,?,?) ON CONFLICT(day_start) DO UPDATE SET introduced=excluded.introduced, reviewed=excluded.reviewed')
         .run(allowance.day, allowance.introduced + (item.memoryState.reps === 0 ? 1 : 0), allowance.reviewed + (item.memoryState.reps === 0 ? 0 : 1));
-      return { studyItemId, revision: this.bumpRevision(studyItemId), operationId };
+      return { studyItemId, revision: this.bumpRevision(studyItemId), operationId, reviewId, due: memoryState.due.toISOString() };
     }));
   }
   /** `onCommitted` receives the note's current study item ids after a change has been committed. */

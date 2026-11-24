@@ -23,6 +23,7 @@ import { RemoveConcept } from '@context/concept/application/remove-concept';
 import { CreateStudyItem } from '@context/study/application/create-study-item';
 import { RemoveStudyItem } from '@context/study/application/remove-study-item';
 import { ReviewStudyItem } from '@context/study/application/review-study-item';
+import { CorrectReview } from '@context/study/application/correct-review';
 
 // Use cases — Deck
 import { CreateDeck } from '@context/deck/application/create-deck';
@@ -67,6 +68,7 @@ export class Container {
   readonly createStudyItem: CreateStudyItem;
   readonly removeStudyItem: RemoveStudyItem;
   readonly reviewStudyItem: ReviewStudyItem;
+  readonly correctReview: CorrectReview;
 
   // Use cases — Deck
   readonly createDeck: CreateDeck;
@@ -85,8 +87,8 @@ export class Container {
   // Markdown → domain commands
   readonly indexer: NoteIndexer;
 
-  /** `flashcardTags`: tags to index (empty = all). */
-  constructor(db: RecallDatabase, flashcardTags: string[] = []) {
+  /** `flashcardTags`: tags to index (empty = all); a function is read on every note sync. */
+  constructor(db: RecallDatabase, flashcardTags: readonly string[] | (() => readonly string[]) = []) {
     // Infrastructure
     this.scheduler = new FsrsScheduler();
     this.parser = new MarkdownParser();
@@ -114,6 +116,8 @@ export class Container {
       this.scheduler,
       this.reviewLog,
     );
+
+    this.correctReview = new CorrectReview(this.studyItemRepository, this.scheduler, this.reviewLog);
 
     this.createDeck = new CreateDeck(this.deckRepository);
     this.nestDeck = new NestDeck(this.deckRepository);

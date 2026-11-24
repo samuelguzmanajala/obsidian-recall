@@ -32,9 +32,9 @@ const V1_DDL = `
   PRAGMA user_version=1;`;
 
 describe('operation receipts', () => {
-  it('creates v4 directly and never stores note content in receipts', async () => {
+  it('creates v5 directly and never stores note content in receipts', async () => {
     const service = open();
-    expect(version(service.db.sql)).toBe(4);
+    expect(version(service.db.sql)).toBe(5);
     expect(service.db.sql.prepare('PRAGMA table_info(operations)').all().map(c => c.name)).toEqual(['id', 'payload_hash', 'result', 'created_at']);
     const content = 'Secret question::Secret answer';
     await service.note({ operationId: randomUUID(), path: 'Test.md', content, expectedRevision: 0 });
@@ -70,7 +70,7 @@ describe('operation receipts', () => {
     v1.close();
 
     const service = open(path);
-    expect(version(service.db.sql)).toBe(4);
+    expect(version(service.db.sql)).toBe(5);
     expect(service.db.sql.prepare('PRAGMA table_info(operations)').all().map(c => c.name)).toEqual(['id', 'payload_hash', 'result', 'created_at']);
     expect(service.db.sql.prepare('SELECT COUNT(*) AS n FROM operations').get()!.n).toBe(2);
     expect(await service.review(review)).toEqual(reviewResult);
@@ -97,7 +97,7 @@ describe('operation receipts', () => {
   it('refuses a database from a newer server', async () => {
     const path = join(await tempDir(), 'v5.sqlite');
     const db = new DatabaseSync(path);
-    db.exec('PRAGMA user_version=5');
+    db.exec('PRAGMA user_version=6');
     db.close();
     expect(() => new RecallDatabase(path)).toThrow(/newer/);
   });

@@ -13,6 +13,59 @@ export interface ReviewCommand {
 
 export interface SourceLocation { filePath: string; line: number }
 
+/** Study settings of the backend (`GET/POST /api/v1/settings`). 0 = unlimited for the daily limits. */
+export interface StudySettings {
+  /** Tags to follow; a tag covers its sub-tags. Empty = every note with cards. */
+  flashcardTags: string[];
+  dailyNewLimit: number;
+  dailyReviewLimit: number;
+  leechThreshold: number;
+  shuffleReviews: boolean;
+}
+export interface StudySettingsState {
+  settings: StudySettings;
+  /** `environment`: nothing stored yet (or reset); the server's environment values apply. */
+  source: 'stored' | 'environment';
+  revision: number;
+}
+export interface SettingsImpact {
+  /** Published notes re-indexed (0 when the tag list did not change). */
+  notes: number;
+  cardsBefore: number; cardsAfter: number; cardsAdded: number; cardsRemoved: number;
+  /** Decks holding at least one card. */
+  decksBefore: number; decksAfter: number;
+}
+export interface SettingsUpdateResult extends StudySettingsState { impact: SettingsImpact; dryRun?: boolean }
+export interface SettingsUpdate {
+  operationId: string;
+  expectedRevision: number;
+  /** Fields to change; or `reset: true` to go back to the environment values. */
+  settings?: Partial<StudySettings>;
+  reset?: boolean;
+  /** Compute the impact and persist nothing. */
+  dryRun?: boolean;
+}
+/** `notes`/`cards`: what following the tag covers (itself and its sub-tags), whatever the current filter. */
+export interface TagSummary { tag: string; notes: number; cards: number; selected: boolean; followed: boolean }
+export interface TagListing { tags: TagSummary[]; untagged: { notes: number; cards: number; followed: boolean } }
+
+/** A card proposed through the MCP connector (`GET /api/v1/proposals`). Never a card until accepted and written to a note. */
+export interface CardProposal {
+  id: number;
+  /** Single line, without "::". */
+  sideA: string;
+  sideB: string;
+  directionality: 'unidirectional' | 'bidirectional';
+  /** Suggested tag/deck path without "#" ("german/vocabulary"); null if none. */
+  deck: string | null;
+  context: string | null;
+  status: 'pending' | 'accepted' | 'dismissed';
+  origin: string;
+  createdAt: string;
+  decidedAt: string | null;
+  notePath: string | null;
+}
+
 /** What the Recall views need from the backend. `RemoteClient` implements it over HTTP. */
 export interface StudyClient {
   /** False until the backend URL and token are set (they apply after a plugin reload). */
@@ -32,6 +85,19 @@ export interface StudyClient {
   /** Uses the leech threshold configured on the server. */
   getLeeches: { execute(): Promise<LeechView[]> };
   reviewStudyItem: { execute(command: ReviewCommand): Promise<void> };
+
+  /** Study settings and tags the backend knows (settings tab). */
+  getStudySettings(): Promise<StudySettingsState>;
+  getTags(): Promise<TagListing>;
+  /** Rejects with status 409 when `expectedRevision` is stale. */
+  updateStudySettings(command: SettingsUpdate): Promise<SettingsUpdateResult>;
+
+  /** Pending card proposals, oldest first. */
+  getProposals(): Promise<CardProposal[]>;
+  /** Idempotent; rejects with 409 if it was dismissed, 404 if unknown. */
+  acceptProposal(id: number, notePath: string): Promise<CardProposal>;
+  /** Idempotent; rejects with 409 if it was accepted, 404 if unknown. */
+  dismissProposal(id: number): Promise<CardProposal>;
 
   /** Note and line a concept was parsed from, as last reported by the backend. */
   findSource(conceptId: string): SourceLocation | null;

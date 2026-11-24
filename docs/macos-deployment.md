@@ -400,3 +400,11 @@ y se anadio `RECALL_MCP_WRITE=true` a `backend.env`.
   usa Recall por el acceso interno. El listener público sigue corriendo en local, sin publicar; el
   conector de Recall en ChatGPT se sustituye por el de mcp-hub. Vuelta atrás: en el repositorio
   mcp-hub, `despliegue/cambiar-443.sh --deshacer`.
+
+### Cada tarjeta dice su nota (2026-11-24)
+
+- Desplegado `e8711fa` (rama principal, avance directo desde `feat/mcp-card-source`): `get_due_cards`,
+  `get_weak_cards`, `get_leeches` y `search_cards` devuelven `source: { note, line }` por tarjeta,
+  para el tutor de estudio de mcp-hub. Solo cambia `main.cjs`. Copia previa en
+  `backups/server-2026-11-24T11-47-04Z`. Verificado: API 200 y `get_leeches` por el acceso interno con
+  la nota y la línea de cada sanguijuela.
